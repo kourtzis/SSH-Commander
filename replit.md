@@ -1,8 +1,8 @@
-# Workspace
+# MikroManager Workspace
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+MikroManager is a full-stack web application for managing Mikrotik routers via SSH. Users can organize routers into hierarchical groups, store reusable script snippets, and run batch SSH jobs across multiple routers simultaneously. Excel/CSV-based tag substitution allows per-router variable injection in scripts.
 
 ## Stack
 
@@ -10,87 +10,84 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Node.js version**: 24
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
-- **API framework**: Express 5
+- **API framework**: Express 5 with express-session
 - **Database**: PostgreSQL + Drizzle ORM
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
+- **Frontend**: React + Vite + TailwindCSS + shadcn/ui + React Query
+- **SSH**: ssh2 with Mikrotik-compatible algorithm negotiation
+- **Auth**: bcrypt password hashing + express-session (cookie)
+
+## Default Credentials
+
+- **Admin**: username `admin`, password `admin123`
 
 ## Structure
 
 ```text
 artifacts-monorepo/
-├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
-├── lib/                    # Shared libraries
+├── artifacts/
+│   ├── api-server/         # Express API server
+│   │   └── src/
+│   │       ├── lib/auth.ts         # Session auth helpers
+│   │       ├── lib/ssh.ts          # SSH execution + tag substitution
+│   │       └── routes/             # auth, users, routers, groups, snippets, jobs
+│   └── mikro-manager/      # React + Vite frontend
+│       └── src/
+│           ├── hooks/              # use-auth.tsx, use-mutations.ts
+│           ├── components/layout/  # sidebar, app-layout
+│           ├── components/ui/      # shadcn UI components
+│           └── pages/              # dashboard, routers, groups, snippets, jobs, users, login
+├── lib/
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks
 │   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts (single workspace package)
-│   └── src/                # Individual .ts scripts, run via `pnpm --filter @workspace/scripts run <script>`
-├── pnpm-workspace.yaml     # pnpm workspace (artifacts/*, lib/*, lib/integrations/*, scripts)
-├── tsconfig.base.json      # Shared TS options (composite, bundler resolution, es2022)
-├── tsconfig.json           # Root TS project references
-└── package.json            # Root package with hoisted devDeps
+│   └── db/
+│       └── src/schema/     # users, routers, groups, snippets, jobs
+├── scripts/
+│   └── src/seed.ts         # Seeds admin user
+├── pnpm-workspace.yaml
+└── replit.md
 ```
+
+## Features
+
+1. **Multi-user auth** — Session-based login with admin and operator roles
+2. **Router management** — CRUD list of Mikrotik devices with SSH credentials
+3. **Hierarchical groups** — Recursive group trees (groups contain routers and/or sub-groups)
+4. **Code snippets** — Named/categorized library with `{{TAG}}` placeholder support
+5. **Batch jobs** — Target individual routers and/or groups; SSH execution with per-router results
+6. **Excel/CSV tag substitution** — Upload .xlsx or paste CSV data; column headers become tag names, rows applied per router in job order
 
 ## TypeScript & Composite Projects
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references. This means:
+Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references.
 
-- **Always typecheck from the root** — run `pnpm run typecheck` (which runs `tsc --build --emitDeclarationOnly`). This builds the full dependency graph so that cross-package imports resolve correctly. Running `tsc` inside a single package will fail if its dependencies haven't been built yet.
-- **`emitDeclarationOnly`** — we only emit `.d.ts` files during typecheck; actual JS bundling is handled by esbuild/tsx/vite...etc, not `tsc`.
-- **Project references** — when package A depends on package B, A's `tsconfig.json` must list B in its `references` array. `tsc --build` uses this to determine build order and skip up-to-date packages.
+## Database Schema
 
-## Root Scripts
+- `users` — id, username, email, password_hash, role (admin|operator), created_at
+- `routers` — id, name, ip_address, ssh_port, ssh_username, ssh_password, description, created_at
+- `router_groups` — id, name, description, parent_id, created_at
+- `group_routers` — join table (group_id, router_id)
+- `group_subgroups` — join table (parent_group_id, child_group_id)
+- `snippets` — id, name, category, code, description, created_at, updated_at
+- `batch_jobs` — id, name, script_code, status, target_router_ids[], target_group_ids[], excel_data, totals, created_by, timestamps
+- `job_tasks` — id, job_id, router_id, router_name, router_ip, status, output, error_message, timestamps
 
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
+## SSH Execution
 
-## Packages
+The SSH engine (`lib/ssh.ts`) uses the `ssh2` package with Mikrotik-compatible algorithm lists:
+- KEX: diffie-hellman-group14-sha256/sha1, ecdh-sha2-nistp256/521
+- Ciphers: aes128/192/256-ctr, aes128-cbc, 3des-cbc
+- Host keys: ssh-rsa, ecdsa-sha2-nistp256, ssh-dss
 
-### `artifacts/api-server` (`@workspace/api-server`)
+Tag substitution: `{{TAG_NAME}}` in script code is replaced with values from the Excel data row matching the router's position in the job.
 
-Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
+## Running
 
-- Entry: `src/index.ts` — reads `PORT`, starts Express
-- App setup: `src/app.ts` — mounts CORS, JSON/urlencoded parsing, routes at `/api`
-- Routes: `src/routes/index.ts` mounts sub-routers; `src/routes/health.ts` exposes `GET /health` (full path: `/api/health`)
-- Depends on: `@workspace/db`, `@workspace/api-zod`
-- `pnpm --filter @workspace/api-server run dev` — run the dev server
-- `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
-- Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
-
-### `lib/db` (`@workspace/db`)
-
-Database layer using Drizzle ORM with PostgreSQL. Exports a Drizzle client instance and schema models.
-
-- `src/index.ts` — creates a `Pool` + Drizzle instance, exports schema
-- `src/schema/index.ts` — barrel re-export of all models
-- `src/schema/<modelname>.ts` — table definitions with `drizzle-zod` insert schemas (no models definitions exist right now)
-- `drizzle.config.ts` — Drizzle Kit config (requires `DATABASE_URL`, automatically provided by Replit)
-- Exports: `.` (pool, db, schema), `./schema` (schema only)
-
-Production migrations are handled by Replit when publishing. In development, we just use `pnpm --filter @workspace/db run push`, and we fallback to `pnpm --filter @workspace/db run push-force`.
-
-### `lib/api-spec` (`@workspace/api-spec`)
-
-Owns the OpenAPI 3.1 spec (`openapi.yaml`) and the Orval config (`orval.config.ts`). Running codegen produces output into two sibling packages:
-
-1. `lib/api-client-react/src/generated/` — React Query hooks + fetch client
-2. `lib/api-zod/src/generated/` — Zod schemas
-
-Run codegen: `pnpm --filter @workspace/api-spec run codegen`
-
-### `lib/api-zod` (`@workspace/api-zod`)
-
-Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used by `api-server` for response validation.
-
-### `lib/api-client-react` (`@workspace/api-client-react`)
-
-Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
-
-### `scripts` (`@workspace/scripts`)
-
-Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+- API server: `pnpm --filter @workspace/api-server run dev`
+- Frontend: `pnpm --filter @workspace/mikro-manager run dev`
+- Seed DB: `pnpm --filter @workspace/scripts run seed`
+- Push schema: `pnpm --filter @workspace/db run push`
+- Codegen: `pnpm --filter @workspace/api-spec run codegen`

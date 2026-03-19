@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "MikroManager"
+version = "1.0.0"
+id = "artifacts/mikro-manager"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22355
+
+[services.development]
+run = "pnpm --filter @workspace/mikro-manager run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mikro-manager", "run", "build" ]
+publicDir = "artifacts/mikro-manager/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22355"
+BASE_PATH = "/"

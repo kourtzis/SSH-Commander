@@ -1,0 +1,29 @@
+packages:
+  "framer-motion": "For premium page transitions, stagger animations, and micro-interactions"
+  "lucide-react": "For crisp, modern icons across the dashboard"
+  "date-fns": "For formatting timestamps nicely in the UI"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility for merging tailwind classes without style conflicts"
+  "react-hook-form": "For robust, performant form state management"
+  "@hookform/resolvers": "For integrating Zod validation with react-hook-form"
+  "zod": "For runtime schema validation on forms"
+  "xlsx": "For parsing user-uploaded Excel/CSV files in the browser before sending as JSON"
+  "@radix-ui/react-slot": "Required for Radix/Shadcn component primitives"
+  "@radix-ui/react-dialog": "Required for Radix/Shadcn dialog primitives"
+  "@radix-ui/react-dropdown-menu": "Required for dropdown menus"
+  "@radix-ui/react-select": "Required for select menus"
+  "@radix-ui/react-checkbox": "Required for checkboxes"
+  "@radix-ui/react-label": "Required for accessible labels"
+  "@radix-ui/react-toast": "Required for toast notifications"
+  "@radix-ui/react-tooltip": "Required for tooltips"
+  "@radix-ui/react-accordion": "Required for tree views and collapsibles"
+  "@radix-ui/react-scroll-area": "Required for styled scrollbars"
+
+images:
+  - path: "artifacts/mikro-manager/public/images/auth-bg.png"
+    description: "Deep dark tech abstract background with subtle cyan and teal glowing circuit lines and nodes, extremely professional, minimalist and cinematic, high quality 3d render"
+    aspect_ratio: "16:9"
+
+notes:
+  - "Assuming Orval generated hooks are available at @workspace/api-client-react"
+  - "The App will run in dark mode by default"

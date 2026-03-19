@@ -1,22 +1,33 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: MikroManager API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: users
+    description: User management
+  - name: routers
+    description: Router management
+  - name: groups
+    description: Router group management
+  - name: snippets
+    description: Code snippet management
+  - name: jobs
+    description: Batch job management
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +35,582 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout current user
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (admin only)
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a new user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateUser
+      tags: [users]
+      summary: Update a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /routers:
+    get:
+      operationId: listRouters
+      tags: [routers]
+      summary: List all routers
+      responses:
+        "200":
+          description: List of routers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Router"
+    post:
+      operationId: createRouter
+      tags: [routers]
+      summary: Create a new router
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRouterRequest"
+      responses:
+        "201":
+          description: Router created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Router"
+
+  /routers/{id}:
+    get:
+      operationId: getRouter
+      tags: [routers]
+      summary: Get router by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Router found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Router"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateRouter
+      tags: [routers]
+      summary: Update a router
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRouterRequest"
+      responses:
+        "200":
+          description: Router updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Router"
+    delete:
+      operationId: deleteRouter
+      tags: [routers]
+      summary: Delete a router
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /groups:
+    get:
+      operationId: listGroups
+      tags: [groups]
+      summary: List all groups (tree structure)
+      responses:
+        "200":
+          description: List of groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RouterGroup"
+    post:
+      operationId: createGroup
+      tags: [groups]
+      summary: Create a new router group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupRequest"
+      responses:
+        "201":
+          description: Group created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouterGroup"
+
+  /groups/{id}:
+    get:
+      operationId: getGroup
+      tags: [groups]
+      summary: Get group by ID with members
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Group found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouterGroupWithMembers"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateGroup
+      tags: [groups]
+      summary: Update a group
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGroupRequest"
+      responses:
+        "200":
+          description: Group updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouterGroup"
+    delete:
+      operationId: deleteGroup
+      tags: [groups]
+      summary: Delete a group
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /groups/{id}/members:
+    post:
+      operationId: addGroupMember
+      tags: [groups]
+      summary: Add a router or sub-group to a group
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddGroupMemberRequest"
+      responses:
+        "200":
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+    delete:
+      operationId: removeGroupMember
+      tags: [groups]
+      summary: Remove a router or sub-group from a group
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveGroupMemberRequest"
+      responses:
+        "200":
+          description: Member removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /snippets:
+    get:
+      operationId: listSnippets
+      tags: [snippets]
+      summary: List all snippets
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of snippets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Snippet"
+    post:
+      operationId: createSnippet
+      tags: [snippets]
+      summary: Create a new snippet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSnippetRequest"
+      responses:
+        "201":
+          description: Snippet created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snippet"
+
+  /snippets/{id}:
+    get:
+      operationId: getSnippet
+      tags: [snippets]
+      summary: Get snippet by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Snippet found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snippet"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateSnippet
+      tags: [snippets]
+      summary: Update a snippet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSnippetRequest"
+      responses:
+        "200":
+          description: Snippet updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snippet"
+    delete:
+      operationId: deleteSnippet
+      tags: [snippets]
+      summary: Delete a snippet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /jobs:
+    get:
+      operationId: listJobs
+      tags: [jobs]
+      summary: List all batch jobs
+      responses:
+        "200":
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BatchJob"
+    post:
+      operationId: createJob
+      tags: [jobs]
+      summary: Create and start a batch job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchJob"
+
+  /jobs/{id}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get job by ID with task results
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Job found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchJobWithTasks"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /jobs/{id}/cancel:
+    post:
+      operationId: cancelJob
+      tags: [jobs]
+      summary: Cancel a running job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Job cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +621,474 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        message:
+          type: string
+      required:
+        - user
+        - message
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, operator]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - username
+        - role
+        - createdAt
+
+    CreateUserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [admin, operator]
+      required:
+        - username
+        - password
+        - role
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [admin, operator]
+
+    Router:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        ipAddress:
+          type: string
+        sshPort:
+          type: integer
+        sshUsername:
+          type: string
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - ipAddress
+        - sshPort
+        - sshUsername
+        - createdAt
+
+    CreateRouterRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        ipAddress:
+          type: string
+        sshPort:
+          type: integer
+        sshUsername:
+          type: string
+        sshPassword:
+          type: string
+        description:
+          type: string
+      required:
+        - name
+        - ipAddress
+        - sshPort
+        - sshUsername
+
+    UpdateRouterRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        ipAddress:
+          type: string
+        sshPort:
+          type: integer
+        sshUsername:
+          type: string
+        sshPassword:
+          type: string
+        description:
+          type: string
+
+    RouterGroup:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        parentId:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - createdAt
+
+    RouterGroupWithMembers:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        parentId:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        routers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Router"
+        subGroups:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouterGroup"
+      required:
+        - id
+        - name
+        - createdAt
+        - routers
+        - subGroups
+
+    CreateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        parentId:
+          type: integer
+          nullable: true
+      required:
+        - name
+
+    UpdateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        parentId:
+          type: integer
+          nullable: true
+
+    AddGroupMemberRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [router, group]
+        memberId:
+          type: integer
+      required:
+        - type
+        - memberId
+
+    RemoveGroupMemberRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [router, group]
+        memberId:
+          type: integer
+      required:
+        - type
+        - memberId
+
+    Snippet:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        category:
+          type: string
+        code:
+          type: string
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - category
+        - code
+        - createdAt
+        - updatedAt
+
+    CreateSnippetRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+        code:
+          type: string
+        description:
+          type: string
+      required:
+        - name
+        - category
+        - code
+
+    UpdateSnippetRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+        code:
+          type: string
+        description:
+          type: string
+
+    BatchJob:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        scriptCode:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        targetRouterIds:
+          type: array
+          items:
+            type: integer
+        targetGroupIds:
+          type: array
+          items:
+            type: integer
+        totalTasks:
+          type: integer
+        completedTasks:
+          type: integer
+        failedTasks:
+          type: integer
+        createdBy:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - name
+        - scriptCode
+        - status
+        - targetRouterIds
+        - targetGroupIds
+        - totalTasks
+        - completedTasks
+        - failedTasks
+        - createdBy
+        - createdAt
+
+    BatchJobWithTasks:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        scriptCode:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        targetRouterIds:
+          type: array
+          items:
+            type: integer
+        targetGroupIds:
+          type: array
+          items:
+            type: integer
+        totalTasks:
+          type: integer
+        completedTasks:
+          type: integer
+        failedTasks:
+          type: integer
+        createdBy:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobTask"
+      required:
+        - id
+        - name
+        - scriptCode
+        - status
+        - targetRouterIds
+        - targetGroupIds
+        - totalTasks
+        - completedTasks
+        - failedTasks
+        - createdBy
+        - createdAt
+        - tasks
+
+    JobTask:
+      type: object
+      properties:
+        id:
+          type: integer
+        jobId:
+          type: integer
+        routerId:
+          type: integer
+        routerName:
+          type: string
+        routerIp:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, success, failed]
+        output:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - jobId
+        - routerId
+        - routerName
+        - routerIp
+        - status
+
+    CreateJobRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        scriptCode:
+          type: string
+        targetRouterIds:
+          type: array
+          items:
+            type: integer
+        targetGroupIds:
+          type: array
+          items:
+            type: integer
+        excelData:
+          type: array
+          items:
+            type: object
+            additionalProperties:
+              type: string
+          description: Rows from Excel file for tag substitution, each row is applied per router
+      required:
+        - name
+        - scriptCode
+        - targetRouterIds
+        - targetGroupIds
