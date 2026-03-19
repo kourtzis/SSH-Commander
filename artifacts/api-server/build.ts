@@ -12,7 +12,6 @@ const __dirname = path.dirname(__filename);
 const allowlist = [
   "@google/generative-ai",
   "axios",
-  "bcrypt",
   "connect-pg-simple",
   "cookie-parser",
   "cors",
@@ -30,14 +29,20 @@ const allowlist = [
   "openai",
   "passport",
   "passport-local",
-  "pg",
-  "ssh2",
   "stripe",
   "uuid",
   "ws",
   "xlsx",
   "zod",
   "zod-validation-error",
+];
+
+const nativeExternals = [
+  "bcrypt",
+  "ssh2",
+  "cpu-features",
+  "pg",
+  "pg-native",
 ];
 
 async function buildAll() {
@@ -51,11 +56,15 @@ async function buildAll() {
     ...Object.keys(pkg.dependencies || {}),
     ...Object.keys(pkg.devDependencies || {}),
   ];
-  const externals = allDeps.filter(
-    (dep) =>
-      !allowlist.includes(dep) &&
-      !(pkg.dependencies?.[dep]?.startsWith("workspace:")),
-  );
+  const externals = [
+    ...nativeExternals,
+    ...allDeps.filter(
+      (dep) =>
+        !allowlist.includes(dep) &&
+        !nativeExternals.includes(dep) &&
+        !(pkg.dependencies?.[dep]?.startsWith("workspace:")),
+    ),
+  ];
 
   await esbuild({
     entryPoints: [path.resolve(__dirname, "src/index.ts")],
