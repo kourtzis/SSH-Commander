@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useListUsers } from "@workspace/api-client-react";
 import { useUsersMutations } from "@/hooks/use-mutations";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

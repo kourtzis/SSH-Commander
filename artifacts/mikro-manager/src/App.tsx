@@ -3,7 +3,7 @@ import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";

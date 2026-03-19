@@ -1,8 +1,7 @@
-import { createContext, useContext, ReactNode, useEffect, useState } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useGetMe, useLogin, useLogout } from "@workspace/api-client-react";
+import { useGetMe, useLogin, useLogout, getGetMeQueryKey } from "@workspace/api-client-react";
 import type { User, LoginRequest } from "@workspace/api-client-react";
-import { getGetMeQueryKey } from "@workspace/api-client-react";
 
 interface AuthContextType {
   user: User | null;
@@ -12,16 +11,16 @@ interface AuthContextType {
   isLoggingIn: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  
-  const { data: user, isLoading: isUserLoading } = useGetMe({
+
+  const { data: user, isLoading } = useGetMe({
     query: {
       retry: false,
       staleTime: Infinity,
-    }
+    },
   });
 
   const { mutateAsync: loginMutate, isPending: isLoggingIn } = useLogin();
@@ -34,20 +33,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const handleLogout = async () => {
     await logoutMutate();
-    await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    queryClient.clear();
   };
 
-  // We consider it still loading if React Query is fetching it initially
-  const isLoading = isUserLoading;
-
   return (
-    <AuthContext.Provider value={{
-      user: user || null,
-      isLoading,
-      login: handleLogin,
-      logout: handleLogout,
-      isLoggingIn
-    }}>
+    <AuthContext.Provider
+      value={{
+        user: user ?? null,
+        isLoading,
+        login: handleLogin,
+        logout: handleLogout,
+        isLoggingIn,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

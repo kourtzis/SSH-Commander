@@ -35,7 +35,7 @@ artifacts-monorepo/
 │   │       └── routes/             # auth, users, routers, groups, snippets, jobs
 │   └── mikro-manager/      # React + Vite frontend
 │       └── src/
-│           ├── hooks/              # use-auth.tsx, use-mutations.ts
+│           ├── contexts/           # auth-context.tsx (AuthProvider + useAuth)
 │           ├── components/layout/  # sidebar, app-layout
 │           ├── components/ui/      # shadcn UI components
 │           └── pages/              # dashboard, routers, groups, snippets, jobs, users, login
