@@ -196,6 +196,9 @@ importers:
       express-session:
         specifier: ^1.19.0
         version: 1.19.0
+      pg:
+        specifier: ^8.20.0
+        version: 8.20.0
       ssh2:
         specifier: ^1.17.0
         version: 1.17.0
