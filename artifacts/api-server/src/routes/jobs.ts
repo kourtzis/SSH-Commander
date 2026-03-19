@@ -8,7 +8,7 @@ import {
   groupRoutersTable,
   groupSubgroupsTable,
 } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { CreateJobBody } from "@workspace/api-zod";
 import { getCurrentUser, requireAuth } from "../lib/auth.js";
 import { executeSSHCommand, applyTagSubstitution } from "../lib/ssh.js";
@@ -128,6 +128,39 @@ router.post("/jobs", async (req, res) => {
   });
 });
 
+function buildExcelLookup(
+  excelData: Record<string, string>[] | undefined
+): Map<string, Record<string, string>> | null {
+  if (!excelData || excelData.length === 0) return null;
+
+  const lookup = new Map<string, Record<string, string>>();
+  for (const row of excelData) {
+    const ip = row["ROUTER_IP"]?.trim();
+    const name = row["ROUTER_NAME"]?.trim();
+    if (ip) lookup.set(`ip:${ip}`, row);
+    if (name) lookup.set(`name:${name.toLowerCase()}`, row);
+  }
+  return lookup;
+}
+
+function findExcelRow(
+  router: { name: string; ipAddress: string },
+  lookup: Map<string, Record<string, string>> | null,
+  index: number,
+  excelData?: Record<string, string>[]
+): Record<string, string> {
+  if (lookup) {
+    const byIp = lookup.get(`ip:${router.ipAddress}`);
+    if (byIp) return byIp;
+    const byName = lookup.get(`name:${router.name.toLowerCase()}`);
+    if (byName) return byName;
+  }
+  if (excelData && excelData.length > 0) {
+    return excelData[index] ?? excelData[excelData.length - 1];
+  }
+  return {};
+}
+
 async function runJobInBackground(
   jobId: number,
   routers: (typeof routersTable.$inferSelect)[],
@@ -137,13 +170,15 @@ async function runJobInBackground(
   let completedCount = 0;
   let failedCount = 0;
 
+  const excelLookup = buildExcelLookup(excelData);
+
   for (let i = 0; i < routers.length; i++) {
     const r = routers[i];
 
     const [task] = await db
       .select()
       .from(jobTasksTable)
-      .where(eq(jobTasksTable.routerId, r.id))
+      .where(and(eq(jobTasksTable.jobId, jobId), eq(jobTasksTable.routerId, r.id)))
       .limit(1);
 
     if (!task) continue;
@@ -161,9 +196,7 @@ async function runJobInBackground(
       .set({ status: "running", startedAt: new Date() })
       .where(eq(jobTasksTable.id, task.id));
 
-    const row = excelData && excelData.length > 0
-      ? (excelData[i] ?? excelData[excelData.length - 1])
-      : {};
+    const row = findExcelRow(r, excelLookup, i, excelData);
 
     const finalScript = applyTagSubstitution(scriptCode, row);
 
