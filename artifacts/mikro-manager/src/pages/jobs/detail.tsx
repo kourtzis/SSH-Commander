@@ -1,10 +1,11 @@
+import { useState } from "react";
 import { useParams } from "wouter";
 import { useGetJob } from "@workspace/api-client-react";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Ban, CheckCircle2, XCircle, PlayCircle, Terminal, Clock } from "lucide-react";
+import { Ban, CheckCircle2, XCircle, PlayCircle, Terminal, Clock, ChevronDown, ChevronRight, ScrollText, Code } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { SnippetViewer } from "@/components/snippet-viewer";
 import { useToast } from "@/hooks/use-toast";
@@ -14,8 +15,8 @@ export default function JobDetail() {
   const jobId = parseInt(id);
   const { toast } = useToast();
   const { cancelJob } = useJobsMutations();
+  const [expandedTask, setExpandedTask] = useState<number | null>(null);
 
-  // Poll if status is running or pending
   const { data: job, isLoading } = useGetJob(jobId, {
     query: {
       refetchInterval: (query) => {
@@ -41,6 +42,10 @@ export default function JobDetail() {
         toast({ title: "Failed to cancel", description: e.message, variant: "destructive" });
       }
     }
+  };
+
+  const toggleTask = (taskId: number) => {
+    setExpandedTask(expandedTask === taskId ? null : taskId);
   };
 
   return (
@@ -135,25 +140,25 @@ export default function JobDetail() {
       <Card className="glass-panel overflow-hidden">
         <div className="p-6 border-b border-border/50 bg-black/20">
           <CardTitle className="text-xl">Task Results</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">Click a row to view its SSH connection log and resolved script</p>
         </div>
         <CardContent className="p-0">
           {job.tasks.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">No tasks generated for this job.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-black/40 text-muted-foreground text-xs uppercase border-b border-border/50">
-                  <tr>
-                    <th className="px-6 py-4 font-medium">Status</th>
-                    <th className="px-6 py-4 font-medium">Router</th>
-                    <th className="px-6 py-4 font-medium">Time</th>
-                    <th className="px-6 py-4 font-medium">Output</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {job.tasks.map(task => (
-                    <tr key={task.id} className="hover:bg-white/5 transition-colors">
-                      <td className="px-6 py-4">
+            <div>
+              {job.tasks.map(task => {
+                const isExpanded = expandedTask === task.id;
+                return (
+                  <div key={task.id} className="border-b border-border/50 last:border-b-0">
+                    <div
+                      className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                      onClick={() => toggleTask(task.id)}
+                    >
+                      <div className="text-muted-foreground shrink-0">
+                        {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      </div>
+                      <div className="shrink-0">
                         <Badge variant={
                           task.status === 'success' ? 'success' : 
                           task.status === 'failed' ? 'destructive' : 
@@ -164,32 +169,79 @@ export default function JobDetail() {
                           {task.status === 'failed' && <XCircle className="w-3 h-3 mr-1" />}
                           {task.status}
                         </Badge>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="font-medium text-foreground">{task.routerName}</div>
-                        <div className="text-xs text-muted-foreground font-mono">{task.routerIp}</div>
-                      </td>
-                      <td className="px-6 py-4 text-xs text-muted-foreground whitespace-nowrap">
-                        {task.startedAt ? formatDate(task.startedAt).split(' ')[1] : '-'} <br/>
-                        {task.completedAt ? formatDate(task.completedAt).split(' ')[1] : ''}
-                      </td>
-                      <td className="px-6 py-4">
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium text-sm text-foreground">{task.routerName}</span>
+                        <span className="text-xs text-muted-foreground font-mono ml-2">{task.routerIp}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                        {task.startedAt && task.completedAt ? (
+                          <span>{Math.round((new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()) / 1000)}s</span>
+                        ) : task.status === 'running' ? (
+                          <span className="animate-pulse">running...</span>
+                        ) : task.status === 'pending' ? (
+                          <span>waiting</span>
+                        ) : '-'}
+                      </div>
+                      <div className="shrink-0 max-w-xs truncate">
                         {task.errorMessage ? (
-                          <div className="text-destructive text-xs font-mono bg-destructive/10 p-2 rounded border border-destructive/20 max-w-lg overflow-x-auto whitespace-pre-wrap">
-                            {task.errorMessage}
-                          </div>
+                          <span className="text-xs text-destructive truncate">{task.errorMessage}</span>
                         ) : task.output ? (
-                          <div className="text-emerald-400 text-xs font-mono bg-black/40 p-2 rounded border border-white/5 max-w-lg overflow-x-auto whitespace-pre-wrap">
-                            {task.output}
+                          <span className="text-xs text-emerald-400 truncate">{task.output.slice(0, 60)}{task.output.length > 60 ? "..." : ""}</span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="px-6 pb-6 pt-2 bg-black/20 space-y-4 border-t border-white/5">
+                        {task.output && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-xs font-semibold uppercase text-emerald-400">Output</span>
+                            </div>
+                            <pre className="text-xs font-mono text-emerald-400 bg-black/40 p-4 rounded-xl border border-white/5 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">{task.output}</pre>
                           </div>
-                        ) : (
-                          <span className="text-muted-foreground italic text-xs">No output</span>
                         )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+
+                        {task.errorMessage && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <XCircle className="w-3.5 h-3.5 text-destructive" />
+                              <span className="text-xs font-semibold uppercase text-destructive">Error</span>
+                            </div>
+                            <pre className="text-xs font-mono text-destructive bg-destructive/10 p-4 rounded-xl border border-destructive/20 overflow-x-auto whitespace-pre-wrap">{task.errorMessage}</pre>
+                          </div>
+                        )}
+
+                        {(task as any).resolvedScript && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Code className="w-3.5 h-3.5 text-blue-400" />
+                              <span className="text-xs font-semibold uppercase text-blue-400">Resolved Script (after tag substitution)</span>
+                            </div>
+                            <pre className="text-xs font-mono text-blue-300 bg-black/40 p-4 rounded-xl border border-blue-500/20 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">{(task as any).resolvedScript}</pre>
+                          </div>
+                        )}
+
+                        {(task as any).connectionLog && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <ScrollText className="w-3.5 h-3.5 text-yellow-400" />
+                              <span className="text-xs font-semibold uppercase text-yellow-400">SSH Connection Log</span>
+                            </div>
+                            <pre className="text-xs font-mono text-muted-foreground bg-black/60 p-4 rounded-xl border border-yellow-500/20 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed">{(task as any).connectionLog}</pre>
+                          </div>
+                        )}
+
+                        {!task.output && !task.errorMessage && !(task as any).connectionLog && !(task as any).resolvedScript && (
+                          <p className="text-xs text-muted-foreground italic">No log data available yet for this task.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>

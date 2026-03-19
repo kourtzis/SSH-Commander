@@ -466,6 +466,8 @@ export const GetJobResponse = zod.object({
       status: zod.enum(["pending", "running", "success", "failed"]),
       output: zod.string().nullish(),
       errorMessage: zod.string().nullish(),
+      connectionLog: zod.string().nullish(),
+      resolvedScript: zod.string().nullish(),
       startedAt: zod.date().nullish(),
       completedAt: zod.date().nullish(),
     }),

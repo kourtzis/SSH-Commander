@@ -50,6 +50,8 @@ export const jobTasksTable = pgTable("job_tasks", {
   status: taskStatusEnum("status").notNull().default("pending"),
   output: text("output"),
   errorMessage: text("error_message"),
+  connectionLog: text("connection_log"),
+  resolvedScript: text("resolved_script"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
 });

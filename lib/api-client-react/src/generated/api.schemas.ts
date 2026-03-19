@@ -235,6 +235,8 @@ export interface JobTask {
   status: JobTaskStatus;
   output?: string | null;
   errorMessage?: string | null;
+  connectionLog?: string | null;
+  resolvedScript?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
 }

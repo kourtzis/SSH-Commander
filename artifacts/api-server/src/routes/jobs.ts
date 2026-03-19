@@ -210,12 +210,24 @@ async function runJobInBackground(
 
     const finalScript = applyTagSubstitution(scriptCode, row);
 
+    await db
+      .update(jobTasksTable)
+      .set({ resolvedScript: finalScript })
+      .where(eq(jobTasksTable.id, task.id));
+
     if (!r.sshPassword) {
+      const noPassLog = [
+        `[${new Date().toISOString()}] SSH session initiated`,
+        `[${new Date().toISOString()}] Target: ${r.sshUsername}@${r.ipAddress}:${r.sshPort}`,
+        `[${new Date().toISOString()}] ERROR: No SSH password configured for this router`,
+        `[${new Date().toISOString()}] Session aborted`,
+      ].join("\n");
       await db
         .update(jobTasksTable)
         .set({
           status: "failed",
           errorMessage: "No SSH password configured for this router",
+          connectionLog: noPassLog,
           completedAt: new Date(),
         })
         .where(eq(jobTasksTable.id, task.id));
@@ -235,6 +247,7 @@ async function runJobInBackground(
           status: result.success ? "success" : "failed",
           output: result.output || null,
           errorMessage: result.errorMessage || null,
+          connectionLog: result.connectionLog,
           completedAt: new Date(),
         })
         .where(eq(jobTasksTable.id, task.id));
@@ -298,6 +311,8 @@ router.get("/jobs/:id", async (req, res) => {
       ...t,
       output: t.output ?? null,
       errorMessage: t.errorMessage ?? null,
+      connectionLog: t.connectionLog ?? null,
+      resolvedScript: t.resolvedScript ?? null,
       startedAt: t.startedAt ?? null,
       completedAt: t.completedAt ?? null,
     })),

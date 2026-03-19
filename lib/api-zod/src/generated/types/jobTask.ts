@@ -16,6 +16,8 @@ export interface JobTask {
   status: JobTaskStatus;
   output?: string | null;
   errorMessage?: string | null;
+  connectionLog?: string | null;
+  resolvedScript?: string | null;
   startedAt?: Date | null;
   completedAt?: Date | null;
 }

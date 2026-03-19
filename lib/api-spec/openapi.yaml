@@ -1049,6 +1049,12 @@ components:
         errorMessage:
           type: string
           nullable: true
+        connectionLog:
+          type: string
+          nullable: true
+        resolvedScript:
+          type: string
+          nullable: true
         startedAt:
           type: string
           format: date-time
