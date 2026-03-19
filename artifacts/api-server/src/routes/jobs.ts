@@ -48,6 +48,16 @@ async function resolveRouterIds(
   return Array.from(allIds);
 }
 
+router.post("/jobs/resolve-count", async (req, res) => {
+  requireAuth(req);
+  const { targetRouterIds, targetGroupIds } = req.body ?? {};
+  const allRouterIds = await resolveRouterIds(
+    targetRouterIds ?? [],
+    targetGroupIds ?? []
+  );
+  res.json({ count: allRouterIds.length });
+});
+
 router.get("/jobs", async (req, res) => {
   requireAuth(req);
   const jobs = await db

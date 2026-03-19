@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useListRouters, useListGroups, useListSnippets } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,10 +9,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Play, Upload, Code, Target, Table as TableIcon } from "lucide-react";
+import { Play, Upload, Code, Target, Table as TableIcon, Monitor } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
 import * as XLSX from "xlsx";
+
+function useResolvedDeviceCount(routerIds: number[], groupIds: number[]) {
+  return useQuery({
+    queryKey: ["resolve-count", routerIds, groupIds],
+    queryFn: async () => {
+      if (routerIds.length === 0 && groupIds.length === 0) return 0;
+      const res = await fetch(`${import.meta.env.BASE_URL}api/jobs/resolve-count`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ targetRouterIds: routerIds, targetGroupIds: groupIds }),
+      });
+      if (!res.ok) return 0;
+      const data = await res.json();
+      return data.count as number;
+    },
+    enabled: routerIds.length > 0 || groupIds.length > 0,
+  });
+}
 
 export default function NewJob() {
   const [, setLocation] = useLocation();
@@ -28,6 +48,11 @@ export default function NewJob() {
   const [selectedGroups, setSelectedGroups] = useState<Set<number>>(new Set());
   const [excelData, setExcelData] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { data: resolvedCount = 0, isFetching: isResolvingCount } = useResolvedDeviceCount(
+    Array.from(selectedRouters),
+    Array.from(selectedGroups)
+  );
 
   const tags = extractTags(scriptCode);
 
@@ -202,6 +227,18 @@ export default function NewJob() {
               </div>
             </div>
           </div>
+
+          {(selectedRouters.size > 0 || selectedGroups.size > 0) && (
+            <div className="mt-4 flex items-center gap-3 p-4 rounded-xl bg-primary/10 border border-primary/20">
+              <Monitor className="w-5 h-5 text-primary shrink-0" />
+              <div>
+                <span className="text-sm font-semibold text-primary">
+                  {isResolvingCount ? "Resolving..." : `${resolvedCount} device${resolvedCount !== 1 ? "s" : ""}`}
+                </span>
+                <span className="text-sm text-muted-foreground ml-1">will be targeted (after deduplication)</span>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

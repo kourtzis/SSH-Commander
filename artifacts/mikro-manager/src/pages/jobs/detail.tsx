@@ -28,7 +28,9 @@ export default function JobDetail() {
   if (isLoading) return <div className="p-8 text-center text-muted-foreground">Loading job details...</div>;
   if (!job) return <div className="p-8 text-center text-destructive">Job not found.</div>;
 
-  const progress = job.totalTasks > 0 ? ((job.completedTasks + job.failedTasks) / job.totalTasks) * 100 : 0;
+  const doneTasks = job.completedTasks + job.failedTasks;
+  const remainingTasks = job.totalTasks - doneTasks;
+  const progress = job.totalTasks > 0 ? (doneTasks / job.totalTasks) * 100 : 0;
 
   const handleCancel = async () => {
     if (confirm("Are you sure you want to cancel this running job?")) {
@@ -77,7 +79,7 @@ export default function JobDetail() {
           <CardContent className="space-y-6">
             <div>
               <div className="flex justify-between text-sm mb-2 font-medium">
-                <span>Progress</span>
+                <span>{doneTasks} / {job.totalTasks} done</span>
                 <span>{Math.round(progress)}%</span>
               </div>
               <div className="w-full h-3 bg-black/40 rounded-full overflow-hidden border border-white/5">
@@ -85,12 +87,17 @@ export default function JobDetail() {
                   className="h-full bg-primary transition-all duration-500 ease-out relative" 
                   style={{ width: `${progress}%` }}
                 >
-                  <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                  {job.status === "running" && <div className="absolute inset-0 bg-white/20 animate-pulse" />}
                 </div>
               </div>
+              {job.status === "running" && remainingTasks > 0 && (
+                <p className="text-xs text-muted-foreground mt-2 animate-pulse">
+                  Executing... {remainingTasks} device{remainingTasks !== 1 ? "s" : ""} remaining
+                </p>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-3">
               <div className="p-4 rounded-xl bg-black/20 border border-white/5 text-center">
                 <p className="text-2xl font-bold text-emerald-400">{job.completedTasks}</p>
                 <p className="text-xs text-muted-foreground uppercase font-semibold mt-1">Success</p>
@@ -99,7 +106,11 @@ export default function JobDetail() {
                 <p className="text-2xl font-bold text-destructive">{job.failedTasks}</p>
                 <p className="text-xs text-muted-foreground uppercase font-semibold mt-1">Failed</p>
               </div>
-              <div className="p-4 rounded-xl bg-black/20 border border-white/5 text-center col-span-2">
+              <div className="p-4 rounded-xl bg-black/20 border border-white/5 text-center">
+                <p className="text-2xl font-bold text-yellow-400">{remainingTasks}</p>
+                <p className="text-xs text-muted-foreground uppercase font-semibold mt-1">Remaining</p>
+              </div>
+              <div className="p-4 rounded-xl bg-black/20 border border-white/5 text-center col-span-3">
                 <p className="text-3xl font-display font-bold">{job.totalTasks}</p>
                 <p className="text-xs text-muted-foreground uppercase font-semibold mt-1">Total Targets</p>
               </div>
