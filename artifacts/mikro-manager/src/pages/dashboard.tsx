@@ -1,6 +1,6 @@
 import { useListRouters, useListGroups, useListSnippets, useListJobs } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Server, Network, Code2, Activity, PlayCircle, XCircle, CheckCircle2, Clock } from "lucide-react";
+import { Server, Network, Code2, Activity, PlayCircle, XCircle, CheckCircle2, Clock, Ban } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link } from "wouter";
 import { formatDate } from "@/lib/utils";
@@ -78,14 +78,26 @@ export default function Dashboard() {
                           <p className="text-xs text-muted-foreground">{job.failedTasks} failed</p>
                         </div>
                         <Badge variant={
-                          job.status === 'completed' ? 'success' : 
-                          job.status === 'failed' ? 'destructive' : 
-                          job.status === 'running' ? 'default' : 'secondary'
-                        } className="capitalize">
+                          job.status === 'running' ? 'default' :
+                          job.status === 'scheduled' ? 'outline' :
+                          job.status === 'cancelled' ? 'secondary' :
+                          job.status === 'completed' && job.failedTasks > 0 && job.completedTasks > 0 ? 'warning' :
+                          job.status === 'completed' && job.failedTasks > 0 ? 'destructive' :
+                          job.status === 'completed' ? 'success' :
+                          job.status === 'failed' ? 'destructive' : 'secondary'
+                        }>
                           {job.status === 'running' && <PlayCircle className="w-3 h-3 mr-1 animate-pulse" />}
                           {job.status === 'completed' && <CheckCircle2 className="w-3 h-3 mr-1" />}
                           {job.status === 'failed' && <XCircle className="w-3 h-3 mr-1" />}
-                          {job.status}
+                          {job.status === 'cancelled' && <Ban className="w-3 h-3 mr-1" />}
+                          {job.status === 'scheduled' && <Clock className="w-3 h-3 mr-1" />}
+                          {job.status === 'running' ? 'Running' :
+                           job.status === 'scheduled' ? 'Scheduled' :
+                           job.status === 'cancelled' ? 'Stopped' :
+                           job.status === 'completed' && job.failedTasks > 0 && job.completedTasks > 0 ? 'Partially Successful' :
+                           job.status === 'completed' && job.failedTasks > 0 ? 'Failed' :
+                           job.status === 'completed' ? 'Successful' :
+                           job.status === 'failed' ? 'Failed' : job.status}
                         </Badge>
                       </div>
                     </div>

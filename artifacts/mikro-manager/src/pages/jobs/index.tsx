@@ -39,25 +39,22 @@ export default function JobsList() {
   const sortedJobs = [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const selection = useSelection(sortedJobs.map(j => j.id));
 
-  const getStatusIcon = (status: string) => {
-    switch(status) {
-      case 'completed': return <CheckCircle2 className="w-4 h-4 mr-1.5" />;
-      case 'failed': return <XCircle className="w-4 h-4 mr-1.5" />;
-      case 'running': return <PlayCircle className="w-4 h-4 mr-1.5 animate-pulse" />;
-      case 'cancelled': return <Ban className="w-4 h-4 mr-1.5" />;
-      case 'scheduled': return <Clock className="w-4 h-4 mr-1.5" />;
-      default: return null;
-    }
-  };
-
-  const getStatusVariant = (status: string) => {
-    switch(status) {
-      case 'completed': return 'success';
-      case 'failed': return 'destructive';
-      case 'running': return 'default';
-      case 'cancelled': return 'secondary';
-      case 'scheduled': return 'outline';
-      default: return 'outline';
+  const getDisplayStatus = (job: { status: string; completedTasks: number; failedTasks: number; totalTasks: number }) => {
+    switch (job.status) {
+      case 'running': return { label: 'Running', icon: <PlayCircle className="w-4 h-4 mr-1.5 animate-pulse" />, variant: 'default' };
+      case 'scheduled': return { label: 'Scheduled', icon: <Clock className="w-4 h-4 mr-1.5" />, variant: 'outline' };
+      case 'cancelled': return { label: 'Stopped', icon: <Ban className="w-4 h-4 mr-1.5" />, variant: 'secondary' };
+      case 'completed': {
+        if (job.failedTasks > 0 && job.completedTasks > 0) {
+          return { label: 'Partially Successful', icon: <CheckCircle2 className="w-4 h-4 mr-1.5" />, variant: 'warning' };
+        }
+        if (job.failedTasks > 0 && job.completedTasks === 0) {
+          return { label: 'Failed', icon: <XCircle className="w-4 h-4 mr-1.5" />, variant: 'destructive' };
+        }
+        return { label: 'Successful', icon: <CheckCircle2 className="w-4 h-4 mr-1.5" />, variant: 'success' };
+      }
+      case 'failed': return { label: 'Failed', icon: <XCircle className="w-4 h-4 mr-1.5" />, variant: 'destructive' };
+      default: return { label: job.status, icon: null, variant: 'outline' };
     }
   };
 
@@ -182,26 +179,24 @@ export default function JobsList() {
                     </div>
                     
                     <div className="flex flex-col items-start md:items-end gap-2 shrink-0">
-                      <div className="flex items-center gap-4">
-                        <div className="flex flex-col items-end">
-                          <div className="flex gap-2 text-sm mb-1">
-                            <span className="text-emerald-400">{job.completedTasks} OK</span>
-                            <span className="text-destructive">{job.failedTasks} ERR</span>
-                            <span className="text-muted-foreground">/ {job.totalTasks} TOTAL</span>
-                          </div>
-                          {job.status === 'running' && (
-                            <div className="w-32 h-1.5 bg-black/40 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-primary" 
-                                style={{ width: `${(job.completedTasks + job.failedTasks) / job.totalTasks * 100}%` }}
-                              />
-                            </div>
-                          )}
+                      <Badge variant={getDisplayStatus(job).variant as any} className="text-sm py-1 px-3">
+                        {getDisplayStatus(job).icon}
+                        {getDisplayStatus(job).label}
+                      </Badge>
+                      <div className="flex flex-col items-start md:items-end">
+                        <div className="flex gap-2 text-sm mb-1">
+                          <span className="text-emerald-400">{job.completedTasks} OK</span>
+                          <span className="text-destructive">{job.failedTasks} ERR</span>
+                          <span className="text-muted-foreground">/ {job.totalTasks} TOTAL</span>
                         </div>
-                        <Badge variant={getStatusVariant(job.status) as any} className="capitalize text-sm py-1 px-3">
-                          {getStatusIcon(job.status)}
-                          {job.status}
-                        </Badge>
+                        {job.status === 'running' && (
+                          <div className="w-32 h-1.5 bg-black/40 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-primary" 
+                              style={{ width: `${(job.completedTasks + job.failedTasks) / job.totalTasks * 100}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex gap-1.5">

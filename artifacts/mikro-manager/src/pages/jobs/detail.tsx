@@ -55,12 +55,26 @@ export default function JobDetail() {
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold tracking-tight">{job.name}</h1>
             <Badge variant={
-              job.status === 'completed' ? 'success' : 
-              job.status === 'failed' ? 'destructive' : 
-              job.status === 'running' ? 'default' : 'secondary'
-            } className="capitalize text-sm px-3 py-1">
+              job.status === 'running' ? 'default' :
+              job.status === 'scheduled' ? 'outline' :
+              job.status === 'cancelled' ? 'secondary' :
+              job.status === 'completed' && job.failedTasks > 0 && job.completedTasks > 0 ? 'warning' :
+              job.status === 'completed' && job.failedTasks > 0 ? 'destructive' :
+              job.status === 'completed' ? 'success' :
+              job.status === 'failed' ? 'destructive' : 'secondary'
+            } className="text-sm px-3 py-1">
               {job.status === 'running' && <PlayCircle className="w-4 h-4 mr-1 animate-pulse" />}
-              {job.status}
+              {job.status === 'completed' && <CheckCircle2 className="w-4 h-4 mr-1" />}
+              {job.status === 'failed' && <XCircle className="w-4 h-4 mr-1" />}
+              {job.status === 'cancelled' && <Ban className="w-4 h-4 mr-1" />}
+              {job.status === 'scheduled' && <Clock className="w-4 h-4 mr-1" />}
+              {job.status === 'running' ? 'Running' :
+               job.status === 'scheduled' ? 'Scheduled' :
+               job.status === 'cancelled' ? 'Stopped' :
+               job.status === 'completed' && job.failedTasks > 0 && job.completedTasks > 0 ? 'Partially Successful' :
+               job.status === 'completed' && job.failedTasks > 0 ? 'Failed' :
+               job.status === 'completed' ? 'Successful' :
+               job.status === 'failed' ? 'Failed' : job.status}
             </Badge>
           </div>
           <p className="text-muted-foreground mt-2 flex items-center gap-2">
