@@ -20,7 +20,19 @@ async function resolveRouterIds(
   groupIds: number[],
   visited = new Set<number>()
 ): Promise<number[]> {
-  const allIds = new Set<number>(directRouterIds);
+  const seen = new Set<number>();
+  const ordered: number[] = [];
+
+  function addUnique(id: number) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      ordered.push(id);
+    }
+  }
+
+  for (const id of directRouterIds) {
+    addUnique(id);
+  }
 
   for (const groupId of groupIds) {
     if (visited.has(groupId)) continue;
@@ -31,7 +43,7 @@ async function resolveRouterIds(
       .from(groupRoutersTable)
       .where(eq(groupRoutersTable.groupId, groupId));
     for (const link of routerLinks) {
-      allIds.add(link.routerId);
+      addUnique(link.routerId);
     }
 
     const subgroupLinks = await db
@@ -41,11 +53,11 @@ async function resolveRouterIds(
     if (subgroupLinks.length > 0) {
       const subGroupIds = subgroupLinks.map((s) => s.childGroupId);
       const subIds = await resolveRouterIds([], subGroupIds, visited);
-      for (const id of subIds) allIds.add(id);
+      for (const id of subIds) addUnique(id);
     }
   }
 
-  return Array.from(allIds);
+  return ordered;
 }
 
 router.post("/jobs/resolve-count", async (req, res) => {
@@ -93,10 +105,13 @@ router.post("/jobs", async (req, res) => {
     return;
   }
 
-  const routers = await db
+  const routersUnordered = await db
     .select()
     .from(routersTable)
     .where(inArray(routersTable.id, allRouterIds));
+
+  const routerMap = new Map(routersUnordered.map(r => [r.id, r]));
+  const routers = allRouterIds.map(id => routerMap.get(id)!).filter(Boolean);
 
   const [job] = await db
     .insert(batchJobsTable)
