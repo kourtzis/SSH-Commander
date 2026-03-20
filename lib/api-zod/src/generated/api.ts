@@ -496,6 +496,17 @@ export const GetJobResponse = zod.object({
 });
 
 /**
+ * @summary Delete a job and its tasks
+ */
+export const DeleteJobParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteJobResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
  * @summary Cancel a running job
  */
 export const CancelJobParams = zod.object({

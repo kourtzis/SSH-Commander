@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useListGroups, useListRouters, useGetGroup } from "@workspace/api-client-react";
 import { useGroupsMutations } from "@/hooks/use-mutations";
+import { useSelection } from "@/hooks/use-selection";
+import { SelectionBar } from "@/components/selection-bar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +24,7 @@ export default function Groups() {
   const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
   const [isMemberDialogOpen, setIsMemberDialogOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<any>(null);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
@@ -29,6 +33,8 @@ export default function Groups() {
   const [memberId, setMemberId] = useState<string>("");
 
   const { data: groupDetails } = useGetGroup(selectedGroup!, { query: { enabled: !!selectedGroup } });
+
+  const selection = useSelection(groups.map(g => g.id));
 
   const toggleGroup = (id: number) => {
     const next = new Set(expandedGroups);
@@ -93,6 +99,21 @@ export default function Groups() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete ${selection.count} selected group(s)?`)) return;
+    setIsBulkDeleting(true);
+    try {
+      await Promise.all(selection.ids.map(id => deleteGroup.mutateAsync({ id })));
+      toast({ title: `${selection.count} group(s) deleted` });
+      selection.clear();
+      setSelectedGroup(null);
+    } catch (err: any) {
+      toast({ title: "Error deleting groups", description: err.message, variant: "destructive" });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   const renderTree = (parentId: number | null, depth = 0) => {
     const children = groups.filter(g => g.parentId === parentId);
     if (children.length === 0) return null;
@@ -113,6 +134,13 @@ export default function Groups() {
                 style={{ marginLeft: `${depth * 1.5}rem` }}
               >
                 <div className="flex items-center gap-2">
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={selection.selected.has(group.id)}
+                      onCheckedChange={() => selection.toggle(group.id)}
+                      aria-label={`Select ${group.name}`}
+                    />
+                  </div>
                   {groups.some(g => g.parentId === group.id) ? (
                     isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />
                   ) : <div className="w-4" />}
@@ -143,10 +171,22 @@ export default function Groups() {
         </Button>
       </div>
 
+      <SelectionBar count={selection.count} label="groups" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="glass-panel md:col-span-1 h-[600px] flex flex-col">
-          <div className="p-4 border-b border-border/50 bg-black/20 font-medium flex items-center gap-2">
-            <Network className="w-4 h-4 text-primary" /> Directory
+          <div className="p-4 border-b border-border/50 bg-black/20 font-medium flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Network className="w-4 h-4 text-primary" /> Directory
+            </div>
+            {groups.length > 0 && (
+              <Checkbox
+                checked={selection.isAllSelected}
+                onCheckedChange={selection.toggleAll}
+                aria-label="Select all groups"
+                {...(selection.isSomeSelected ? { "data-state": "indeterminate" as any } : {})}
+              />
+            )}
           </div>
           <CardContent className="p-4 flex-1 overflow-y-auto">
             {isLoading ? <p className="text-muted-foreground text-sm">Loading...</p> : renderTree(null)}

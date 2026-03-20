@@ -358,6 +358,23 @@ router.get("/jobs/:id", async (req, res) => {
   });
 });
 
+router.delete("/jobs/:id", async (req, res) => {
+  requireAuth(req);
+  const id = parseInt(req.params.id);
+  const [job] = await db
+    .select()
+    .from(batchJobsTable)
+    .where(eq(batchJobsTable.id, id))
+    .limit(1);
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+  await db.delete(jobTasksTable).where(eq(jobTasksTable.jobId, id));
+  await db.delete(batchJobsTable).where(eq(batchJobsTable.id, id));
+  res.json({ message: "Job deleted" });
+});
+
 router.post("/jobs/:id/rerun", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);

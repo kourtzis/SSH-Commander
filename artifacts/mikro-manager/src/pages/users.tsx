@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { useListUsers } from "@workspace/api-client-react";
 import { useUsersMutations } from "@/hooks/use-mutations";
+import { useSelection } from "@/hooks/use-selection";
+import { SelectionBar } from "@/components/selection-bar";
 import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -20,11 +23,15 @@ export default function Users() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "operator">("operator");
+
+  const selectableUsers = users.filter(u => u.id !== user?.id);
+  const selection = useSelection(selectableUsers.map(u => u.id));
 
   if (user?.role !== "admin") {
     return (
@@ -41,7 +48,7 @@ export default function Users() {
       setEditingUser(u);
       setUsername(u.username);
       setEmail(u.email || "");
-      setPassword(""); // Don't populate password
+      setPassword("");
       setRole(u.role);
     } else {
       setEditingUser(null);
@@ -58,7 +65,7 @@ export default function Users() {
       if (editingUser) {
         const data: any = { username, role };
         if (email) data.email = email;
-        if (password) data.password = password; // Only send if changed
+        if (password) data.password = password;
         await updateUser.mutateAsync({ id: editingUser.id, data });
         toast({ title: "User updated" });
       } else {
@@ -90,6 +97,20 @@ export default function Users() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete ${selection.count} selected user(s)?`)) return;
+    setIsBulkDeleting(true);
+    try {
+      await Promise.all(selection.ids.map(id => deleteUser.mutateAsync({ id })));
+      toast({ title: `${selection.count} user(s) deleted` });
+      selection.clear();
+    } catch (err: any) {
+      toast({ title: "Error deleting users", description: err.message, variant: "destructive" });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -102,6 +123,8 @@ export default function Users() {
         </Button>
       </div>
 
+      <SelectionBar count={selection.count} label="users" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
+
       <Card className="glass-panel overflow-hidden">
         <CardContent className="p-0">
           {isLoading ? (
@@ -111,6 +134,14 @@ export default function Users() {
               <table className="w-full text-sm text-left">
                 <thead className="bg-black/40 text-muted-foreground text-xs uppercase border-b border-border/50">
                   <tr>
+                    <th className="px-4 py-4 w-10">
+                      <Checkbox
+                        checked={selection.isAllSelected}
+                        onCheckedChange={selection.toggleAll}
+                        aria-label="Select all"
+                        {...(selection.isSomeSelected ? { "data-state": "indeterminate" as any } : {})}
+                      />
+                    </th>
                     <th className="px-6 py-4 font-medium">User</th>
                     <th className="px-6 py-4 font-medium">Role</th>
                     <th className="px-6 py-4 font-medium">Joined</th>
@@ -119,7 +150,16 @@ export default function Users() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {users.map(u => (
-                    <tr key={u.id} className="hover:bg-white/5 transition-colors">
+                    <tr key={u.id} className={`hover:bg-white/5 transition-colors ${selection.selected.has(u.id) ? "bg-primary/5" : ""}`}>
+                      <td className="px-4 py-4">
+                        {u.id !== user.id ? (
+                          <Checkbox
+                            checked={selection.selected.has(u.id)}
+                            onCheckedChange={() => selection.toggle(u.id)}
+                            aria-label={`Select ${u.username}`}
+                          />
+                        ) : <div className="w-4" />}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary/50 to-accent flex items-center justify-center text-sm font-bold text-white">

@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useListRouters } from "@workspace/api-client-react";
 import { useRoutersMutations } from "@/hooks/use-mutations";
+import { useSelection } from "@/hooks/use-selection";
+import { SelectionBar } from "@/components/selection-bar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Plus, Search, Server, Edit2, Trash2 } from "lucide-react";
@@ -32,6 +35,7 @@ export default function Routers() {
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingRouter, setEditingRouter] = useState<number | null>(null);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const form = useForm<FormData>({
     resolver: zodResolver(routerSchema),
@@ -42,6 +46,8 @@ export default function Routers() {
     r.name.toLowerCase().includes(search.toLowerCase()) || 
     r.ipAddress.includes(search)
   );
+
+  const selection = useSelection(filteredRouters.map(r => r.id));
 
   const handleOpenDialog = (router?: any) => {
     if (router) {
@@ -86,6 +92,20 @@ export default function Routers() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete ${selection.count} selected router(s)?`)) return;
+    setIsBulkDeleting(true);
+    try {
+      await Promise.all(selection.ids.map(id => deleteRouter.mutateAsync({ id })));
+      toast({ title: `${selection.count} router(s) deleted` });
+      selection.clear();
+    } catch (err: any) {
+      toast({ title: "Error deleting routers", description: err.message, variant: "destructive" });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -97,6 +117,8 @@ export default function Routers() {
           <Plus className="w-4 h-4" /> Add Router
         </Button>
       </div>
+
+      <SelectionBar count={selection.count} label="routers" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 
       <Card className="glass-panel">
         <div className="p-4 border-b border-border/50 bg-black/20">
@@ -124,6 +146,14 @@ export default function Routers() {
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-muted-foreground uppercase bg-black/40 border-b border-border/50">
                   <tr>
+                    <th className="px-4 py-4 w-10">
+                      <Checkbox
+                        checked={selection.isAllSelected}
+                        onCheckedChange={selection.toggleAll}
+                        aria-label="Select all"
+                        {...(selection.isSomeSelected ? { "data-state": "indeterminate" as any } : {})}
+                      />
+                    </th>
                     <th className="px-6 py-4 font-medium">Name</th>
                     <th className="px-6 py-4 font-medium">IP Address</th>
                     <th className="px-6 py-4 font-medium">SSH Config</th>
@@ -133,7 +163,14 @@ export default function Routers() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {filteredRouters.map((router) => (
-                    <tr key={router.id} className="hover:bg-white/5 transition-colors">
+                    <tr key={router.id} className={`hover:bg-white/5 transition-colors ${selection.selected.has(router.id) ? "bg-primary/5" : ""}`}>
+                      <td className="px-4 py-4">
+                        <Checkbox
+                          checked={selection.selected.has(router.id)}
+                          onCheckedChange={() => selection.toggle(router.id)}
+                          aria-label={`Select ${router.name}`}
+                        />
+                      </td>
                       <td className="px-6 py-4 font-medium text-foreground">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">

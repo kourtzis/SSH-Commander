@@ -3,7 +3,7 @@ import {
   useCreateRouter, useUpdateRouter, useDeleteRouter, getListRoutersQueryKey, getGetRouterQueryKey,
   useCreateGroup, useUpdateGroup, useDeleteGroup, getListGroupsQueryKey, getGetGroupQueryKey, useAddGroupMember, useRemoveGroupMember,
   useCreateSnippet, useUpdateSnippet, useDeleteSnippet, getListSnippetsQueryKey, getGetSnippetQueryKey,
-  useCreateJob, useCancelJob, useRerunJob, getListJobsQueryKey, getGetJobQueryKey,
+  useCreateJob, useCancelJob, useRerunJob, useDeleteJob, getListJobsQueryKey, getGetJobQueryKey,
   useCreateUser, useUpdateUser, useDeleteUser, getListUsersQueryKey,
   useCreateSchedule, useUpdateSchedule, useDeleteSchedule, getListSchedulesQueryKey
 } from "@workspace/api-client-react";
@@ -119,7 +119,13 @@ export function useJobsMutations() {
     }
   });
 
-  return { createJob, cancelJob, rerunJob };
+  const deleteJob = useDeleteJob({
+    mutation: {
+      onSuccess: () => qc.invalidateQueries({ queryKey: getListJobsQueryKey() })
+    }
+  });
+
+  return { createJob, cancelJob, rerunJob, deleteJob };
 }
 
 export function useUsersMutations() {

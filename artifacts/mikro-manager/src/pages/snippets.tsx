@@ -1,10 +1,13 @@
 import { useState, useRef, useCallback } from "react";
 import { useListSnippets } from "@workspace/api-client-react";
 import { useSnippetsMutations } from "@/hooks/use-mutations";
+import { useSelection } from "@/hooks/use-selection";
+import { SelectionBar } from "@/components/selection-bar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +58,7 @@ export default function Snippets() {
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSnippet, setEditingSnippet] = useState<any>(null);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
@@ -69,6 +73,8 @@ export default function Snippets() {
     s.category.toLowerCase().includes(search.toLowerCase())
   );
 
+  const selection = useSelection(filteredSnippets.map(s => s.id));
+
   const composedCode = composerSnippets.map(s => s.code).join("\n\n");
   const combinedCode = composedCode
     ? (code.trim() ? composedCode + "\n\n" + code.trim() : composedCode)
@@ -81,21 +87,21 @@ export default function Snippets() {
       setCategory(snippet.category);
       setDescription(snippet.description || "");
       setCode(snippet.code);
+      setComposerSnippets([]);
     } else {
       setEditingSnippet(null);
       setName("");
       setCategory("");
       setDescription("");
       setCode("");
+      setComposerSnippets([]);
     }
-    setComposerSnippets([]);
     setIsDialogOpen(true);
   };
 
   const handleSave = async () => {
-    const finalCode = composerSnippets.length > 0 ? combinedCode : code;
     try {
-      const data = { name, category, description, code: finalCode };
+      const data = { name, category, description, code: combinedCode };
       if (editingSnippet) {
         await updateSnippet.mutateAsync({ id: editingSnippet.id, data });
         toast({ title: "Snippet updated" });
@@ -117,6 +123,20 @@ export default function Snippets() {
       } catch (err: any) {
         toast({ title: "Error", description: err.message, variant: "destructive" });
       }
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete ${selection.count} selected snippet(s)?`)) return;
+    setIsBulkDeleting(true);
+    try {
+      await Promise.all(selection.ids.map(id => deleteSnippet.mutateAsync({ id })));
+      toast({ title: `${selection.count} snippet(s) deleted` });
+      selection.clear();
+    } catch (err: any) {
+      toast({ title: "Error deleting snippets", description: err.message, variant: "destructive" });
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -169,6 +189,8 @@ export default function Snippets() {
         />
       </div>
 
+      <SelectionBar count={selection.count} label="snippets" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
+
       {isLoading ? (
         <div className="text-muted-foreground">Loading snippets...</div>
       ) : filteredSnippets.length === 0 ? (
@@ -180,17 +202,26 @@ export default function Snippets() {
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {filteredSnippets.map((snippet) => (
-            <Card key={snippet.id} className="glass-panel flex flex-col">
+            <Card key={snippet.id} className={`glass-panel flex flex-col ${selection.selected.has(snippet.id) ? "ring-1 ring-primary/50" : ""}`}>
               <CardHeader className="flex flex-row items-start justify-between pb-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Badge variant="secondary" className="bg-primary/10 text-primary">{snippet.category}</Badge>
-                    {extractTags(snippet.code).length > 0 && (
-                      <Badge variant="outline" className="border-primary/30 text-primary/70">{extractTags(snippet.code).length} Tags</Badge>
-                    )}
+                <div className="flex items-start gap-3">
+                  <div className="pt-0.5">
+                    <Checkbox
+                      checked={selection.selected.has(snippet.id)}
+                      onCheckedChange={() => selection.toggle(snippet.id)}
+                      aria-label={`Select ${snippet.name}`}
+                    />
                   </div>
-                  <CardTitle className="text-xl">{snippet.name}</CardTitle>
-                  {snippet.description && <CardDescription className="mt-1">{snippet.description}</CardDescription>}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge variant="secondary" className="bg-primary/10 text-primary">{snippet.category}</Badge>
+                      {extractTags(snippet.code).length > 0 && (
+                        <Badge variant="outline" className="border-primary/30 text-primary/70">{extractTags(snippet.code).length} Tags</Badge>
+                      )}
+                    </div>
+                    <CardTitle className="text-xl">{snippet.name}</CardTitle>
+                    {snippet.description && <CardDescription className="mt-1">{snippet.description}</CardDescription>}
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(snippet)}>

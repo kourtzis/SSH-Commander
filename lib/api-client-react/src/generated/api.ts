@@ -2430,6 +2430,90 @@ export function useGetJob<
 }
 
 /**
+ * @summary Delete a job and its tasks
+ */
+export const getDeleteJobUrl = (id: number) => {
+  return `/api/jobs/${id}`;
+};
+
+export const deleteJob = async (
+  id: number,
+  options?: RequestInit,
+): Promise<MessageResponse> => {
+  return customFetch<MessageResponse>(getDeleteJobUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteJobMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteJob>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteJob>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteJob"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteJob>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteJob(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteJobMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteJob>>
+>;
+
+export type DeleteJobMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Delete a job and its tasks
+ */
+export const useDeleteJob = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteJob>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteJob>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteJobMutationOptions(options));
+};
+
+/**
  * @summary Cancel a running job
  */
 export const getCancelJobUrl = (id: number) => {
