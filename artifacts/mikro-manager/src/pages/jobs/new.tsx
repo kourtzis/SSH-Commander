@@ -537,7 +537,7 @@ export default function NewJob() {
 
       <Card className="glass-panel">
         <CardContent className="py-4">
-          <div className="flex items-center justify-end gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3">
             <Button
               size="lg"
               variant="outline"

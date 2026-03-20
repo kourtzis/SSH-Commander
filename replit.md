@@ -89,6 +89,15 @@ The SSH engine (`lib/ssh.ts`) uses the `ssh2` package with Mikrotik-compatible a
 
 Tag substitution: `{{TAG_NAME}}` in script code is replaced with values from the Excel data row matching the router's position in the job.
 
+## Mobile Responsiveness
+
+- **Sidebar**: Collapsible hamburger drawer on mobile (`md:` breakpoint); auto-closes on route change; dismissible via overlay tap, close button, or Escape key
+- **Layout**: `ml-64` only on `md:` and up; mobile gets `p-4 pt-16` for hamburger button clearance
+- **Page headers**: All use `flex-col sm:flex-row` to stack title/actions on small screens
+- **Tables**: Wrapped in `overflow-x-auto` for horizontal scrolling on narrow viewports
+- **Groups page**: Panels use `h-[400px] md:h-[600px]` for mobile-friendly heights
+- **Job form**: Bottom action buttons stack vertically on mobile via `flex-col sm:flex-row`
+
 ## Running
 
 - API server: `pnpm --filter @workspace/api-server run dev`

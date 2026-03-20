@@ -174,7 +174,7 @@ export default function Groups() {
       <SelectionBar count={selection.count} label="groups" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="glass-panel md:col-span-1 h-[600px] flex flex-col">
+        <Card className="glass-panel md:col-span-1 h-[400px] md:h-[600px] flex flex-col">
           <div className="p-4 border-b border-border/50 bg-black/20 font-medium flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Network className="w-4 h-4 text-primary" /> Directory
@@ -194,20 +194,20 @@ export default function Groups() {
           </CardContent>
         </Card>
 
-        <Card className="glass-panel md:col-span-2 h-[600px] flex flex-col">
+        <Card className="glass-panel md:col-span-2 h-[400px] md:h-[600px] flex flex-col">
           {selectedGroup && groupDetails ? (
             <>
-              <div className="p-6 border-b border-border/50 bg-black/20 flex items-center justify-between">
+              <div className="p-4 md:p-6 border-b border-border/50 bg-black/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-xl font-bold">{groupDetails.name}</h3>
                   <p className="text-sm text-muted-foreground mt-1">{groupDetails.description || "No description"}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => { setEditingGroup(groupDetails); setFormName(groupDetails.name); setFormDesc(groupDetails.description||""); setIsGroupDialogOpen(true); }}>
-                    <Edit2 className="w-4 h-4 mr-2" /> Edit Info
+                  <Button variant="outline" size="sm" onClick={() => { setEditingGroup(groupDetails); setFormName(groupDetails.name); setFormDesc(groupDetails.description||""); setIsGroupDialogOpen(true); }}>
+                    <Edit2 className="w-4 h-4 mr-1" /> Edit
                   </Button>
-                  <Button onClick={() => setIsMemberDialogOpen(true)}>
-                    <LinkIcon className="w-4 h-4 mr-2" /> Add Member
+                  <Button size="sm" onClick={() => setIsMemberDialogOpen(true)}>
+                    <LinkIcon className="w-4 h-4 mr-1" /> Add
                   </Button>
                 </div>
               </div>

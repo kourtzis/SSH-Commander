@@ -94,7 +94,7 @@ export default function JobsList() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Batch Jobs</h1>
           <p className="text-muted-foreground mt-1">Run and monitor scripts across multiple routers.</p>
@@ -143,7 +143,7 @@ export default function JobsList() {
                       </div>
                     </div>
                     
-                    <div className="flex flex-col items-end gap-2 shrink-0">
+                    <div className="flex flex-col items-start md:items-end gap-2 shrink-0">
                       <div className="flex items-center gap-4">
                         <div className="flex flex-col items-end">
                           <div className="flex gap-2 text-sm mb-1">

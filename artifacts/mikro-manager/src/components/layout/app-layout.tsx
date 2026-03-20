@@ -6,12 +6,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen bg-background text-foreground selection:bg-primary/30">
       <AppSidebar />
-      <main className="flex-1 ml-64 min-h-screen overflow-x-hidden">
+      <main className="flex-1 md:ml-64 min-h-screen overflow-x-hidden">
         <motion.div 
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="max-w-7xl mx-auto p-8"
+          className="max-w-7xl mx-auto p-4 pt-16 md:pt-8 md:p-8"
         >
           {children}
         </motion.div>
