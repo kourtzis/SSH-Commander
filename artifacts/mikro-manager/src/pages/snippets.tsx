@@ -232,11 +232,11 @@ export default function Snippets() {
               <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="What does this do?" />
             </div>
 
-            {availableForComposer.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex justify-between items-end">
-                  <Label>Compose from Existing Snippets (Optional)</Label>
-                </div>
+            <div className="space-y-3">
+              <div className="flex justify-between items-end">
+                <Label>Compose from Existing Snippets (Optional)</Label>
+              </div>
+              {availableForComposer.length > 0 ? (
                 <select
                   className="flex h-10 w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                   onChange={handleAddComposerSnippet}
@@ -247,36 +247,38 @@ export default function Snippets() {
                     <option key={s.id} value={s.id}>{s.name} ({s.category})</option>
                   ))}
                 </select>
+              ) : (
+                <p className="text-xs text-muted-foreground italic p-2 border border-white/5 rounded-xl bg-black/20">No other snippets available yet. Create snippets first, then you can compose new ones from them.</p>
+              )}
 
-                {composerSnippets.length > 0 && (
-                  <div className="space-y-1 border border-white/5 rounded-xl bg-black/20 p-2">
-                    <div className="px-2 py-1 flex justify-between items-center">
-                      <span className="text-xs text-muted-foreground font-semibold uppercase">Composition Order (drag to reorder)</span>
-                      <span className="text-xs text-muted-foreground">{composerSnippets.length} snippet{composerSnippets.length !== 1 ? "s" : ""}</span>
-                    </div>
-                    {composerSnippets.map((s, idx) => (
-                      <div
-                        key={s.instanceId}
-                        draggable
-                        onDragStart={() => composerDrag.onDragStart(idx)}
-                        onDragOver={(e) => composerDrag.onDragOver(e, idx)}
-                        onDrop={composerDrag.onDrop}
-                        className="flex items-center gap-2 p-2.5 rounded-lg bg-black/30 border border-white/5 hover:border-primary/30 transition-colors group cursor-grab active:cursor-grabbing"
-                      >
-                        <GripVertical className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground shrink-0" />
-                        <span className="text-xs text-muted-foreground font-mono w-5 shrink-0">{idx + 1}.</span>
-                        <FileCode className="w-4 h-4 text-primary shrink-0" />
-                        <span className="text-sm font-medium flex-1 truncate">{s.name}</span>
-                        <Badge variant="outline" className="text-xs border-white/10 shrink-0">{s.category}</Badge>
-                        <button onClick={() => removeComposerSnippet(s.instanceId)} className="text-muted-foreground hover:text-destructive transition-colors shrink-0">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
+              {composerSnippets.length > 0 && (
+                <div className="space-y-1 border border-white/5 rounded-xl bg-black/20 p-2">
+                  <div className="px-2 py-1 flex justify-between items-center">
+                    <span className="text-xs text-muted-foreground font-semibold uppercase">Composition Order (drag to reorder)</span>
+                    <span className="text-xs text-muted-foreground">{composerSnippets.length} snippet{composerSnippets.length !== 1 ? "s" : ""}</span>
                   </div>
-                )}
-              </div>
-            )}
+                  {composerSnippets.map((s, idx) => (
+                    <div
+                      key={s.instanceId}
+                      draggable
+                      onDragStart={() => composerDrag.onDragStart(idx)}
+                      onDragOver={(e) => composerDrag.onDragOver(e, idx)}
+                      onDrop={composerDrag.onDrop}
+                      className="flex items-center gap-2 p-2.5 rounded-lg bg-black/30 border border-white/5 hover:border-primary/30 transition-colors group cursor-grab active:cursor-grabbing"
+                    >
+                      <GripVertical className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground shrink-0" />
+                      <span className="text-xs text-muted-foreground font-mono w-5 shrink-0">{idx + 1}.</span>
+                      <FileCode className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-sm font-medium flex-1 truncate">{s.name}</span>
+                      <Badge variant="outline" className="text-xs border-white/10 shrink-0">{s.category}</Badge>
+                      <button onClick={() => removeComposerSnippet(s.instanceId)} className="text-muted-foreground hover:text-destructive transition-colors shrink-0">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="space-y-2">
               <div className="flex justify-between">
