@@ -140,6 +140,15 @@ export default function JobsList() {
             </div>
           ) : (
             <div className="divide-y divide-border/50">
+              <div className="px-4 py-3 bg-black/20 flex items-center gap-3 border-b border-border/50">
+                <Checkbox
+                  checked={selection.isAllSelected}
+                  onCheckedChange={selection.toggleAll}
+                  aria-label="Select all jobs"
+                  {...(selection.isSomeSelected ? { "data-state": "indeterminate" as any } : {})}
+                />
+                <span className="text-xs text-muted-foreground">Select all</span>
+              </div>
               {sortedJobs.map(job => (
                 <div key={job.id} className="flex items-start gap-3 hover:bg-white/5 transition-colors">
                   <div className="pl-4 pt-6 shrink-0" onClick={(e) => e.stopPropagation()}>
