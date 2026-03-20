@@ -1,12 +1,16 @@
+import { useState } from "react";
 import { useListJobs } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, PlaySquare, CheckCircle2, XCircle, PlayCircle, Ban, Play, Copy, Pencil, Clock, Square, Timer } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { useToast } from "@/hooks/use-toast";
+import { useSelection } from "@/hooks/use-selection";
+import { SelectionBar } from "@/components/selection-bar";
 
 function formatDuration(startStr: string, endStr: string | null | undefined): string {
   const start = new Date(startStr).getTime();
@@ -28,10 +32,12 @@ function formatDuration(startStr: string, endStr: string | null | undefined): st
 export default function JobsList() {
   const { data: jobs = [], isLoading } = useListJobs();
   const [, setLocation] = useLocation();
-  const { rerunJob, cancelJob } = useJobsMutations();
+  const { rerunJob, cancelJob, deleteJob } = useJobsMutations();
   const { toast } = useToast();
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const sortedJobs = [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const selection = useSelection(sortedJobs.map(j => j.id));
 
   const getStatusIcon = (status: string) => {
     switch(status) {
@@ -92,6 +98,20 @@ export default function JobsList() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete ${selection.count} selected job(s)?`)) return;
+    setIsBulkDeleting(true);
+    try {
+      await Promise.all(selection.ids.map(id => deleteJob.mutateAsync({ id })));
+      toast({ title: `${selection.count} job(s) deleted` });
+      selection.clear();
+    } catch (err: any) {
+      toast({ title: "Error deleting jobs", description: err.message, variant: "destructive" });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -106,6 +126,8 @@ export default function JobsList() {
         </Link>
       </div>
 
+      <SelectionBar count={selection.count} label="jobs" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
+
       <Card className="glass-panel">
         <CardContent className="p-0">
           {isLoading ? (
@@ -119,8 +141,15 @@ export default function JobsList() {
           ) : (
             <div className="divide-y divide-border/50">
               {sortedJobs.map(job => (
-                <Link key={job.id} href={`/jobs/${job.id}`} className="block hover:bg-white/5 transition-colors">
-                  <div className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div key={job.id} className="flex items-start gap-3 hover:bg-white/5 transition-colors">
+                  <div className="pl-4 pt-6 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={selection.selected.has(job.id)}
+                      onCheckedChange={() => selection.toggle(job.id)}
+                    />
+                  </div>
+                  <Link href={`/jobs/${job.id}`} className="block flex-1 min-w-0">
+                    <div className="p-6 pl-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="space-y-1 min-w-0 flex-1">
                       <h4 className="font-semibold text-lg text-primary">{job.name}</h4>
                       <p className="text-sm text-muted-foreground font-mono truncate max-w-md">
@@ -209,7 +238,8 @@ export default function JobsList() {
                       </div>
                     </div>
                   </div>
-                </Link>
+                  </Link>
+                </div>
               ))}
             </div>
           )}
