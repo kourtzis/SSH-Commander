@@ -3,15 +3,32 @@ import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, PlaySquare, CheckCircle2, XCircle, PlayCircle, Ban, Play, Copy, Pencil, Clock } from "lucide-react";
+import { Plus, PlaySquare, CheckCircle2, XCircle, PlayCircle, Ban, Play, Copy, Pencil, Clock, Square, Timer } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { useToast } from "@/hooks/use-toast";
 
+function formatDuration(startStr: string, endStr: string | null | undefined): string {
+  const start = new Date(startStr).getTime();
+  const end = endStr ? new Date(endStr).getTime() : Date.now();
+  const diffMs = Math.max(0, end - start);
+
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 60) return `${seconds}s`;
+
+  const minutes = Math.floor(seconds / 60);
+  const remSec = seconds % 60;
+  if (minutes < 60) return `${minutes}m ${remSec}s`;
+
+  const hours = Math.floor(minutes / 60);
+  const remMin = minutes % 60;
+  return `${hours}h ${remMin}m`;
+}
+
 export default function JobsList() {
   const { data: jobs = [], isLoading } = useListJobs();
   const [, setLocation] = useLocation();
-  const { rerunJob } = useJobsMutations();
+  const { rerunJob, cancelJob } = useJobsMutations();
   const { toast } = useToast();
 
   const sortedJobs = [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -62,6 +79,19 @@ export default function JobsList() {
     setLocation(`/jobs/new?edit=${jobId}`);
   };
 
+  const handleStop = async (e: React.MouseEvent, jobId: number, status: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const action = status === "scheduled" ? "unschedule" : "stop";
+    if (!confirm(`Are you sure you want to ${action} this job?`)) return;
+    try {
+      await cancelJob.mutateAsync({ id: jobId });
+      toast({ title: status === "scheduled" ? "Job unscheduled" : "Job stopped" });
+    } catch (err: any) {
+      toast({ title: `Failed to ${action} job`, description: err.message, variant: "destructive" });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -96,14 +126,37 @@ export default function JobsList() {
                       <p className="text-sm text-muted-foreground font-mono truncate max-w-md">
                         {job.scriptCode.split('\n')[0]}...
                       </p>
-                      <div className="flex gap-4 text-xs text-muted-foreground pt-1">
-                        <span>Started: {formatDate(job.createdAt)}</span>
-                        {job.completedAt && <span>Finished: {formatDate(job.completedAt)}</span>}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
+                        <span>Start: {formatDate(job.createdAt)}</span>
+                        {job.completedAt ? (
+                          <span>End: {formatDate(job.completedAt)}</span>
+                        ) : job.status === "running" ? (
+                          <span className="text-primary/70">Running...</span>
+                        ) : null}
+                        <span className="flex items-center gap-1">
+                          <Timer className="w-3 h-3" />
+                          {job.status === "scheduled"
+                            ? "Pending"
+                            : formatDuration(job.createdAt, job.completedAt)}
+                          {job.status === "running" && <span className="text-primary/70">(elapsed)</span>}
+                        </span>
                       </div>
                     </div>
                     
                     <div className="flex items-center gap-4 shrink-0">
                       <div className="flex gap-1.5">
+                        {(job.status === "running" || job.status === "scheduled") && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 px-2.5 text-xs gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={(e) => handleStop(e, job.id, job.status)}
+                            title={job.status === "scheduled" ? "Unschedule" : "Stop"}
+                          >
+                            <Square className="w-3.5 h-3.5 fill-current" />
+                            {job.status === "scheduled" ? "Unschedule" : "Stop"}
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
