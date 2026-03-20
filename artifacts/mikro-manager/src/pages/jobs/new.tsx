@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Plus, FileCode } from "lucide-react";
+import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Plus, FileCode, Wifi, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -30,6 +30,25 @@ function useResolvedDeviceCount(routerIds: number[], groupIds: number[]) {
       return data.count as number;
     },
     enabled: routerIds.length > 0 || groupIds.length > 0,
+  });
+}
+
+function useReachability(routerIds: number[]) {
+  return useQuery({
+    queryKey: ["reachability", routerIds],
+    queryFn: async () => {
+      if (routerIds.length === 0) return {} as Record<number, boolean>;
+      const res = await fetch(`${import.meta.env.BASE_URL}api/routers/check-reachability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ routerIds }),
+      });
+      if (!res.ok) return {} as Record<number, boolean>;
+      return (await res.json()) as Record<number, boolean>;
+    },
+    enabled: routerIds.length > 0,
+    refetchInterval: 10000,
   });
 }
 
@@ -92,6 +111,9 @@ export default function NewJob() {
 
   const selectedRouterIds = targets.filter(t => t.type === "router").map(t => t.id);
   const selectedGroupIds = targets.filter(t => t.type === "group").map(t => t.id);
+
+  const allRouterIdsForReachability = routers.map(r => r.id);
+  const { data: reachability = {}, isFetching: isCheckingReachability } = useReachability(allRouterIdsForReachability);
 
   const { data: resolvedCount = 0, isFetching: isResolvingCount } = useResolvedDeviceCount(
     selectedRouterIds,
@@ -288,17 +310,30 @@ export default function NewJob() {
             <div className="space-y-3">
               <Label className="text-base">Routers</Label>
               <div className="h-48 overflow-y-auto border border-white/5 rounded-xl p-2 bg-black/20 space-y-1">
-                {routers.map(r => (
-                  <label key={r.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 rounded border-white/20 bg-black/50 text-primary accent-primary"
-                      checked={isTargetSelected("router", r.id)}
-                      onChange={() => toggleTarget("router", r.id, r.name, r.ipAddress)}
-                    />
-                    <span className="text-sm font-medium">{r.name} <span className="text-muted-foreground font-mono text-xs ml-1">({r.ipAddress})</span></span>
-                  </label>
-                ))}
+                {routers.map(r => {
+                  const isReachable = reachability[r.id];
+                  const hasStatus = r.id in reachability;
+                  return (
+                    <label key={r.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-white/20 bg-black/50 text-primary accent-primary"
+                        checked={isTargetSelected("router", r.id)}
+                        onChange={() => toggleTarget("router", r.id, r.name, r.ipAddress)}
+                      />
+                      {hasStatus ? (
+                        isReachable ? (
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" title="Reachable" />
+                        ) : (
+                          <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" title="Unreachable" />
+                        )
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-muted-foreground/30 shrink-0 animate-pulse" title="Checking..." />
+                      )}
+                      <span className="text-sm font-medium">{r.name} <span className="text-muted-foreground font-mono text-xs ml-1">({r.ipAddress})</span></span>
+                    </label>
+                  );
+                })}
                 {routers.length === 0 && <p className="text-xs text-muted-foreground p-2 italic">No routers configured yet.</p>}
               </div>
             </div>
@@ -324,40 +359,67 @@ export default function NewJob() {
 
           {targets.length > 0 && (
             <div className="space-y-3">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center flex-wrap gap-2">
                 <Label className="text-base">Execution Order (drag to reorder)</Label>
-                <div className="flex items-center gap-2">
-                  <Monitor className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-semibold text-primary">
-                    {isResolvingCount ? "Resolving..." : `${resolvedCount} unique device${resolvedCount !== 1 ? "s" : ""}`}
-                  </span>
+                <div className="flex items-center gap-4">
+                  {selectedRouterIds.length > 0 && Object.keys(reachability).length > 0 && (() => {
+                    const onlineCount = selectedRouterIds.filter(id => reachability[id] === true).length;
+                    const offlineCount = selectedRouterIds.filter(id => reachability[id] === false).length;
+                    return (
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className="flex items-center gap-1 text-emerald-400"><Wifi className="w-3 h-3" />{onlineCount}</span>
+                        <span className="flex items-center gap-1 text-red-400"><WifiOff className="w-3 h-3" />{offlineCount}</span>
+                      </div>
+                    );
+                  })()}
+                  <div className="flex items-center gap-2">
+                    <Monitor className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-semibold text-primary">
+                      {isResolvingCount ? "Resolving..." : `${resolvedCount} unique device${resolvedCount !== 1 ? "s" : ""}`}
+                    </span>
+                  </div>
                 </div>
               </div>
               <div className="space-y-1 border border-white/5 rounded-xl bg-black/20 p-2">
-                {targets.map((t, idx) => (
-                  <div
-                    key={`${t.type}-${t.id}`}
-                    draggable
-                    onDragStart={() => targetDrag.onDragStart(idx)}
-                    onDragOver={(e) => targetDrag.onDragOver(e, idx)}
-                    onDrop={targetDrag.onDrop}
-                    className="flex items-center gap-2 p-2.5 rounded-lg bg-black/30 border border-white/5 hover:border-primary/30 transition-colors group cursor-grab active:cursor-grabbing"
-                  >
-                    <GripVertical className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground shrink-0" />
-                    <span className="text-xs text-muted-foreground font-mono w-5 shrink-0">{idx + 1}.</span>
-                    <Badge variant={t.type === "router" ? "outline" : "secondary"} className="text-xs shrink-0">
-                      {t.type === "router" ? "Router" : "Group"}
-                    </Badge>
-                    <span className="text-sm font-medium flex-1 truncate">{t.label}</span>
-                    {t.sublabel && <span className="text-xs text-muted-foreground font-mono shrink-0">{t.sublabel}</span>}
-                    <button
-                      onClick={() => toggleTarget(t.type, t.id, t.label, t.sublabel)}
-                      className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                {targets.map((t, idx) => {
+                  const routerReachable = t.type === "router" ? reachability[t.id] : undefined;
+                  const routerHasStatus = t.type === "router" && t.id in reachability;
+                  return (
+                    <div
+                      key={`${t.type}-${t.id}`}
+                      draggable
+                      onDragStart={() => targetDrag.onDragStart(idx)}
+                      onDragOver={(e) => targetDrag.onDragOver(e, idx)}
+                      onDrop={targetDrag.onDrop}
+                      className="flex items-center gap-2 p-2.5 rounded-lg bg-black/30 border border-white/5 hover:border-primary/30 transition-colors group cursor-grab active:cursor-grabbing"
                     >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+                      <GripVertical className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground shrink-0" />
+                      <span className="text-xs text-muted-foreground font-mono w-5 shrink-0">{idx + 1}.</span>
+                      {t.type === "router" && (
+                        routerHasStatus ? (
+                          routerReachable ? (
+                            <Wifi className="w-3.5 h-3.5 text-emerald-400 shrink-0" title="SSH port reachable" />
+                          ) : (
+                            <WifiOff className="w-3.5 h-3.5 text-red-400 shrink-0" title="SSH port unreachable" />
+                          )
+                        ) : (
+                          <span className="w-3.5 h-3.5 rounded-full bg-muted-foreground/30 shrink-0 animate-pulse" title="Checking..." />
+                        )
+                      )}
+                      <Badge variant={t.type === "router" ? "outline" : "secondary"} className="text-xs shrink-0">
+                        {t.type === "router" ? "Router" : "Group"}
+                      </Badge>
+                      <span className="text-sm font-medium flex-1 truncate">{t.label}</span>
+                      {t.sublabel && <span className="text-xs text-muted-foreground font-mono shrink-0">{t.sublabel}</span>}
+                      <button
+                        onClick={() => toggleTarget(t.type, t.id, t.label, t.sublabel)}
+                        className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

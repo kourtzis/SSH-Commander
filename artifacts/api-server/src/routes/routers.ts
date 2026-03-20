@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
 import { db, routersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { CreateRouterBody, UpdateRouterBody } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth.js";
+import * as net from "net";
 
 const router: IRouter = Router();
 
@@ -87,6 +88,47 @@ router.delete("/routers/:id", async (req, res) => {
   requireAuth(req);
   await db.delete(routersTable).where(eq(routersTable.id, parseInt(req.params.id)));
   res.json({ message: "Router deleted" });
+});
+
+function checkPort(host: string, port: number, timeoutMs = 3000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let resolved = false;
+    const done = (result: boolean) => {
+      if (resolved) return;
+      resolved = true;
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+    socket.connect(port, host);
+  });
+}
+
+router.post("/routers/check-reachability", async (req, res) => {
+  requireAuth(req);
+  const { routerIds } = req.body as { routerIds: number[] };
+  if (!Array.isArray(routerIds) || routerIds.length === 0) {
+    res.json({});
+    return;
+  }
+
+  const routers = await db
+    .select({ id: routersTable.id, ipAddress: routersTable.ipAddress, sshPort: routersTable.sshPort })
+    .from(routersTable)
+    .where(inArray(routersTable.id, routerIds));
+
+  const results: Record<number, boolean> = {};
+  await Promise.all(
+    routers.map(async (r) => {
+      results[r.id] = await checkPort(r.ipAddress, r.sshPort ?? 22);
+    })
+  );
+
+  res.json(results);
 });
 
 export default router;
