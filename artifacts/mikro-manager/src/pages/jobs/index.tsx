@@ -143,7 +143,29 @@ export default function JobsList() {
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-4 shrink-0">
+                    <div className="flex flex-col items-end gap-2 shrink-0">
+                      <div className="flex items-center gap-4">
+                        <div className="flex flex-col items-end">
+                          <div className="flex gap-2 text-sm mb-1">
+                            <span className="text-emerald-400">{job.completedTasks} OK</span>
+                            <span className="text-destructive">{job.failedTasks} ERR</span>
+                            <span className="text-muted-foreground">/ {job.totalTasks} TOTAL</span>
+                          </div>
+                          {job.status === 'running' && (
+                            <div className="w-32 h-1.5 bg-black/40 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-primary" 
+                                style={{ width: `${(job.completedTasks + job.failedTasks) / job.totalTasks * 100}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <Badge variant={getStatusVariant(job.status) as any} className="capitalize text-sm py-1 px-3">
+                          {getStatusIcon(job.status)}
+                          {job.status}
+                        </Badge>
+                      </div>
+
                       <div className="flex gap-1.5">
                         {(job.status === "running" || job.status === "scheduled") && (
                           <Button
@@ -185,26 +207,6 @@ export default function JobsList() {
                           <Pencil className="w-3.5 h-3.5" /> Edit
                         </Button>
                       </div>
-
-                      <div className="flex flex-col items-end">
-                        <div className="flex gap-2 text-sm mb-1">
-                          <span className="text-emerald-400">{job.completedTasks} OK</span>
-                          <span className="text-destructive">{job.failedTasks} ERR</span>
-                          <span className="text-muted-foreground">/ {job.totalTasks} TOTAL</span>
-                        </div>
-                        {job.status === 'running' && (
-                          <div className="w-32 h-1.5 bg-black/40 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-primary" 
-                              style={{ width: `${(job.completedTasks + job.failedTasks) / job.totalTasks * 100}%` }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                      <Badge variant={getStatusVariant(job.status) as any} className="capitalize text-sm py-1 px-3">
-                        {getStatusIcon(job.status)}
-                        {job.status}
-                      </Badge>
                     </div>
                   </div>
                 </Link>
