@@ -231,11 +231,12 @@ export default function NewJob() {
     reader.readAsBinaryString(file);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (mode: "run" | "schedule") => {
     if (!name || !combinedScript || targets.length === 0) {
       toast({ title: "Missing fields", description: "Please fill in job name, at least one script/snippet, and at least one target.", variant: "destructive" });
       return;
     }
+    setJobMode(mode);
     setIsSubmitting(true);
     try {
       const res = await createJob.mutateAsync({
@@ -245,11 +246,11 @@ export default function NewJob() {
           targetRouterIds: selectedRouterIds,
           targetGroupIds: selectedGroupIds,
           excelData: excelData.length > 0 ? excelData : undefined,
-          mode: jobMode === "schedule" ? "schedule" : undefined,
+          mode: mode === "schedule" ? "schedule" : undefined,
         },
       });
 
-      if (jobMode === "schedule") {
+      if (mode === "schedule") {
         toast({ title: "Job template saved! Now configure the schedule." });
         setLocation(`/scheduler/new?jobId=${res.id}`);
       } else {
@@ -536,35 +537,28 @@ export default function NewJob() {
 
       <Card className="glass-panel">
         <CardContent className="py-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setJobMode("run")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  jobMode === "run"
-                    ? "bg-primary text-primary-foreground shadow-[0_0_15px_rgba(45,212,191,0.3)]"
-                    : "bg-black/30 text-muted-foreground hover:bg-white/10"
-                }`}
-              >
-                <Play className="w-4 h-4 inline mr-1.5 fill-current" /> Run Now
-              </button>
-              <button
-                onClick={() => setJobMode("schedule")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  jobMode === "schedule"
-                    ? "bg-primary text-primary-foreground shadow-[0_0_15px_rgba(45,212,191,0.3)]"
-                    : "bg-black/30 text-muted-foreground hover:bg-white/10"
-                }`}
-              >
-                <Clock className="w-4 h-4 inline mr-1.5" /> Schedule
-              </button>
-            </div>
-            <Button size="lg" onClick={handleSubmit} disabled={isSubmitting} className="text-lg gap-2 shadow-[0_0_20px_rgba(45,212,191,0.3)]">
-              {isSubmitting
-                ? (jobMode === "schedule" ? "Saving..." : "Starting...")
-                : jobMode === "schedule"
-                  ? <><Clock className="w-5 h-5" /> Save & Schedule</>
-                  : <><Play className="w-5 h-5 fill-current" /> Run Now</>
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() => handleSubmit("schedule")}
+              disabled={isSubmitting}
+              className="text-lg gap-2"
+            >
+              {isSubmitting && jobMode === "schedule"
+                ? "Saving..."
+                : <><Clock className="w-5 h-5" /> Save & Schedule</>
+              }
+            </Button>
+            <Button
+              size="lg"
+              onClick={() => handleSubmit("run")}
+              disabled={isSubmitting}
+              className="text-lg gap-2 shadow-[0_0_20px_rgba(45,212,191,0.3)]"
+            >
+              {isSubmitting && jobMode === "run"
+                ? "Starting..."
+                : <><Play className="w-5 h-5 fill-current" /> Run Now</>
               }
             </Button>
           </div>
