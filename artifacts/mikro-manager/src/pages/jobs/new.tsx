@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from "react";
-import { useLocation } from "wouter";
-import { useListRouters, useListGroups, useListSnippets } from "@workspace/api-client-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
+import { useListRouters, useListGroups, useListSnippets, useGetJob } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -95,12 +95,23 @@ function useDragReorder<T>(items: T[], setItems: (items: T[]) => void) {
 
 export default function NewJob() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const copyFromId = params.get("copyFrom");
+  const editId = params.get("edit");
+  const sourceJobId = copyFromId || editId;
+  const isEditMode = !!editId;
+
   const { toast } = useToast();
   const { createJob } = useJobsMutations();
 
   const { data: routers = [] } = useListRouters();
   const { data: groups = [] } = useListGroups();
   const { data: snippets = [] } = useListSnippets();
+
+  const { data: sourceJob } = useGetJob(sourceJobId ? parseInt(sourceJobId) : 0, {
+    query: { enabled: !!sourceJobId },
+  });
 
   const [name, setName] = useState("");
   const [addedSnippets, setAddedSnippets] = useState<SnippetEntry[]>([]);
@@ -109,6 +120,38 @@ export default function NewJob() {
   const [excelData, setExcelData] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [jobMode, setJobMode] = useState<"run" | "schedule">("run");
+  const [populated, setPopulated] = useState(false);
+
+  useEffect(() => {
+    if (!sourceJob || populated || routers.length === 0 || groups.length === 0) return;
+    setPopulated(true);
+
+    setName(copyFromId ? `${sourceJob.name} (copy)` : sourceJob.name);
+    setCustomCode(sourceJob.scriptCode);
+
+    if (sourceJob.status === "scheduled") {
+      setJobMode("schedule");
+    }
+
+    const newTargets: TargetEntry[] = [];
+    if (sourceJob.targetRouterIds) {
+      for (const rid of sourceJob.targetRouterIds) {
+        const r = routers.find(rt => rt.id === rid);
+        if (r) newTargets.push({ type: "router", id: r.id, label: r.name, sublabel: r.ipAddress });
+      }
+    }
+    if (sourceJob.targetGroupIds) {
+      for (const gid of sourceJob.targetGroupIds) {
+        const g = groups.find(gr => gr.id === gid);
+        if (g) newTargets.push({ type: "group", id: g.id, label: g.name });
+      }
+    }
+    setTargets(newTargets);
+
+    if (sourceJob.excelData && Array.isArray(sourceJob.excelData)) {
+      setExcelData(sourceJob.excelData as any[]);
+    }
+  }, [sourceJob, populated, routers, groups, copyFromId]);
 
   const selectedRouterIds = targets.filter(t => t.type === "router").map(t => t.id);
   const selectedGroupIds = targets.filter(t => t.type === "group").map(t => t.id);
@@ -222,8 +265,12 @@ export default function NewJob() {
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Create Batch Job</h1>
-        <p className="text-muted-foreground mt-1">Configure and launch a script across multiple devices.</p>
+        <h1 className="text-3xl font-bold tracking-tight">
+          {isEditMode ? "Edit Batch Job" : copyFromId ? "Copy Batch Job" : "Create Batch Job"}
+        </h1>
+        <p className="text-muted-foreground mt-1">
+          {isEditMode ? "Modify and re-submit this job." : "Configure and launch a script across multiple devices."}
+        </p>
       </div>
 
       <Card className="glass-panel">
@@ -517,7 +564,7 @@ export default function NewJob() {
                 ? (jobMode === "schedule" ? "Saving..." : "Starting...")
                 : jobMode === "schedule"
                   ? <><Clock className="w-5 h-5" /> Save & Schedule</>
-                  : <><Play className="w-5 h-5 fill-current" /> Execute Batch Job</>
+                  : <><Play className="w-5 h-5 fill-current" /> Run Now</>
               }
             </Button>
           </div>

@@ -12,6 +12,7 @@ export * from "./authResponse";
 export * from "./batchJob";
 export * from "./batchJobStatus";
 export * from "./batchJobWithTasks";
+export * from "./batchJobWithTasksExcelDataItem";
 export * from "./batchJobWithTasksStatus";
 export * from "./createGroupRequest";
 export * from "./createJobRequest";

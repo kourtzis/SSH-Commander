@@ -2514,6 +2514,90 @@ export const useCancelJob = <
 };
 
 /**
+ * @summary Re-run a job by cloning it and executing immediately
+ */
+export const getRerunJobUrl = (id: number) => {
+  return `/api/jobs/${id}/rerun`;
+};
+
+export const rerunJob = async (
+  id: number,
+  options?: RequestInit,
+): Promise<BatchJob> => {
+  return customFetch<BatchJob>(getRerunJobUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRerunJobMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rerunJob>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rerunJob>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["rerunJob"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rerunJob>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return rerunJob(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RerunJobMutationResult = NonNullable<
+  Awaited<ReturnType<typeof rerunJob>>
+>;
+
+export type RerunJobMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Re-run a job by cloning it and executing immediately
+ */
+export const useRerunJob = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rerunJob>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof rerunJob>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getRerunJobMutationOptions(options));
+};
+
+/**
  * @summary List all schedules
  */
 export const getListSchedulesUrl = () => {

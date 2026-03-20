@@ -358,6 +358,80 @@ router.get("/jobs/:id", async (req, res) => {
   });
 });
 
+router.post("/jobs/:id/rerun", async (req, res) => {
+  requireAuth(req);
+  const user = await getCurrentUser(req);
+  const id = parseInt(req.params.id);
+
+  const [sourceJob] = await db
+    .select()
+    .from(batchJobsTable)
+    .where(eq(batchJobsTable.id, id))
+    .limit(1);
+
+  if (!sourceJob) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  const allRouterIds = await resolveRouterIds(
+    sourceJob.targetRouterIds ?? [],
+    sourceJob.targetGroupIds ?? []
+  );
+
+  if (allRouterIds.length === 0) {
+    res.status(400).json({ error: "No routers targeted" });
+    return;
+  }
+
+  const routersUnordered = await db
+    .select()
+    .from(routersTable)
+    .where(inArray(routersTable.id, allRouterIds));
+
+  const routerMap = new Map(routersUnordered.map(r => [r.id, r]));
+  const routers = allRouterIds.map(id => routerMap.get(id)!).filter(Boolean);
+
+  const [newJob] = await db
+    .insert(batchJobsTable)
+    .values({
+      name: sourceJob.name,
+      scriptCode: sourceJob.scriptCode,
+      status: "pending",
+      targetRouterIds: sourceJob.targetRouterIds ?? [],
+      targetGroupIds: sourceJob.targetGroupIds ?? [],
+      excelData: sourceJob.excelData as any,
+      totalTasks: routers.length,
+      completedTasks: 0,
+      failedTasks: 0,
+      createdBy: user!.id,
+    })
+    .returning();
+
+  const tasks = routers.map((r) => ({
+    jobId: newJob.id,
+    routerId: r.id,
+    routerName: r.name,
+    routerIp: r.ipAddress,
+    status: "pending" as const,
+  }));
+
+  await db.insert(jobTasksTable).values(tasks);
+
+  await db
+    .update(batchJobsTable)
+    .set({ status: "running" })
+    .where(eq(batchJobsTable.id, newJob.id));
+
+  runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined);
+
+  res.status(201).json({
+    ...newJob,
+    status: "running",
+    completedAt: null,
+  });
+});
+
 router.post("/jobs/:id/cancel", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);

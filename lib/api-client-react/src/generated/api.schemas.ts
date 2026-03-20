@@ -219,6 +219,8 @@ export const BatchJobWithTasksStatus = {
   scheduled: "scheduled",
 } as const;
 
+export type BatchJobWithTasksExcelDataItem = { [key: string]: string };
+
 export type JobTaskStatus = (typeof JobTaskStatus)[keyof typeof JobTaskStatus];
 
 export const JobTaskStatus = {
@@ -250,6 +252,7 @@ export interface BatchJobWithTasks {
   status: BatchJobWithTasksStatus;
   targetRouterIds: number[];
   targetGroupIds: number[];
+  excelData?: BatchJobWithTasksExcelDataItem[] | null;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;

@@ -5,6 +5,7 @@
  * MikroManager API
  * OpenAPI spec version: 0.1.0
  */
+import type { BatchJobWithTasksExcelDataItem } from "./batchJobWithTasksExcelDataItem";
 import type { BatchJobWithTasksStatus } from "./batchJobWithTasksStatus";
 import type { JobTask } from "./jobTask";
 
@@ -15,6 +16,7 @@ export interface BatchJobWithTasks {
   status: BatchJobWithTasksStatus;
   targetRouterIds: number[];
   targetGroupIds: number[];
+  excelData?: BatchJobWithTasksExcelDataItem[] | null;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;

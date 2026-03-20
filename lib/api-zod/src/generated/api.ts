@@ -470,6 +470,7 @@ export const GetJobResponse = zod.object({
   ]),
   targetRouterIds: zod.array(zod.number()),
   targetGroupIds: zod.array(zod.number()),
+  excelData: zod.array(zod.record(zod.string(), zod.string())).nullish(),
   totalTasks: zod.number(),
   completedTasks: zod.number(),
   failedTasks: zod.number(),
@@ -503,6 +504,13 @@ export const CancelJobParams = zod.object({
 
 export const CancelJobResponse = zod.object({
   message: zod.string(),
+});
+
+/**
+ * @summary Re-run a job by cloning it and executing immediately
+ */
+export const RerunJobParams = zod.object({
+  id: zod.coerce.number(),
 });
 
 /**

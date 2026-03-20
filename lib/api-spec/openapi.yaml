@@ -613,6 +613,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
 
+  /jobs/{id}/rerun:
+    post:
+      operationId: rerunJob
+      tags: [jobs]
+      summary: Re-run a job by cloning it and executing immediately
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "201":
+          description: New job created and started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchJob"
+
   /schedules:
     get:
       operationId: listSchedules
@@ -1087,6 +1106,13 @@ components:
           type: array
           items:
             type: integer
+        excelData:
+          type: array
+          items:
+            type: object
+            additionalProperties:
+              type: string
+          nullable: true
         totalTasks:
           type: integer
         completedTasks:

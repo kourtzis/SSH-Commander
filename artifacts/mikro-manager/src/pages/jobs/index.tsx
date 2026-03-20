@@ -1,15 +1,19 @@
 import { useListJobs } from "@workspace/api-client-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, PlaySquare, CheckCircle2, XCircle, PlayCircle, Ban } from "lucide-react";
+import { Plus, PlaySquare, CheckCircle2, XCircle, PlayCircle, Ban, Play, Copy, Pencil, Clock } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { useJobsMutations } from "@/hooks/use-mutations";
+import { useToast } from "@/hooks/use-toast";
 
 export default function JobsList() {
   const { data: jobs = [], isLoading } = useListJobs();
+  const [, setLocation] = useLocation();
+  const { rerunJob } = useJobsMutations();
+  const { toast } = useToast();
 
-  // Sort jobs descending by date
   const sortedJobs = [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const getStatusIcon = (status: string) => {
@@ -18,6 +22,7 @@ export default function JobsList() {
       case 'failed': return <XCircle className="w-4 h-4 mr-1.5" />;
       case 'running': return <PlayCircle className="w-4 h-4 mr-1.5 animate-pulse" />;
       case 'cancelled': return <Ban className="w-4 h-4 mr-1.5" />;
+      case 'scheduled': return <Clock className="w-4 h-4 mr-1.5" />;
       default: return null;
     }
   };
@@ -28,8 +33,33 @@ export default function JobsList() {
       case 'failed': return 'destructive';
       case 'running': return 'default';
       case 'cancelled': return 'secondary';
+      case 'scheduled': return 'outline';
       default: return 'outline';
     }
+  };
+
+  const handleRerun = async (e: React.MouseEvent, jobId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const newJob = await rerunJob.mutateAsync({ id: jobId });
+      toast({ title: "Job started!" });
+      setLocation(`/jobs/${newJob.id}`);
+    } catch (err: any) {
+      toast({ title: "Failed to re-run job", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleCopyToNew = (e: React.MouseEvent, jobId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLocation(`/jobs/new?copyFrom=${jobId}`);
+  };
+
+  const handleEdit = (e: React.MouseEvent, jobId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLocation(`/jobs/new?edit=${jobId}`);
   };
 
   return (
@@ -61,7 +91,7 @@ export default function JobsList() {
               {sortedJobs.map(job => (
                 <Link key={job.id} href={`/jobs/${job.id}`} className="block hover:bg-white/5 transition-colors">
                   <div className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="space-y-1">
+                    <div className="space-y-1 min-w-0 flex-1">
                       <h4 className="font-semibold text-lg text-primary">{job.name}</h4>
                       <p className="text-sm text-muted-foreground font-mono truncate max-w-md">
                         {job.scriptCode.split('\n')[0]}...
@@ -72,7 +102,37 @@ export default function JobsList() {
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-4 shrink-0">
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2.5 text-xs gap-1.5 text-primary hover:text-primary hover:bg-primary/10"
+                          onClick={(e) => handleRerun(e, job.id)}
+                          title="Run Now"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" /> Run
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2.5 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => handleCopyToNew(e, job.id)}
+                          title="Copy to New"
+                        >
+                          <Copy className="w-3.5 h-3.5" /> Copy
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2.5 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => handleEdit(e, job.id)}
+                          title="Edit"
+                        >
+                          <Pencil className="w-3.5 h-3.5" /> Edit
+                        </Button>
+                      </div>
+
                       <div className="flex flex-col items-end">
                         <div className="flex gap-2 text-sm mb-1">
                           <span className="text-emerald-400">{job.completedTasks} OK</span>
