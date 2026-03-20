@@ -558,7 +558,7 @@ export default function NewJob() {
             >
               {isSubmitting && jobMode === "run"
                 ? "Starting..."
-                : <><Play className="w-5 h-5 fill-current" /> Run Now</>
+                : <><Play className="w-5 h-5 fill-current" /> Save & Run</>
               }
             </Button>
           </div>
