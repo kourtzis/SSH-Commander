@@ -6,6 +6,7 @@ import routersRouter from "./routers.js";
 import groupsRouter from "./groups.js";
 import snippetsRouter from "./snippets.js";
 import jobsRouter from "./jobs.js";
+import schedulesRouter from "./schedules.js";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(routersRouter);
 router.use(groupsRouter);
 router.use(snippetsRouter);
 router.use(jobsRouter);
+router.use(schedulesRouter);
 
 export default router;

@@ -15,4 +15,5 @@ export const BatchJobWithTasksStatus = {
   completed: "completed",
   failed: "failed",
   cancelled: "cancelled",
+  scheduled: "scheduled",
 } as const;

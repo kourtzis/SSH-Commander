@@ -21,6 +21,8 @@ tags:
     description: Code snippet management
   - name: jobs
     description: Batch job management
+  - name: schedules
+    description: Job schedule management
 
 paths:
   /healthz:
@@ -611,6 +613,97 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
 
+  /schedules:
+    get:
+      operationId: listSchedules
+      tags: [schedules]
+      summary: List all schedules
+      responses:
+        "200":
+          description: List of schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Schedule"
+    post:
+      operationId: createSchedule
+      tags: [schedules]
+      summary: Create a new schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScheduleRequest"
+      responses:
+        "201":
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+
+  /schedules/{id}:
+    get:
+      operationId: getSchedule
+      tags: [schedules]
+      summary: Get a schedule by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Schedule details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+    put:
+      operationId: updateSchedule
+      tags: [schedules]
+      summary: Update a schedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateScheduleRequest"
+      responses:
+        "200":
+          description: Schedule updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+    delete:
+      operationId: deleteSchedule
+      tags: [schedules]
+      summary: Delete a schedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Schedule deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -937,7 +1030,7 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, running, completed, failed, cancelled]
+          enum: [pending, running, completed, failed, cancelled, scheduled]
         targetRouterIds:
           type: array
           items:
@@ -985,7 +1078,7 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, running, completed, failed, cancelled]
+          enum: [pending, running, completed, failed, cancelled, scheduled]
         targetRouterIds:
           type: array
           items:
@@ -1093,8 +1186,100 @@ components:
             additionalProperties:
               type: string
           description: Rows from Excel file for tag substitution, each row is applied per router
+        mode:
+          type: string
+          enum: [run, schedule]
+          description: Run executes immediately (default), schedule saves as template for scheduling
       required:
         - name
         - scriptCode
         - targetRouterIds
         - targetGroupIds
+
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        jobId:
+          type: integer
+        type:
+          type: string
+          enum: [once, interval, weekly]
+        scheduledAt:
+          type: string
+          format: date-time
+          nullable: true
+        intervalMinutes:
+          type: integer
+          nullable: true
+        daysOfWeek:
+          type: array
+          items:
+            type: integer
+          nullable: true
+        timeOfDay:
+          type: string
+          nullable: true
+        nextRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        enabled:
+          type: boolean
+        runCount:
+          type: integer
+        createdBy:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - jobId
+        - type
+        - enabled
+        - runCount
+        - createdBy
+        - createdAt
+
+    CreateScheduleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        jobId:
+          type: integer
+        type:
+          type: string
+          enum: [once, interval, weekly]
+        scheduledAt:
+          type: string
+          format: date-time
+        intervalMinutes:
+          type: integer
+        daysOfWeek:
+          type: array
+          items:
+            type: integer
+        timeOfDay:
+          type: string
+      required:
+        - name
+        - jobId
+        - type
+
+    UpdateScheduleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean

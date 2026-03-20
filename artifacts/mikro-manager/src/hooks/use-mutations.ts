@@ -4,7 +4,8 @@ import {
   useCreateGroup, useUpdateGroup, useDeleteGroup, getListGroupsQueryKey, getGetGroupQueryKey, useAddGroupMember, useRemoveGroupMember,
   useCreateSnippet, useUpdateSnippet, useDeleteSnippet, getListSnippetsQueryKey, getGetSnippetQueryKey,
   useCreateJob, useCancelJob, getListJobsQueryKey, getGetJobQueryKey,
-  useCreateUser, useUpdateUser, useDeleteUser, getListUsersQueryKey
+  useCreateUser, useUpdateUser, useDeleteUser, getListUsersQueryKey,
+  useCreateSchedule, useUpdateSchedule, useDeleteSchedule, getListSchedulesQueryKey
 } from "@workspace/api-client-react";
 
 // Wrappers for generated Orval mutations to add cache invalidation
@@ -131,4 +132,22 @@ export function useUsersMutations() {
   });
 
   return { createUser, updateUser, deleteUser };
+}
+
+export function useSchedulesMutations() {
+  const qc = useQueryClient();
+
+  const createSchedule = useCreateSchedule({
+    mutation: { onSuccess: () => qc.invalidateQueries({ queryKey: getListSchedulesQueryKey() }) }
+  });
+
+  const updateSchedule = useUpdateSchedule({
+    mutation: { onSuccess: () => qc.invalidateQueries({ queryKey: getListSchedulesQueryKey() }) }
+  });
+
+  const deleteSchedule = useDeleteSchedule({
+    mutation: { onSuccess: () => qc.invalidateQueries({ queryKey: getListSchedulesQueryKey() }) }
+  });
+
+  return { createSchedule, updateSchedule, deleteSchedule };
 }

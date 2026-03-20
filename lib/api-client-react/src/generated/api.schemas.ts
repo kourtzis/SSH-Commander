@@ -189,6 +189,7 @@ export const BatchJobStatus = {
   completed: "completed",
   failed: "failed",
   cancelled: "cancelled",
+  scheduled: "scheduled",
 } as const;
 
 export interface BatchJob {
@@ -215,6 +216,7 @@ export const BatchJobWithTasksStatus = {
   completed: "completed",
   failed: "failed",
   cancelled: "cancelled",
+  scheduled: "scheduled",
 } as const;
 
 export type JobTaskStatus = (typeof JobTaskStatus)[keyof typeof JobTaskStatus];
@@ -259,6 +261,17 @@ export interface BatchJobWithTasks {
 
 export type CreateJobRequestExcelDataItem = { [key: string]: string };
 
+/**
+ * Run executes immediately (default), schedule saves as template for scheduling
+ */
+export type CreateJobRequestMode =
+  (typeof CreateJobRequestMode)[keyof typeof CreateJobRequestMode];
+
+export const CreateJobRequestMode = {
+  run: "run",
+  schedule: "schedule",
+} as const;
+
 export interface CreateJobRequest {
   name: string;
   scriptCode: string;
@@ -266,6 +279,57 @@ export interface CreateJobRequest {
   targetGroupIds: number[];
   /** Rows from Excel file for tag substitution, each row is applied per router */
   excelData?: CreateJobRequestExcelDataItem[];
+  /** Run executes immediately (default), schedule saves as template for scheduling */
+  mode?: CreateJobRequestMode;
+}
+
+export type ScheduleType = (typeof ScheduleType)[keyof typeof ScheduleType];
+
+export const ScheduleType = {
+  once: "once",
+  interval: "interval",
+  weekly: "weekly",
+} as const;
+
+export interface Schedule {
+  id: number;
+  name: string;
+  jobId: number;
+  type: ScheduleType;
+  scheduledAt?: string | null;
+  intervalMinutes?: number | null;
+  daysOfWeek?: number[] | null;
+  timeOfDay?: string | null;
+  nextRunAt?: string | null;
+  lastRunAt?: string | null;
+  enabled: boolean;
+  runCount: number;
+  createdBy: number;
+  createdAt: string;
+}
+
+export type CreateScheduleRequestType =
+  (typeof CreateScheduleRequestType)[keyof typeof CreateScheduleRequestType];
+
+export const CreateScheduleRequestType = {
+  once: "once",
+  interval: "interval",
+  weekly: "weekly",
+} as const;
+
+export interface CreateScheduleRequest {
+  name: string;
+  jobId: number;
+  type: CreateScheduleRequestType;
+  scheduledAt?: string;
+  intervalMinutes?: number;
+  daysOfWeek?: number[];
+  timeOfDay?: string;
+}
+
+export interface UpdateScheduleRequest {
+  name?: string;
+  enabled?: boolean;
 }
 
 export type ListSnippetsParams = {

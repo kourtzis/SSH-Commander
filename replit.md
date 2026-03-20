@@ -32,13 +32,14 @@ artifacts-monorepo/
 │   │   └── src/
 │   │       ├── lib/auth.ts         # Session auth helpers
 │   │       ├── lib/ssh.ts          # SSH execution + tag substitution
-│   │       └── routes/             # auth, users, routers, groups, snippets, jobs
+│   │       ├── lib/scheduler.ts     # Scheduler tick engine (30s interval)
+│   │       └── routes/             # auth, users, routers, groups, snippets, jobs, schedules
 │   └── mikro-manager/      # React + Vite frontend
 │       └── src/
 │           ├── contexts/           # auth-context.tsx (AuthProvider + useAuth)
 │           ├── components/layout/  # sidebar, app-layout
 │           ├── components/ui/      # shadcn UI components
-│           └── pages/              # dashboard, routers, groups, snippets, jobs, users, login
+│           └── pages/              # dashboard, routers, groups, snippets, jobs, scheduler, users, login
 ├── lib/
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks
@@ -61,6 +62,7 @@ artifacts-monorepo/
 6. **Multi-snippet scripts** — Add multiple snippets from the library to a job, drag to reorder, and they are concatenated sequentially; optional custom code appended after snippets
 7. **Device reachability** — Real-time SSH port reachability check for all routers in the job form (green/red indicators, auto-refreshes every 10s)
 8. **Excel/CSV tag substitution** — Upload .xlsx or paste CSV data; column headers become tag names, rows applied per router in job order
+9. **Job scheduler** — Schedule jobs for one-time, interval-based, or weekly recurring execution; scheduler tick engine runs every 30s; one-time schedules execute the template job directly, recurring schedules clone it as new batch jobs
 
 ## TypeScript & Composite Projects
 
@@ -74,8 +76,9 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 - `group_routers` — join table (group_id, router_id)
 - `group_subgroups` — join table (parent_group_id, child_group_id)
 - `snippets` — id, name, category, code, description, created_at, updated_at
-- `batch_jobs` — id, name, script_code, status, target_router_ids[], target_group_ids[], excel_data, totals, created_by, timestamps
+- `batch_jobs` — id, name, script_code, status (pending|running|completed|failed|cancelled|scheduled), target_router_ids[], target_group_ids[], excel_data, totals, created_by, timestamps
 - `job_tasks` — id, job_id, router_id, router_name, router_ip, status, output, error_message, timestamps
+- `schedules` — id, name, job_id (template), type (once|interval|weekly), scheduled_at, interval_minutes, days_of_week[], time_of_day, next_run_at, last_run_at, enabled, run_count, created_by, created_at
 
 ## SSH Execution
 

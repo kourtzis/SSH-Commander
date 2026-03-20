@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CreateJobRequestExcelDataItem } from "./createJobRequestExcelDataItem";
+import type { CreateJobRequestMode } from "./createJobRequestMode";
 
 export interface CreateJobRequest {
   name: string;
@@ -14,4 +15,6 @@ export interface CreateJobRequest {
   targetGroupIds: number[];
   /** Rows from Excel file for tag substitution, each row is applied per router */
   excelData?: CreateJobRequestExcelDataItem[];
+  /** Run executes immediately (default), schedule saves as template for scheduling */
+  mode?: CreateJobRequestMode;
 }

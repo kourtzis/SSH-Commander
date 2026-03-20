@@ -93,7 +93,7 @@ router.post("/jobs", async (req, res) => {
     return;
   }
 
-  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData } = parsed.data;
+  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData, mode } = parsed.data;
 
   const allRouterIds = await resolveRouterIds(
     targetRouterIds ?? [],
@@ -102,6 +102,30 @@ router.post("/jobs", async (req, res) => {
 
   if (allRouterIds.length === 0) {
     res.status(400).json({ error: "No routers targeted" });
+    return;
+  }
+
+  if (mode === "schedule") {
+    const [job] = await db
+      .insert(batchJobsTable)
+      .values({
+        name,
+        scriptCode,
+        status: "scheduled",
+        targetRouterIds: targetRouterIds ?? [],
+        targetGroupIds: targetGroupIds ?? [],
+        excelData: excelData as any,
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        createdBy: user!.id,
+      })
+      .returning();
+
+    res.status(201).json({
+      ...job,
+      completedAt: null,
+    });
     return;
   }
 

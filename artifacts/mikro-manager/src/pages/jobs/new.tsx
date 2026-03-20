@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Plus, FileCode, Wifi, WifiOff } from "lucide-react";
+import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Plus, FileCode, Wifi, WifiOff, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -108,6 +108,7 @@ export default function NewJob() {
   const [targets, setTargets] = useState<TargetEntry[]>([]);
   const [excelData, setExcelData] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [jobMode, setJobMode] = useState<"run" | "schedule">("run");
 
   const selectedRouterIds = targets.filter(t => t.type === "router").map(t => t.id);
   const selectedGroupIds = targets.filter(t => t.type === "group").map(t => t.id);
@@ -201,10 +202,17 @@ export default function NewJob() {
           targetRouterIds: selectedRouterIds,
           targetGroupIds: selectedGroupIds,
           excelData: excelData.length > 0 ? excelData : undefined,
+          mode: jobMode === "schedule" ? "schedule" : undefined,
         },
       });
-      toast({ title: "Job started successfully!" });
-      setLocation(`/jobs/${res.id}`);
+
+      if (jobMode === "schedule") {
+        toast({ title: "Job template saved! Now configure the schedule." });
+        setLocation(`/scheduler/new?jobId=${res.id}`);
+      } else {
+        toast({ title: "Job started successfully!" });
+        setLocation(`/jobs/${res.id}`);
+      }
     } catch (e: any) {
       toast({ title: "Failed to start job", description: e.message, variant: "destructive" });
       setIsSubmitting(false);
@@ -479,11 +487,42 @@ export default function NewJob() {
         </CardContent>
       </Card>
 
-      <div className="flex justify-end pt-4">
-        <Button size="lg" onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto text-lg gap-2 shadow-[0_0_20px_rgba(45,212,191,0.3)]">
-          {isSubmitting ? "Starting..." : <><Play className="w-5 h-5 fill-current" /> Execute Batch Job</>}
-        </Button>
-      </div>
+      <Card className="glass-panel">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setJobMode("run")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  jobMode === "run"
+                    ? "bg-primary text-primary-foreground shadow-[0_0_15px_rgba(45,212,191,0.3)]"
+                    : "bg-black/30 text-muted-foreground hover:bg-white/10"
+                }`}
+              >
+                <Play className="w-4 h-4 inline mr-1.5 fill-current" /> Run Now
+              </button>
+              <button
+                onClick={() => setJobMode("schedule")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  jobMode === "schedule"
+                    ? "bg-primary text-primary-foreground shadow-[0_0_15px_rgba(45,212,191,0.3)]"
+                    : "bg-black/30 text-muted-foreground hover:bg-white/10"
+                }`}
+              >
+                <Clock className="w-4 h-4 inline mr-1.5" /> Schedule
+              </button>
+            </div>
+            <Button size="lg" onClick={handleSubmit} disabled={isSubmitting} className="text-lg gap-2 shadow-[0_0_20px_rgba(45,212,191,0.3)]">
+              {isSubmitting
+                ? (jobMode === "schedule" ? "Saving..." : "Starting...")
+                : jobMode === "schedule"
+                  ? <><Clock className="w-5 h-5" /> Save & Schedule</>
+                  : <><Play className="w-5 h-5 fill-current" /> Execute Batch Job</>
+              }
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -18,6 +18,8 @@ import JobsList from "@/pages/jobs/index";
 import NewJob from "@/pages/jobs/new";
 import JobDetail from "@/pages/jobs/detail";
 import Users from "@/pages/users";
+import SchedulerList from "@/pages/scheduler/index";
+import NewSchedule from "@/pages/scheduler/new";
 
 const queryClient = new QueryClient();
 
@@ -62,6 +64,8 @@ function Router() {
       <Route path="/jobs" component={() => <ProtectedRoute component={JobsList} />} />
       <Route path="/jobs/new" component={() => <ProtectedRoute component={NewJob} />} />
       <Route path="/jobs/:id" component={() => <ProtectedRoute component={JobDetail} />} />
+      <Route path="/scheduler" component={() => <ProtectedRoute component={SchedulerList} />} />
+      <Route path="/scheduler/new" component={() => <ProtectedRoute component={NewSchedule} />} />
       <Route path="/users" component={() => <ProtectedRoute component={Users} />} />
       <Route component={NotFound} />
     </Switch>

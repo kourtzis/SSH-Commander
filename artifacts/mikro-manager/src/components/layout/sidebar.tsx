@@ -8,7 +8,8 @@ import {
   PlaySquare,
   Users,
   LogOut,
-  TerminalSquare
+  TerminalSquare,
+  Clock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ const navItems = [
   { name: "Groups", href: "/groups", icon: Network },
   { name: "Snippets", href: "/snippets", icon: Code2 },
   { name: "Batch Jobs", href: "/jobs", icon: PlaySquare },
+  { name: "Scheduler", href: "/scheduler", icon: Clock },
 ];
 
 export function AppSidebar() {

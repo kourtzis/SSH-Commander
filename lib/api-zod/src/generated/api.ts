@@ -408,7 +408,14 @@ export const ListJobsResponseItem = zod.object({
   id: zod.number(),
   name: zod.string(),
   scriptCode: zod.string(),
-  status: zod.enum(["pending", "running", "completed", "failed", "cancelled"]),
+  status: zod.enum([
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "scheduled",
+  ]),
   targetRouterIds: zod.array(zod.number()),
   targetGroupIds: zod.array(zod.number()),
   totalTasks: zod.number(),
@@ -434,6 +441,12 @@ export const CreateJobBody = zod.object({
     .describe(
       "Rows from Excel file for tag substitution, each row is applied per router",
     ),
+  mode: zod
+    .enum(["run", "schedule"])
+    .optional()
+    .describe(
+      "Run executes immediately (default), schedule saves as template for scheduling",
+    ),
 });
 
 /**
@@ -447,7 +460,14 @@ export const GetJobResponse = zod.object({
   id: zod.number(),
   name: zod.string(),
   scriptCode: zod.string(),
-  status: zod.enum(["pending", "running", "completed", "failed", "cancelled"]),
+  status: zod.enum([
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "scheduled",
+  ]),
   targetRouterIds: zod.array(zod.number()),
   targetGroupIds: zod.array(zod.number()),
   totalTasks: zod.number(),
@@ -482,5 +502,103 @@ export const CancelJobParams = zod.object({
 });
 
 export const CancelJobResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary List all schedules
+ */
+export const ListSchedulesResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  jobId: zod.number(),
+  type: zod.enum(["once", "interval", "weekly"]),
+  scheduledAt: zod.date().nullish(),
+  intervalMinutes: zod.number().nullish(),
+  daysOfWeek: zod.array(zod.number()).nullish(),
+  timeOfDay: zod.string().nullish(),
+  nextRunAt: zod.date().nullish(),
+  lastRunAt: zod.date().nullish(),
+  enabled: zod.boolean(),
+  runCount: zod.number(),
+  createdBy: zod.number(),
+  createdAt: zod.date(),
+});
+export const ListSchedulesResponse = zod.array(ListSchedulesResponseItem);
+
+/**
+ * @summary Create a new schedule
+ */
+export const CreateScheduleBody = zod.object({
+  name: zod.string(),
+  jobId: zod.number(),
+  type: zod.enum(["once", "interval", "weekly"]),
+  scheduledAt: zod.date().optional(),
+  intervalMinutes: zod.number().optional(),
+  daysOfWeek: zod.array(zod.number()).optional(),
+  timeOfDay: zod.string().optional(),
+});
+
+/**
+ * @summary Get a schedule by ID
+ */
+export const GetScheduleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetScheduleResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  jobId: zod.number(),
+  type: zod.enum(["once", "interval", "weekly"]),
+  scheduledAt: zod.date().nullish(),
+  intervalMinutes: zod.number().nullish(),
+  daysOfWeek: zod.array(zod.number()).nullish(),
+  timeOfDay: zod.string().nullish(),
+  nextRunAt: zod.date().nullish(),
+  lastRunAt: zod.date().nullish(),
+  enabled: zod.boolean(),
+  runCount: zod.number(),
+  createdBy: zod.number(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Update a schedule
+ */
+export const UpdateScheduleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateScheduleBody = zod.object({
+  name: zod.string().optional(),
+  enabled: zod.boolean().optional(),
+});
+
+export const UpdateScheduleResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  jobId: zod.number(),
+  type: zod.enum(["once", "interval", "weekly"]),
+  scheduledAt: zod.date().nullish(),
+  intervalMinutes: zod.number().nullish(),
+  daysOfWeek: zod.array(zod.number()).nullish(),
+  timeOfDay: zod.string().nullish(),
+  nextRunAt: zod.date().nullish(),
+  lastRunAt: zod.date().nullish(),
+  enabled: zod.boolean(),
+  runCount: zod.number(),
+  createdBy: zod.number(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Delete a schedule
+ */
+export const DeleteScheduleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteScheduleResponse = zod.object({
   message: zod.string(),
 });
