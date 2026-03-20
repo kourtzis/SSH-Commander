@@ -1,3 +1,5 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import express, { type Express } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -25,6 +27,15 @@ app.use(
 );
 
 app.use("/api", router);
+
+if (process.env.NODE_ENV === "production") {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const publicDir = process.env.PUBLIC_DIR || path.resolve(__dirname, "../public");
+  app.use(express.static(publicDir));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(publicDir, "index.html"));
+  });
+}
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status = err.status ?? 500;

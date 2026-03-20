@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mikromanager
+      POSTGRES_USER: mikromanager
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mikromanager"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://mikromanager:changeme@db:5432/mikromanager
+      SESSION_SECRET: change-this-to-a-long-random-string
+      PORT: 3000
+      NODE_ENV: production
+      PUBLIC_DIR: /app/public
+
+volumes:
+  pgdata:

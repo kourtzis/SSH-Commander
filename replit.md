@@ -105,3 +105,11 @@ Tag substitution: `{{TAG_NAME}}` in script code is replaced with values from the
 - Seed DB: `pnpm --filter @workspace/scripts run seed`
 - Push schema: `pnpm --filter @workspace/db run push`
 - Codegen: `pnpm --filter @workspace/api-spec run codegen`
+
+## Docker
+
+- `Dockerfile` — Multi-stage build (deps → build → production)
+- `docker-compose.yml` — App + PostgreSQL with health checks
+- `docker-entrypoint.sh` — Auto-runs DB migrations and seeds admin user on startup
+- In production (`NODE_ENV=production`), the API server serves the frontend static files from `PUBLIC_DIR`
+- Quick start: `docker compose up -d`
