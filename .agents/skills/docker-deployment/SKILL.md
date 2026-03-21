@@ -188,12 +188,54 @@ PORT=3000 NODE_ENV=production PUBLIC_DIR=./public node dist/index.cjs
 
 This catches issues like missing modules, broken `import.meta`, and Express 5 route syntax errors — all of which pass the build step but crash at runtime.
 
-## Checklist Before Creating a Dockerfile
+### 11. Production Session Store
 
-- [ ] Identify all native modules (externals in esbuild config) — they need build tools
-- [ ] Check for `import.meta.url` / `import.meta.dirname` usage in bundled code
+Express's default `MemoryStore` leaks memory and doesn't survive restarts. Use a database-backed store in production:
+
+```typescript
+if (process.env.NODE_ENV === "production" && process.env.DATABASE_URL) {
+  try {
+    const connectPgSimple = require("connect-pg-simple");
+    const PgStore = connectPgSimple(session);
+    sessionConfig.store = new PgStore({
+      conString: process.env.DATABASE_URL,
+      createTableIfMissing: true,
+    });
+  } catch (err) {
+    console.warn("PG session store failed, using memory store:", err);
+  }
+}
+```
+
+Use `require()` instead of `import` in CJS bundles and wrap in try-catch for resilience.
+
+### 12. Docker Compose: Database Volume Gotcha
+
+If you change `POSTGRES_PASSWORD` in `docker-compose.yml` after the database volume has been created, PostgreSQL ignores the change (it only applies on first init). Result: `password authentication failed`.
+
+**Fix:** Remove the volume and recreate:
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+## Pre-Deployment Checklist
+
+### Build Configuration
+- [ ] Identify native modules in esbuild externals — they need `python3 make g++` in Docker
+- [ ] Check esbuild external dependency chains — if A depends on external B, A must also be external
+- [ ] Check for `import.meta.url` / `import.meta.dirname` in bundled code — use `process.cwd()` instead
 - [ ] Check vite.config for hard env var requirements — add build-time defaults
-- [ ] Check for Replit-specific imports — wrap in try/catch
-- [ ] Check seed/migration scripts — do they need devDependencies at runtime?
-- [ ] Ensure entrypoint scripts have LF line endings (add `sed` safety net)
-- [ ] Use fresh `pnpm install` in production stage — never copy `node_modules`
+- [ ] Check for Replit-specific plugin imports — wrap in dynamic import with try/catch
+
+### Docker Setup
+- [ ] Use fresh `pnpm install` in production stage — never copy `node_modules` between stages
+- [ ] Install native build tools (`python3 make g++`) in both build and production stages
+- [ ] Strip CRLF line endings from entrypoint scripts with `sed` safety net
+- [ ] Don't use `--prod` flag if seed/migration scripts need devDependencies like `tsx`
+
+### Runtime Validation
+- [ ] **Test the production bundle locally** before Dockerizing: `PORT=3000 NODE_ENV=production node dist/index.cjs`
+- [ ] Check Express version — Express 5 requires `/{*splat}` instead of `*` for catch-all routes
+- [ ] Add `uncaughtException` and `unhandledRejection` handlers for clear error output
+- [ ] Use database-backed session store in production (not MemoryStore)
