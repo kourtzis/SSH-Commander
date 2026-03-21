@@ -163,6 +163,31 @@ const nativeExternals = ["connect-pg-simple", "pg", ...]; // both external
 
 **Rule of thumb:** If package A depends on package B, and B is external, then A must also be external.
 
+### 9. Express 5 Wildcard Routes Use Different Syntax
+
+Express 5 uses a new `path-to-regexp` that rejects bare `*` wildcards. This crashes the app at startup with `TypeError: Missing parameter name at index 1: *`.
+
+**Wrong (Express 5):**
+```typescript
+app.get("*", handler);
+```
+
+**Correct (Express 5):**
+```typescript
+app.get("/{*splat}", handler);
+```
+
+This is especially common in SPA catch-all routes that serve `index.html`. The error only surfaces in the production bundle because the catch-all route is often gated behind `NODE_ENV === "production"`.
+
+### 10. Always Test the Production Bundle Locally Before Dockerizing
+
+Run the built bundle with production env vars to catch runtime errors early:
+```bash
+PORT=3000 NODE_ENV=production PUBLIC_DIR=./public node dist/index.cjs
+```
+
+This catches issues like missing modules, broken `import.meta`, and Express 5 route syntax errors — all of which pass the build step but crash at runtime.
+
 ## Checklist Before Creating a Dockerfile
 
 - [ ] Identify all native modules (externals in esbuild config) — they need build tools
