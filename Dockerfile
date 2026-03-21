@@ -24,18 +24,19 @@ RUN pnpm -r --filter @workspace/db --if-present run build && \
 
 FROM base AS production
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/package.json ./
-COPY --from=build /app/lib/db ./lib/db
-COPY --from=build /app/lib/api-spec/package.json ./lib/api-spec/
-COPY --from=build /app/lib/api-client-react/package.json ./lib/api-client-react/
-COPY --from=build /app/lib/api-zod/package.json ./lib/api-zod/
-COPY --from=build /app/artifacts/api-server/package.json ./artifacts/api-server/
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY lib/db/package.json lib/db/tsconfig.json ./lib/db/
+COPY lib/api-spec/package.json lib/api-spec/
+COPY lib/api-client-react/package.json lib/api-client-react/
+COPY lib/api-zod/package.json lib/api-zod/
+COPY artifacts/api-server/package.json artifacts/api-server/
+COPY artifacts/mikro-manager/package.json artifacts/mikro-manager/
+COPY scripts/package.json scripts/
+RUN pnpm install --frozen-lockfile
 COPY --from=build /app/artifacts/api-server/dist ./artifacts/api-server/dist
-COPY --from=build /app/artifacts/mikro-manager/package.json ./artifacts/mikro-manager/
 COPY --from=build /app/artifacts/mikro-manager/dist/public ./public
+COPY --from=build /app/lib/db ./lib/db
 COPY --from=build /app/scripts ./scripts
-COPY --from=build /app/tsconfig.base.json ./tsconfig.base.json
 COPY docker-entrypoint.sh ./
 RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
 
