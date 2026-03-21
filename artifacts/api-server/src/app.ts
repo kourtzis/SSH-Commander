@@ -3,6 +3,7 @@ import express, { type Express } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import router from "./routes/index.js";
 
 const app: Express = express();
@@ -11,19 +12,28 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET ?? "mikro-manager-secret-key-change-in-prod",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: false,
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    },
-  })
-);
+
+const sessionConfig: session.SessionOptions = {
+  secret: process.env.SESSION_SECRET ?? "mikro-manager-secret-key-change-in-prod",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false,
+    httpOnly: true,
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
+};
+
+if (process.env.NODE_ENV === "production" && process.env.DATABASE_URL) {
+  const PgStore = connectPgSimple(session);
+  sessionConfig.store = new PgStore({
+    conString: process.env.DATABASE_URL,
+    createTableIfMissing: true,
+  });
+}
+
+app.use(session(sessionConfig));
 
 app.use("/api", router);
 
