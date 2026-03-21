@@ -39,7 +39,7 @@ COPY --from=build /app/lib/db ./lib/db
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/tsconfig.base.json ./tsconfig.base.json
 COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
+RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
 
 ENV NODE_ENV=production
 ENV PUBLIC_DIR=/app/public
