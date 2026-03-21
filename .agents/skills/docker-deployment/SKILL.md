@@ -145,6 +145,24 @@ ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", "artifacts/server/dist/index.cjs"]
 ```
 
+### 8. Packages That Depend on Native Externals Must Also Be External
+
+If a package (like `connect-pg-simple`) is in the esbuild bundle allowlist but internally `require()`s a native external (like `pg`), the resolution breaks at runtime. The bundled code can't find the native module.
+
+**Wrong:** Bundling `connect-pg-simple` while `pg` is external:
+```typescript
+const allowlist = ["connect-pg-simple", ...]; // bundled
+const nativeExternals = ["pg", ...]; // external
+// connect-pg-simple's require('pg') fails at runtime
+```
+
+**Correct:** Move packages that depend on native externals to the externals list:
+```typescript
+const nativeExternals = ["connect-pg-simple", "pg", ...]; // both external
+```
+
+**Rule of thumb:** If package A depends on package B, and B is external, then A must also be external.
+
 ## Checklist Before Creating a Dockerfile
 
 - [ ] Identify all native modules (externals in esbuild config) — they need build tools

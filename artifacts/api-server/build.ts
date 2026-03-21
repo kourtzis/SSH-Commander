@@ -12,7 +12,6 @@ const __dirname = path.dirname(__filename);
 const allowlist = [
   "@google/generative-ai",
   "axios",
-  "connect-pg-simple",
   "cookie-parser",
   "cors",
   "date-fns",
@@ -39,6 +38,7 @@ const allowlist = [
 
 const nativeExternals = [
   "bcrypt",
+  "connect-pg-simple",
   "ssh2",
   "cpu-features",
   "pg",
