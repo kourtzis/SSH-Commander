@@ -1,4 +1,4 @@
-A web application to batch execute commands and scripts to devices via SSH. Initially bult for Mikrotik devices in mind but it works with any SSH-enabled device.
+A web application to batch execute commands and scripts to devices via SSH. Initially built with Mikrotik devices in mind but it works with any SSH-enabled device.
 
 Supports:
 - Multiple users with admin and operator roles
