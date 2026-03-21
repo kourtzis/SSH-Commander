@@ -2,9 +2,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
-const rawPort = process.env.PORT;
+const isBuild = process.argv.includes("build");
+const rawPort = process.env.PORT || (isBuild ? "3000" : undefined);
 
 if (!rawPort) {
   throw new Error(
@@ -18,34 +18,30 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-const basePath = process.env.BASE_PATH;
+const basePath = process.env.BASE_PATH || "/";
 
-if (!basePath) {
-  throw new Error(
-    "BASE_PATH environment variable is required but was not provided.",
-  );
+const plugins: any[] = [
+  react(),
+  tailwindcss(),
+];
+
+try {
+  const mod = await import("@replit/vite-plugin-runtime-error-modal");
+  plugins.push(mod.default());
+} catch {}
+
+if (process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined) {
+  try {
+    const cartMod = await import("@replit/vite-plugin-cartographer");
+    plugins.push(cartMod.cartographer({ root: path.resolve(import.meta.dirname, "..") }));
+    const bannerMod = await import("@replit/vite-plugin-dev-banner");
+    plugins.push(bannerMod.devBanner());
+  } catch {}
 }
 
 export default defineConfig({
   base: basePath,
-  plugins: [
-    react(),
-    tailwindcss(),
-    runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer({
-              root: path.resolve(import.meta.dirname, ".."),
-            }),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
-  ],
+  plugins,
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

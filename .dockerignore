@@ -1,5 +1,4 @@
 node_modules
-*/node_modules
 **/node_modules
 .git
 .replit
@@ -9,8 +8,8 @@ replit.md
 .cache
 .config
 *.log
-dist
 **/dist
 .env
 attached_assets
 artifacts/mockup-sandbox
+.canvas
