@@ -3,7 +3,6 @@ import express, { type Express } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
 import router from "./routes/index.js";
 
 const app: Express = express();
@@ -26,11 +25,17 @@ const sessionConfig: session.SessionOptions = {
 };
 
 if (process.env.NODE_ENV === "production" && process.env.DATABASE_URL) {
-  const PgStore = connectPgSimple(session);
-  sessionConfig.store = new PgStore({
-    conString: process.env.DATABASE_URL,
-    createTableIfMissing: true,
-  });
+  try {
+    const connectPgSimple = require("connect-pg-simple");
+    const PgStore = connectPgSimple(session);
+    sessionConfig.store = new PgStore({
+      conString: process.env.DATABASE_URL,
+      createTableIfMissing: true,
+    });
+    console.log("Using PostgreSQL session store");
+  } catch (err) {
+    console.warn("Failed to initialize PostgreSQL session store, using memory store:", err);
+  }
 }
 
 app.use(session(sessionConfig));
