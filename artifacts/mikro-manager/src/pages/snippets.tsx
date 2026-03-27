@@ -200,6 +200,17 @@ export default function Snippets() {
           <p className="text-muted-foreground mt-1">Create your first script template.</p>
         </Card>
       ) : (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 px-1">
+            <Checkbox
+              checked={selection.isAllSelected ? true : selection.isSomeSelected ? "indeterminate" : false}
+              onCheckedChange={selection.toggleAll}
+              aria-label="Select all snippets"
+            />
+            <span className="text-sm text-muted-foreground">
+              {selection.isAllSelected ? "Deselect all" : "Select all"} ({filteredSnippets.length})
+            </span>
+          </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {filteredSnippets.map((snippet) => (
             <Card key={snippet.id} className={`glass-panel flex flex-col ${selection.selected.has(snippet.id) ? "ring-1 ring-primary/50" : ""}`}>
@@ -239,6 +250,7 @@ export default function Snippets() {
               </CardContent>
             </Card>
           ))}
+        </div>
         </div>
       )}
 
