@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Network, Folder, Server, ChevronRight, ChevronDown, Trash2, Edit2, Link as LinkIcon, Unlink } from "lucide-react";
+import { Plus, Network, Folder, Server, ChevronRight, ChevronDown, Trash2, Edit2, Link as LinkIcon, Unlink, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +31,8 @@ export default function Groups() {
   
   const [memberType, setMemberType] = useState<"router"|"group">("router");
   const [memberId, setMemberId] = useState<string>("");
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Set<number>>(new Set());
+  const [memberSearch, setMemberSearch] = useState("");
 
   const { data: groupDetails } = useGetGroup(selectedGroup!, { query: { enabled: !!selectedGroup } });
 
@@ -60,15 +62,19 @@ export default function Groups() {
   };
 
   const handleAddMember = async () => {
-    if (!selectedGroup || !memberId) return;
+    if (!selectedGroup || selectedMemberIds.size === 0) return;
     try {
-      await addMember.mutateAsync({ 
-        id: selectedGroup, 
-        data: { type: memberType, memberId: parseInt(memberId) } 
-      });
-      toast({ title: "Member added" });
+      const ids = Array.from(selectedMemberIds);
+      await Promise.all(ids.map(mid =>
+        addMember.mutateAsync({
+          id: selectedGroup,
+          data: { type: memberType, memberId: mid }
+        })
+      ));
+      toast({ title: `${ids.length} member(s) added` });
       setIsMemberDialogOpen(false);
-      setMemberId("");
+      setSelectedMemberIds(new Set());
+      setMemberSearch("");
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
@@ -206,7 +212,7 @@ export default function Groups() {
                   <Button variant="outline" size="sm" onClick={() => { setEditingGroup(groupDetails); setFormName(groupDetails.name); setFormDesc(groupDetails.description||""); setIsGroupDialogOpen(true); }}>
                     <Edit2 className="w-4 h-4 mr-1" /> Edit
                   </Button>
-                  <Button size="sm" onClick={() => setIsMemberDialogOpen(true)}>
+                  <Button size="sm" onClick={() => { setSelectedMemberIds(new Set()); setMemberSearch(""); setMemberType("router"); setIsMemberDialogOpen(true); }}>
                     <LinkIcon className="w-4 h-4 mr-1" /> Add
                   </Button>
                 </div>
@@ -290,44 +296,122 @@ export default function Groups() {
       </Dialog>
 
       <Dialog open={isMemberDialogOpen} onOpenChange={setIsMemberDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Add Member to {groupDetails?.name}</DialogTitle>
+            <DialogTitle>Add Members to {groupDetails?.name}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>Member Type</Label>
               <select 
                 className="flex h-10 w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={memberType} 
-                onChange={(e: any) => setMemberType(e.target.value)}
+                onChange={(e: any) => { setMemberType(e.target.value); setSelectedMemberIds(new Set()); setMemberSearch(""); }}
               >
-                <option value="router">Router</option>
-                <option value="group">Sub-Group</option>
+                <option value="router">Routers</option>
+                <option value="group">Sub-Groups</option>
               </select>
             </div>
             <div className="space-y-2">
-              <Label>Select {memberType === "router" ? "Router" : "Group"}</Label>
-              <select 
-                className="flex h-10 w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                value={memberId} 
-                onChange={e => setMemberId(e.target.value)}
-              >
-                <option value="">-- Select --</option>
-                {memberType === "router" 
-                  ? routers.filter(r => !groupDetails?.routers.find(gr => gr.id === r.id)).map(r => (
-                      <option key={r.id} value={r.id}>{r.name} ({r.ipAddress})</option>
-                    ))
-                  : groups.filter(g => g.id !== selectedGroup && !groupDetails?.subGroups.find(sg => sg.id === g.id)).map(g => (
-                      <option key={g.id} value={g.id}>{g.name}</option>
-                    ))
-                }
-              </select>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder={`Search ${memberType === "router" ? "routers" : "groups"}...`}
+                  value={memberSearch}
+                  onChange={e => setMemberSearch(e.target.value)}
+                  className="pl-9 bg-black/40 border-white/5"
+                />
+              </div>
+              {(() => {
+                const available = memberType === "router"
+                  ? routers
+                      .filter(r => !groupDetails?.routers.find(gr => gr.id === r.id))
+                      .filter(r => !memberSearch || r.name.toLowerCase().includes(memberSearch.toLowerCase()) || r.ipAddress.includes(memberSearch))
+                  : groups
+                      .filter(g => g.id !== selectedGroup && !groupDetails?.subGroups.find(sg => sg.id === g.id))
+                      .filter(g => !memberSearch || g.name.toLowerCase().includes(memberSearch.toLowerCase()));
+
+                const allSelected = available.length > 0 && available.every(item => selectedMemberIds.has(item.id));
+                const someSelected = available.some(item => selectedMemberIds.has(item.id));
+
+                const toggleAll = () => {
+                  if (allSelected) {
+                    setSelectedMemberIds(new Set());
+                  } else {
+                    setSelectedMemberIds(new Set(available.map(item => item.id)));
+                  }
+                };
+
+                const toggleOne = (id: number) => {
+                  const next = new Set(selectedMemberIds);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  setSelectedMemberIds(next);
+                };
+
+                return (
+                  <>
+                    {available.length > 0 && (
+                      <div className="flex items-center justify-between px-1 py-1">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={allSelected}
+                            onCheckedChange={toggleAll}
+                            aria-label="Select all"
+                            {...(someSelected && !allSelected ? { "data-state": "indeterminate" as any } : {})}
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {allSelected ? "Deselect all" : "Select all"} ({available.length})
+                          </span>
+                        </div>
+                        {selectedMemberIds.size > 0 && (
+                          <span className="text-xs text-primary font-medium">{selectedMemberIds.size} selected</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="border border-white/5 rounded-lg max-h-60 overflow-y-auto divide-y divide-white/5">
+                      {available.length === 0 ? (
+                        <div className="p-6 text-center text-sm text-muted-foreground">
+                          {memberSearch ? "No matching items" : `All ${memberType === "router" ? "routers" : "groups"} are already members`}
+                        </div>
+                      ) : (
+                        available.map(item => (
+                          <label
+                            key={item.id}
+                            className={cn(
+                              "flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors",
+                              selectedMemberIds.has(item.id) && "bg-primary/5"
+                            )}
+                          >
+                            <Checkbox
+                              checked={selectedMemberIds.has(item.id)}
+                              onCheckedChange={() => toggleOne(item.id)}
+                            />
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              {memberType === "router" ? (
+                                <Server className="w-4 h-4 text-muted-foreground shrink-0" />
+                              ) : (
+                                <Folder className="w-4 h-4 text-muted-foreground shrink-0" />
+                              )}
+                              <span className="text-sm font-medium truncate">{"name" in item ? item.name : ""}</span>
+                              {memberType === "router" && "ipAddress" in item && (
+                                <span className="text-xs font-mono text-muted-foreground ml-auto shrink-0">{(item as any).ipAddress}</span>
+                              )}
+                            </div>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsMemberDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddMember} disabled={!memberId}>Add Member</Button>
+            <Button onClick={handleAddMember} disabled={selectedMemberIds.size === 0 || addMember.isPending}>
+              {addMember.isPending ? "Adding..." : `Add ${selectedMemberIds.size || ""} Member${selectedMemberIds.size !== 1 ? "s" : ""}`}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
