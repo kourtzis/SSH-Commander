@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Api
   version: 0.1.0
-  description: MikroManager API
+  description: SSH Commander API
 servers:
   - url: /api
     description: Base API path

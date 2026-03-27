@@ -54,7 +54,7 @@ export default function Login() {
               <TerminalSquare className="w-8 h-8" />
             </div>
             <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
-              MikroManager
+              SSH Commander
             </CardTitle>
             <CardDescription className="text-base mt-2">
               Sign in to manage your network scripts

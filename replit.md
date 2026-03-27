@@ -1,8 +1,8 @@
-# MikroManager Workspace
+# SSH Commander Workspace
 
 ## Overview
 
-MikroManager is a full-stack web application for managing Mikrotik routers via SSH. Users can organize routers into hierarchical groups, store reusable script snippets, and run batch SSH jobs across multiple routers simultaneously. Excel/CSV-based tag substitution allows per-router variable injection in scripts.
+SSH Commander is a full-stack web application for managing Mikrotik routers via SSH. Users can organize routers into hierarchical groups, store reusable script snippets, and run batch SSH jobs across multiple routers simultaneously. Excel/CSV-based tag substitution allows per-router variable injection in scripts.
 
 ## Stack
 

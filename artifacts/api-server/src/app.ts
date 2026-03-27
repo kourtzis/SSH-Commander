@@ -13,7 +13,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 const sessionConfig: session.SessionOptions = {
-  secret: process.env.SESSION_SECRET ?? "mikro-manager-secret-key-change-in-prod",
+  secret: process.env.SESSION_SECRET ?? "ssh-commander-secret-key-change-in-prod",
   resave: false,
   saveUninitialized: false,
   cookie: {

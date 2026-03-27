@@ -9,5 +9,5 @@ echo "Seeding default admin user..."
 cd /app
 pnpm --filter @workspace/scripts run seed 2>&1 || echo "Seed skipped (admin user may already exist)"
 
-echo "Starting MikroManager..."
+echo "Starting SSH Commander..."
 exec "$@" 2>&1

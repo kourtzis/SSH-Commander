@@ -56,7 +56,7 @@ export function AppSidebar() {
             <TerminalSquare className="w-6 h-6" />
           </div>
           <span className="font-display font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
-            MikroManager
+            SSH Commander
           </span>
         </div>
         <button
