@@ -1116,6 +1116,8 @@ components:
           type: array
           items:
             type: integer
+        autoConfirm:
+          type: boolean
         totalTasks:
           type: integer
         completedTasks:
@@ -1138,6 +1140,7 @@ components:
         - status
         - targetRouterIds
         - targetGroupIds
+        - autoConfirm
         - totalTasks
         - completedTasks
         - failedTasks
@@ -1171,6 +1174,8 @@ components:
             additionalProperties:
               type: string
           nullable: true
+        autoConfirm:
+          type: boolean
         totalTasks:
           type: integer
         completedTasks:
@@ -1197,6 +1202,7 @@ components:
         - status
         - targetRouterIds
         - targetGroupIds
+        - autoConfirm
         - totalTasks
         - completedTasks
         - failedTasks
@@ -1219,7 +1225,7 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, running, success, failed]
+          enum: [pending, running, success, failed, waiting_input]
         output:
           type: string
           nullable: true
@@ -1230,6 +1236,9 @@ components:
           type: string
           nullable: true
         resolvedScript:
+          type: string
+          nullable: true
+        promptText:
           type: string
           nullable: true
         startedAt:
@@ -1274,6 +1283,9 @@ components:
           type: string
           enum: [run, schedule]
           description: Run executes immediately (default), schedule saves as template for scheduling
+        autoConfirm:
+          type: boolean
+          description: Automatically answer yes to SSH confirmation prompts (default true)
       required:
         - name
         - scriptCode

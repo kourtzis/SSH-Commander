@@ -18,6 +18,7 @@ export interface JobTask {
   errorMessage?: string | null;
   connectionLog?: string | null;
   resolvedScript?: string | null;
+  promptText?: string | null;
   startedAt?: Date | null;
   completedAt?: Date | null;
 }

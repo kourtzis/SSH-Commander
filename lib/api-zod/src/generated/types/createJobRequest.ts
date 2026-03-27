@@ -17,4 +17,6 @@ export interface CreateJobRequest {
   excelData?: CreateJobRequestExcelDataItem[];
   /** Run executes immediately (default), schedule saves as template for scheduling */
   mode?: CreateJobRequestMode;
+  /** Automatically answer yes to SSH confirmation prompts (default true) */
+  autoConfirm?: boolean;
 }

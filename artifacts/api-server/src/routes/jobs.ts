@@ -12,6 +12,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { CreateJobBody } from "@workspace/api-zod";
 import { getCurrentUser, requireAuth } from "../lib/auth.js";
 import { executeSSHCommand, applyTagSubstitution } from "../lib/ssh.js";
+import { interactiveSessions, type LiveEvent } from "../lib/interactive-session.js";
 
 const router: IRouter = Router();
 
@@ -93,7 +94,7 @@ router.post("/jobs", async (req, res) => {
     return;
   }
 
-  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData, mode } = parsed.data;
+  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData, mode, autoConfirm } = parsed.data;
 
   const allRouterIds = await resolveRouterIds(
     targetRouterIds ?? [],
@@ -115,6 +116,7 @@ router.post("/jobs", async (req, res) => {
         targetRouterIds: targetRouterIds ?? [],
         targetGroupIds: targetGroupIds ?? [],
         excelData: excelData as any,
+        autoConfirm: autoConfirm ?? true,
         totalTasks: 0,
         completedTasks: 0,
         failedTasks: 0,
@@ -146,6 +148,7 @@ router.post("/jobs", async (req, res) => {
       targetRouterIds: targetRouterIds ?? [],
       targetGroupIds: targetGroupIds ?? [],
       excelData: excelData as any,
+      autoConfirm: autoConfirm ?? true,
       totalTasks: routers.length,
       completedTasks: 0,
       failedTasks: 0,
@@ -161,14 +164,27 @@ router.post("/jobs", async (req, res) => {
     status: "pending" as const,
   }));
 
-  await db.insert(jobTasksTable).values(tasks);
+  const insertedTasks = await db.insert(jobTasksTable).values(tasks).returning();
 
   await db
     .update(batchJobsTable)
     .set({ status: "running" })
     .where(eq(batchJobsTable.id, job.id));
 
-  runJobInBackground(job.id, routers, scriptCode, excelData as Record<string, string>[] | undefined);
+  const useInteractive = !(autoConfirm ?? true);
+
+  if (useInteractive) {
+    interactiveSessions.startInteractiveJob(
+      job.id,
+      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword })),
+      scriptCode,
+      excelData as Record<string, string>[] | undefined,
+      false,
+      insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
+    );
+  } else {
+    runJobInBackground(job.id, routers, scriptCode, excelData as Record<string, string>[] | undefined, autoConfirm ?? true);
+  }
 
   res.status(201).json({
     ...job,
@@ -214,7 +230,8 @@ async function runJobInBackground(
   jobId: number,
   routers: (typeof routersTable.$inferSelect)[],
   scriptCode: string,
-  excelData?: Record<string, string>[]
+  excelData?: Record<string, string>[],
+  autoConfirm: boolean = true
 ) {
   let completedCount = 0;
   let failedCount = 0;
@@ -277,7 +294,9 @@ async function runJobInBackground(
         r.sshPort,
         r.sshUsername,
         r.sshPassword,
-        finalScript
+        finalScript,
+        30000,
+        autoConfirm
       );
 
       await db
@@ -352,10 +371,76 @@ router.get("/jobs/:id", async (req, res) => {
       errorMessage: t.errorMessage ?? null,
       connectionLog: t.connectionLog ?? null,
       resolvedScript: t.resolvedScript ?? null,
+      promptText: t.promptText ?? null,
       startedAt: t.startedAt ?? null,
       completedAt: t.completedAt ?? null,
     })),
   });
+});
+
+router.get("/jobs/:id/live", async (req, res) => {
+  requireAuth(req);
+  const id = parseInt(req.params.id);
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+
+  res.write(":\n\n");
+
+  const emitter = interactiveSessions.getJobEmitter(id);
+
+  if (!emitter) {
+    const [job] = await db
+      .select()
+      .from(batchJobsTable)
+      .where(eq(batchJobsTable.id, id))
+      .limit(1);
+    if (job && (job.status === "completed" || job.status === "failed" || job.status === "cancelled")) {
+      res.write(`data: ${JSON.stringify({ type: "job_complete", taskId: 0, jobStatus: job.status, completedTasks: job.completedTasks, failedTasks: job.failedTasks, totalTasks: job.totalTasks })}\n\n`);
+    }
+    res.end();
+    return;
+  }
+
+  const waiting = interactiveSessions.getWaitingTasks(id);
+  for (const w of waiting) {
+    res.write(`data: ${JSON.stringify({ type: "input_required", taskId: w.taskId, routerId: w.routerId, routerName: w.routerName, routerIp: w.routerIp, promptText: w.promptText, promptType: w.promptType, status: "waiting_input" })}\n\n`);
+  }
+
+  const handler = (event: LiveEvent) => {
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch {}
+  };
+
+  emitter.on("event", handler);
+
+  const heartbeat = setInterval(() => {
+    try { res.write(":\n\n"); } catch {}
+  }, 15000);
+
+  req.on("close", () => {
+    emitter.off("event", handler);
+    clearInterval(heartbeat);
+  });
+});
+
+router.post("/jobs/:id/respond", async (req, res) => {
+  requireAuth(req);
+  const id = parseInt(req.params.id);
+  const { taskIds, input } = req.body ?? {};
+
+  if (!Array.isArray(taskIds) || typeof input !== "string") {
+    res.status(400).json({ error: "taskIds (array) and input (string) are required" });
+    return;
+  }
+
+  const result = await interactiveSessions.sendInput(id, taskIds, input);
+  res.json(result);
 });
 
 router.put("/jobs/:id", async (req, res) => {
@@ -379,7 +464,7 @@ router.put("/jobs/:id", async (req, res) => {
     res.status(400).json({ error: "Invalid request body" });
     return;
   }
-  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData } = parsed.data;
+  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData, autoConfirm } = parsed.data;
   const [updated] = await db
     .update(batchJobsTable)
     .set({
@@ -388,6 +473,7 @@ router.put("/jobs/:id", async (req, res) => {
       targetRouterIds: targetRouterIds ?? [],
       targetGroupIds: targetGroupIds ?? [],
       excelData: excelData as any,
+      autoConfirm: autoConfirm ?? job.autoConfirm,
     })
     .where(eq(batchJobsTable.id, id))
     .returning();
@@ -454,6 +540,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
       targetRouterIds: sourceJob.targetRouterIds ?? [],
       targetGroupIds: sourceJob.targetGroupIds ?? [],
       excelData: sourceJob.excelData as any,
+      autoConfirm: sourceJob.autoConfirm,
       totalTasks: routers.length,
       completedTasks: 0,
       failedTasks: 0,
@@ -469,14 +556,27 @@ router.post("/jobs/:id/rerun", async (req, res) => {
     status: "pending" as const,
   }));
 
-  await db.insert(jobTasksTable).values(tasks);
+  const insertedTasks = await db.insert(jobTasksTable).values(tasks).returning();
 
   await db
     .update(batchJobsTable)
     .set({ status: "running" })
     .where(eq(batchJobsTable.id, newJob.id));
 
-  runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined);
+  const useInteractive = !sourceJob.autoConfirm;
+
+  if (useInteractive) {
+    interactiveSessions.startInteractiveJob(
+      newJob.id,
+      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword })),
+      sourceJob.scriptCode,
+      sourceJob.excelData as Record<string, string>[] | undefined,
+      false,
+      insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
+    );
+  } else {
+    runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined, sourceJob.autoConfirm);
+  }
 
   res.status(201).json({
     ...newJob,
@@ -488,6 +588,9 @@ router.post("/jobs/:id/rerun", async (req, res) => {
 router.post("/jobs/:id/cancel", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
+
+  await interactiveSessions.cleanupJob(id);
+
   await db
     .update(batchJobsTable)
     .set({ status: "cancelled", completedAt: new Date() })

@@ -1,14 +1,46 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
 import { useGetJob } from "@workspace/api-client-react";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Ban, CheckCircle2, XCircle, PlayCircle, Terminal, Clock, ChevronDown, ChevronRight, ScrollText, Code } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Ban, CheckCircle2, XCircle, PlayCircle, Terminal, Clock,
+  ChevronDown, ChevronRight, ScrollText, Code, ShieldCheck,
+  MessageSquare, Send, AlertTriangle, Filter, Users
+} from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { SnippetViewer } from "@/components/snippet-viewer";
 import { useToast } from "@/hooks/use-toast";
+
+interface LiveEvent {
+  type: "task_status" | "task_output" | "input_required" | "input_sent" | "job_complete";
+  taskId: number;
+  routerId?: number;
+  routerName?: string;
+  routerIp?: string;
+  status?: string;
+  output?: string;
+  promptText?: string;
+  promptType?: "confirm" | "input";
+  input?: string;
+  jobStatus?: string;
+  completedTasks?: number;
+  failedTasks?: number;
+  totalTasks?: number;
+}
+
+interface WaitingDevice {
+  taskId: number;
+  routerId: number;
+  routerName: string;
+  routerIp: string;
+  promptText: string;
+  promptType: "confirm" | "input";
+}
 
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
@@ -16,8 +48,17 @@ export default function JobDetail() {
   const { toast } = useToast();
   const { cancelJob } = useJobsMutations();
   const [expandedTask, setExpandedTask] = useState<number | null>(null);
+  const [waitingDevices, setWaitingDevices] = useState<WaitingDevice[]>([]);
+  const [liveOutputs, setLiveOutputs] = useState<Map<number, string>>(new Map());
+  const [responseText, setResponseText] = useState("");
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
+  const [isSending, setIsSending] = useState(false);
+  const [showWaitingFirst, setShowWaitingFirst] = useState(false);
+  const [sseConnected, setSseConnected] = useState(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const responseInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: job, isLoading } = useGetJob(jobId, {
+  const { data: job, isLoading, refetch } = useGetJob(jobId, {
     query: {
       refetchInterval: (query) => {
         const status = query.state.data?.status;
@@ -26,15 +67,79 @@ export default function JobDetail() {
     }
   });
 
-  if (isLoading) return <div className="p-8 text-center text-muted-foreground">Loading job details...</div>;
-  if (!job) return <div className="p-8 text-center text-destructive">Job not found.</div>;
+  useEffect(() => {
+    if (!job || job.status !== "running" || job.autoConfirm) return;
 
-  const doneTasks = job.completedTasks + job.failedTasks;
-  const remainingTasks = job.totalTasks - doneTasks;
-  const progress = job.totalTasks > 0 ? (doneTasks / job.totalTasks) * 100 : 0;
+    const baseUrl = import.meta.env.BASE_URL || "/";
+    const url = `${baseUrl}api/jobs/${jobId}/live`;
+
+    const es = new EventSource(url, { withCredentials: true });
+    eventSourceRef.current = es;
+
+    es.onopen = () => setSseConnected(true);
+    es.onerror = () => setSseConnected(false);
+
+    es.onmessage = (evt) => {
+      try {
+        const event: LiveEvent = JSON.parse(evt.data);
+
+        if (event.type === "input_required") {
+          setWaitingDevices(prev => {
+            const exists = prev.some(d => d.taskId === event.taskId);
+            if (exists) return prev;
+            return [...prev, {
+              taskId: event.taskId,
+              routerId: event.routerId!,
+              routerName: event.routerName!,
+              routerIp: event.routerIp!,
+              promptText: event.promptText!,
+              promptType: event.promptType ?? "input",
+            }];
+          });
+        }
+
+        if (event.type === "input_sent") {
+          setWaitingDevices(prev => prev.filter(d => d.taskId !== event.taskId));
+          setSelectedTaskIds(prev => {
+            const next = new Set(prev);
+            next.delete(event.taskId);
+            return next;
+          });
+        }
+
+        if (event.type === "task_status" && event.status && event.status !== "waiting_input") {
+          setWaitingDevices(prev => prev.filter(d => d.taskId !== event.taskId));
+        }
+
+        if (event.type === "task_output" && event.output) {
+          setLiveOutputs(prev => {
+            const next = new Map(prev);
+            const existing = next.get(event.taskId) || "";
+            next.set(event.taskId, existing + event.output!);
+            return next;
+          });
+        }
+
+        if (event.type === "job_complete") {
+          refetch();
+          es.close();
+          setSseConnected(false);
+        }
+
+        if (event.type === "task_status") {
+          refetch();
+        }
+      } catch {}
+    };
+
+    return () => {
+      es.close();
+      setSseConnected(false);
+    };
+  }, [job?.status, job?.autoConfirm, jobId]);
 
   const handleCancel = async () => {
-    if (confirm(job.status === "running" ? "Are you sure you want to stop this running job?" : "Are you sure you want to cancel this scheduled job?")) {
+    if (confirm(job!.status === "running" ? "Are you sure you want to stop this running job?" : "Are you sure you want to cancel this scheduled job?")) {
       try {
         await cancelJob.mutateAsync({ id: jobId });
         toast({ title: "Cancel requested" });
@@ -44,9 +149,87 @@ export default function JobDetail() {
     }
   };
 
+  const handleSendResponse = async (taskIds: number[]) => {
+    if (!responseText.trim()) {
+      toast({ title: "Please enter a response", variant: "destructive" });
+      return;
+    }
+    setIsSending(true);
+    try {
+      const baseUrl = import.meta.env.BASE_URL || "/";
+      const res = await fetch(`${baseUrl}api/jobs/${jobId}/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ taskIds, input: responseText.trim() }),
+      });
+      const data = await res.json();
+      if (data.sent?.length > 0) {
+        toast({ title: `Response sent to ${data.sent.length} device(s)` });
+        setResponseText("");
+      }
+      if (data.notFound?.length > 0) {
+        toast({ title: `${data.notFound.length} device(s) no longer waiting`, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Failed to send response", description: e.message, variant: "destructive" });
+    }
+    setIsSending(false);
+  };
+
+  const handleSendToSelected = () => {
+    if (selectedTaskIds.size === 0) {
+      toast({ title: "Select at least one device", variant: "destructive" });
+      return;
+    }
+    handleSendResponse(Array.from(selectedTaskIds));
+  };
+
+  const handleSendToAll = () => {
+    const allWaitingIds = waitingDevices.map(d => d.taskId);
+    handleSendResponse(allWaitingIds);
+  };
+
+  const toggleTaskSelection = (taskId: number) => {
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const allIds = waitingDevices.map(d => d.taskId);
+    const allSelected = allIds.every(id => selectedTaskIds.has(id));
+    if (allSelected) {
+      setSelectedTaskIds(new Set());
+    } else {
+      setSelectedTaskIds(new Set(allIds));
+    }
+  };
+
   const toggleTask = (taskId: number) => {
     setExpandedTask(expandedTask === taskId ? null : taskId);
   };
+
+  if (isLoading) return <div className="p-8 text-center text-muted-foreground">Loading job details...</div>;
+  if (!job) return <div className="p-8 text-center text-destructive">Job not found.</div>;
+
+  const doneTasks = job.completedTasks + job.failedTasks;
+  const remainingTasks = job.totalTasks - doneTasks;
+  const progress = job.totalTasks > 0 ? (doneTasks / job.totalTasks) * 100 : 0;
+
+  const waitingCount = waitingDevices.length;
+  const isInteractive = job.status === "running" && !job.autoConfirm;
+
+  const sortedTasks = showWaitingFirst
+    ? [...job.tasks].sort((a, b) => {
+        const aWaiting = waitingDevices.some(w => w.taskId === a.id) ? 0 : 1;
+        const bWaiting = waitingDevices.some(w => w.taskId === b.id) ? 0 : 1;
+        return aWaiting - bWaiting;
+      })
+    : job.tasks;
 
   return (
     <div className="space-y-6">
@@ -76,10 +259,18 @@ export default function JobDetail() {
                job.status === 'completed' ? 'Successful' :
                job.status === 'failed' ? 'Failed' : job.status}
             </Badge>
+            {isInteractive && sseConnected && (
+              <Badge variant="outline" className="text-xs gap-1 border-emerald-500/30 text-emerald-400">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Live
+              </Badge>
+            )}
           </div>
-          <p className="text-muted-foreground mt-2 flex items-center gap-2">
+          <p className="text-muted-foreground mt-2 flex items-center gap-2 flex-wrap">
             <Clock className="w-4 h-4" /> Started {formatDate(job.createdAt)}
             {job.completedAt && ` • Finished ${formatDate(job.completedAt)}`}
+            {job.autoConfirm && <Badge variant="outline" className="ml-2 text-xs gap-1"><ShieldCheck className="w-3 h-3" />Auto-confirm</Badge>}
+            {!job.autoConfirm && <Badge variant="outline" className="ml-2 text-xs gap-1 border-amber-500/30 text-amber-400"><MessageSquare className="w-3 h-3" />Interactive</Badge>}
           </p>
         </div>
         
@@ -129,6 +320,12 @@ export default function JobDetail() {
                 <p className="text-2xl font-bold text-yellow-400">{remainingTasks}</p>
                 <p className="text-xs text-muted-foreground uppercase font-semibold mt-1">Remaining</p>
               </div>
+              {waitingCount > 0 && (
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center col-span-3">
+                  <p className="text-2xl font-bold text-amber-400">{waitingCount}</p>
+                  <p className="text-xs text-amber-400/70 uppercase font-semibold mt-1">Waiting for Input</p>
+                </div>
+              )}
               <div className="p-4 rounded-xl bg-black/20 border border-white/5 text-center col-span-3">
                 <p className="text-3xl font-display font-bold">{job.totalTasks}</p>
                 <p className="text-xs text-muted-foreground uppercase font-semibold mt-1">Total Targets</p>
@@ -151,20 +348,114 @@ export default function JobDetail() {
         </Card>
       </div>
 
+      {waitingCount > 0 && (
+        <Card className="glass-panel border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.1)]">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-xl flex items-center gap-2 text-amber-400">
+              <AlertTriangle className="w-5 h-5" />
+              {waitingCount} Device{waitingCount !== 1 ? "s" : ""} Waiting for Input
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-xl border border-amber-500/20 overflow-hidden">
+              <div className="flex items-center gap-3 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20">
+                <Checkbox
+                  checked={waitingDevices.length > 0 && waitingDevices.every(d => selectedTaskIds.has(d.taskId))}
+                  onCheckedChange={toggleSelectAll}
+                  className="border-amber-500/50"
+                />
+                <span className="text-xs font-semibold uppercase text-amber-400/70">Select All</span>
+              </div>
+              {waitingDevices.map(dev => (
+                <div
+                  key={dev.taskId}
+                  className="flex items-start gap-3 px-4 py-3 border-b border-amber-500/10 last:border-b-0 hover:bg-amber-500/5 transition-colors"
+                >
+                  <Checkbox
+                    checked={selectedTaskIds.has(dev.taskId)}
+                    onCheckedChange={() => toggleTaskSelection(dev.taskId)}
+                    className="mt-0.5 border-amber-500/50"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{dev.routerName}</span>
+                      <span className="text-xs text-muted-foreground font-mono">{dev.routerIp}</span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/30 text-amber-400">
+                        {dev.promptType === "confirm" ? "Yes/No" : "Input"}
+                      </Badge>
+                    </div>
+                    <pre className="text-xs text-amber-300/80 font-mono mt-1 bg-black/30 px-2 py-1 rounded whitespace-pre-wrap">{dev.promptText}</pre>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2 items-center">
+              <Input
+                ref={responseInputRef}
+                placeholder="Type your response..."
+                value={responseText}
+                onChange={e => setResponseText(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendToAll(); } }}
+                className="flex-1 bg-black/30 border-amber-500/20 focus-visible:ring-amber-500/50"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSendToSelected}
+                disabled={isSending || selectedTaskIds.size === 0}
+                className="gap-1 border-amber-500/30 text-amber-400 hover:bg-amber-500/10 whitespace-nowrap"
+              >
+                <Send className="w-3.5 h-3.5" />
+                Send to Selected ({selectedTaskIds.size})
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSendToAll}
+                disabled={isSending || waitingCount === 0}
+                className="gap-1 bg-amber-500 hover:bg-amber-600 text-black whitespace-nowrap"
+              >
+                <Users className="w-3.5 h-3.5" />
+                Send to All ({waitingCount})
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="glass-panel overflow-hidden">
-        <div className="p-6 border-b border-border/50 bg-black/20">
-          <CardTitle className="text-xl">Task Results</CardTitle>
-          <p className="text-xs text-muted-foreground mt-1">Click a row to view its SSH connection log and resolved script</p>
+        <div className="p-6 border-b border-border/50 bg-black/20 flex items-center justify-between">
+          <div>
+            <CardTitle className="text-xl">Task Results</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">Click a row to view its SSH connection log and resolved script</p>
+          </div>
+          {waitingCount > 0 && (
+            <Button
+              size="sm"
+              variant={showWaitingFirst ? "default" : "outline"}
+              onClick={() => setShowWaitingFirst(!showWaitingFirst)}
+              className="gap-1.5 text-xs"
+            >
+              <Filter className="w-3.5 h-3.5" />
+              {showWaitingFirst ? "Showing waiting first" : "Group waiting"}
+            </Button>
+          )}
         </div>
         <CardContent className="p-0">
           {job.tasks.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">No tasks generated for this job.</div>
           ) : (
             <div>
-              {job.tasks.map(task => {
+              {sortedTasks.map(task => {
                 const isExpanded = expandedTask === task.id;
+                const isWaiting = waitingDevices.some(w => w.taskId === task.id);
+                const waitingInfo = waitingDevices.find(w => w.taskId === task.id);
+                const liveOutput = liveOutputs.get(task.id);
+                const displayOutput = liveOutput || task.output;
+                const taskStatus = isWaiting ? "waiting_input" : task.status;
+
                 return (
-                  <div key={task.id} className="border-b border-border/50 last:border-b-0">
+                  <div key={task.id} className={`border-b border-border/50 last:border-b-0 ${isWaiting ? "bg-amber-500/5" : ""}`}>
                     <div
                       className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-white/5 transition-colors select-none"
                       onClick={() => toggleTask(task.id)}
@@ -174,47 +465,93 @@ export default function JobDetail() {
                       </div>
                       <div className="shrink-0">
                         <Badge variant={
-                          task.status === 'success' ? 'success' : 
-                          task.status === 'failed' ? 'destructive' : 
-                          task.status === 'running' ? 'default' : 'secondary'
+                          taskStatus === 'waiting_input' ? 'warning' :
+                          taskStatus === 'success' ? 'success' : 
+                          taskStatus === 'failed' ? 'destructive' : 
+                          taskStatus === 'running' ? 'default' : 'secondary'
                         } className="capitalize">
-                          {task.status === 'running' && <PlayCircle className="w-3 h-3 mr-1 animate-pulse" />}
-                          {task.status === 'success' && <CheckCircle2 className="w-3 h-3 mr-1" />}
-                          {task.status === 'failed' && <XCircle className="w-3 h-3 mr-1" />}
-                          {task.status}
+                          {taskStatus === 'running' && <PlayCircle className="w-3 h-3 mr-1 animate-pulse" />}
+                          {taskStatus === 'success' && <CheckCircle2 className="w-3 h-3 mr-1" />}
+                          {taskStatus === 'failed' && <XCircle className="w-3 h-3 mr-1" />}
+                          {taskStatus === 'waiting_input' && <MessageSquare className="w-3 h-3 mr-1 animate-pulse" />}
+                          {taskStatus === 'waiting_input' ? 'Awaiting Input' : taskStatus}
                         </Badge>
                       </div>
                       <div className="flex-1 min-w-0">
                         <span className="font-medium text-sm text-foreground">{task.routerName}</span>
                         <span className="text-xs text-muted-foreground font-mono ml-2">{task.routerIp}</span>
                       </div>
+                      {isWaiting && waitingInfo && (
+                        <div className="shrink-0">
+                          <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-400 animate-pulse">
+                            {waitingInfo.promptType === "confirm" ? "Yes/No prompt" : "Input prompt"}
+                          </Badge>
+                        </div>
+                      )}
                       <div className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
                         {task.startedAt && task.completedAt ? (
                           <span>{Math.round((new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()) / 1000)}s</span>
-                        ) : task.status === 'running' ? (
+                        ) : taskStatus === 'running' ? (
                           <span className="animate-pulse">running...</span>
-                        ) : task.status === 'pending' ? (
+                        ) : taskStatus === 'waiting_input' ? (
+                          <span className="text-amber-400 animate-pulse">waiting...</span>
+                        ) : taskStatus === 'pending' ? (
                           <span>waiting</span>
                         ) : '-'}
                       </div>
                       <div className="shrink-0 max-w-xs truncate">
                         {task.errorMessage ? (
                           <span className="text-xs text-destructive truncate">{task.errorMessage}</span>
-                        ) : task.output ? (
-                          <span className="text-xs text-emerald-400 truncate">{task.output.slice(0, 60)}{task.output.length > 60 ? "..." : ""}</span>
+                        ) : displayOutput ? (
+                          <span className="text-xs text-emerald-400 truncate">{displayOutput.slice(0, 60)}{displayOutput.length > 60 ? "..." : ""}</span>
                         ) : null}
                       </div>
                     </div>
 
                     {isExpanded && (
                       <div className="px-6 pb-6 pt-2 bg-black/20 space-y-4 border-t border-white/5">
-                        {task.output && (
+                        {isWaiting && waitingInfo && (
+                          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                            <div className="flex items-center gap-2 mb-2">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                              <span className="text-xs font-semibold uppercase text-amber-400">Waiting for Input</span>
+                            </div>
+                            <pre className="text-xs font-mono text-amber-300/80 bg-black/30 p-3 rounded-lg whitespace-pre-wrap mb-3">{waitingInfo.promptText}</pre>
+                            <div className="flex gap-2">
+                              <Input
+                                placeholder="Type response..."
+                                value={responseText}
+                                onChange={e => setResponseText(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleSendResponse([task.id]);
+                                  }
+                                }}
+                                className="flex-1 h-8 text-sm bg-black/30 border-amber-500/20"
+                              />
+                              <Button
+                                size="sm"
+                                onClick={() => handleSendResponse([task.id])}
+                                disabled={isSending}
+                                className="gap-1 h-8 bg-amber-500 hover:bg-amber-600 text-black"
+                              >
+                                <Send className="w-3 h-3" /> Send
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
+                        {displayOutput && (
                           <div>
                             <div className="flex items-center gap-2 mb-2">
                               <Terminal className="w-3.5 h-3.5 text-emerald-400" />
                               <span className="text-xs font-semibold uppercase text-emerald-400">Output</span>
+                              {liveOutput && task.status === "running" && (
+                                <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-400 animate-pulse ml-1">Live</Badge>
+                              )}
                             </div>
-                            <pre className="text-xs font-mono text-emerald-400 bg-black/40 p-4 rounded-xl border border-white/5 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">{task.output}</pre>
+                            <pre className="text-xs font-mono text-emerald-400 bg-black/40 p-4 rounded-xl border border-white/5 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">{displayOutput}</pre>
                           </div>
                         )}
 
@@ -248,7 +585,7 @@ export default function JobDetail() {
                           </div>
                         )}
 
-                        {!task.output && !task.errorMessage && !(task as any).connectionLog && !(task as any).resolvedScript && (
+                        {!displayOutput && !task.errorMessage && !(task as any).connectionLog && !(task as any).resolvedScript && !isWaiting && (
                           <p className="text-xs text-muted-foreground italic">No log data available yet for this task.</p>
                         )}
                       </div>

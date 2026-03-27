@@ -17,6 +17,7 @@ export interface BatchJobWithTasks {
   targetRouterIds: number[];
   targetGroupIds: number[];
   excelData?: BatchJobWithTasksExcelDataItem[] | null;
+  autoConfirm: boolean;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;

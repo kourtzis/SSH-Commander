@@ -76,6 +76,7 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
     targetRouterIds: templateJob.targetRouterIds,
     targetGroupIds: templateJob.targetGroupIds,
     excelData: templateJob.excelData,
+    autoConfirm: templateJob.autoConfirm,
     totalTasks: routers.length,
     completedTasks: 0,
     failedTasks: 0,
@@ -121,7 +122,7 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
     }
 
     try {
-      const result = await executeSSHCommand(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript);
+      const result = await executeSSHCommand(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, 30000, templateJob.autoConfirm);
       if (result.success) {
         completedCount++;
         await db.update(jobTasksTable).set({
@@ -258,7 +259,7 @@ async function tick() {
             }
 
             try {
-              const result = await executeSSHCommand(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript);
+              const result = await executeSSHCommand(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, 30000, templateJob.autoConfirm);
               if (result.success) { completedCount++; await db.update(jobTasksTable).set({ status: "success", output: result.output, connectionLog: result.connectionLog, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id)); }
               else { failedCount++; await db.update(jobTasksTable).set({ status: "failed", output: result.output, errorMessage: result.errorMessage, connectionLog: result.connectionLog, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id)); }
             } catch (err: any) {

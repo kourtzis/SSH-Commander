@@ -418,6 +418,7 @@ export const ListJobsResponseItem = zod.object({
   ]),
   targetRouterIds: zod.array(zod.number()),
   targetGroupIds: zod.array(zod.number()),
+  autoConfirm: zod.boolean(),
   totalTasks: zod.number(),
   completedTasks: zod.number(),
   failedTasks: zod.number(),
@@ -447,6 +448,12 @@ export const CreateJobBody = zod.object({
     .describe(
       "Run executes immediately (default), schedule saves as template for scheduling",
     ),
+  autoConfirm: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Automatically answer yes to SSH confirmation prompts (default true)",
+    ),
 });
 
 /**
@@ -471,6 +478,7 @@ export const GetJobResponse = zod.object({
   targetRouterIds: zod.array(zod.number()),
   targetGroupIds: zod.array(zod.number()),
   excelData: zod.array(zod.record(zod.string(), zod.string())).nullish(),
+  autoConfirm: zod.boolean(),
   totalTasks: zod.number(),
   completedTasks: zod.number(),
   failedTasks: zod.number(),
@@ -484,11 +492,18 @@ export const GetJobResponse = zod.object({
       routerId: zod.number(),
       routerName: zod.string(),
       routerIp: zod.string(),
-      status: zod.enum(["pending", "running", "success", "failed"]),
+      status: zod.enum([
+        "pending",
+        "running",
+        "success",
+        "failed",
+        "waiting_input",
+      ]),
       output: zod.string().nullish(),
       errorMessage: zod.string().nullish(),
       connectionLog: zod.string().nullish(),
       resolvedScript: zod.string().nullish(),
+      promptText: zod.string().nullish(),
       startedAt: zod.date().nullish(),
       completedAt: zod.date().nullish(),
     }),
@@ -519,6 +534,12 @@ export const UpdateJobBody = zod.object({
     .describe(
       "Run executes immediately (default), schedule saves as template for scheduling",
     ),
+  autoConfirm: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Automatically answer yes to SSH confirmation prompts (default true)",
+    ),
 });
 
 export const UpdateJobResponse = zod.object({
@@ -535,6 +556,7 @@ export const UpdateJobResponse = zod.object({
   ]),
   targetRouterIds: zod.array(zod.number()),
   targetGroupIds: zod.array(zod.number()),
+  autoConfirm: zod.boolean(),
   totalTasks: zod.number(),
   completedTasks: zod.number(),
   failedTasks: zod.number(),

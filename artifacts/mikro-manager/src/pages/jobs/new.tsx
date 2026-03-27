@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Plus, FileCode, Wifi, WifiOff, Clock } from "lucide-react";
+import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Plus, FileCode, Wifi, WifiOff, Clock, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -118,6 +118,7 @@ export default function NewJob() {
   const [customCode, setCustomCode] = useState("");
   const [targets, setTargets] = useState<TargetEntry[]>([]);
   const [excelData, setExcelData] = useState<any[]>([]);
+  const [autoConfirm, setAutoConfirm] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [jobMode, setJobMode] = useState<"run" | "schedule">("run");
   const [populated, setPopulated] = useState(false);
@@ -132,6 +133,7 @@ export default function NewJob() {
     if (sourceJob.status === "scheduled") {
       setJobMode("schedule");
     }
+    setAutoConfirm(sourceJob.autoConfirm);
 
     const newTargets: TargetEntry[] = [];
     if (sourceJob.targetRouterIds) {
@@ -250,6 +252,7 @@ export default function NewJob() {
             targetGroupIds: selectedGroupIds,
             excelData: excelData.length > 0 ? excelData : undefined,
             mode: "schedule",
+            autoConfirm,
           },
         });
         toast({ title: "Job updated successfully!" });
@@ -263,6 +266,7 @@ export default function NewJob() {
             targetGroupIds: selectedGroupIds,
             excelData: excelData.length > 0 ? excelData : undefined,
             mode: mode === "schedule" ? "schedule" : undefined,
+            autoConfirm,
           },
         });
 
@@ -549,6 +553,29 @@ export default function NewJob() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="glass-panel">
+        <CardContent className="py-4">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setAutoConfirm(!autoConfirm)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${autoConfirm ? 'bg-teal-500' : 'bg-slate-600'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoConfirm ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-teal-400" />
+              <Label className="text-sm font-medium cursor-pointer" onClick={() => setAutoConfirm(!autoConfirm)}>
+                Auto-confirm SSH prompts
+              </Label>
+            </div>
+            <span className="text-xs text-slate-400 ml-auto hidden sm:block">
+              Automatically answer "yes" to confirmation prompts during SSH execution
+            </span>
+          </div>
         </CardContent>
       </Card>
 

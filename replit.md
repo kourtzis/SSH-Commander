@@ -58,7 +58,7 @@ artifacts-monorepo/
 2. **Router management** — CRUD list of Mikrotik devices with SSH credentials
 3. **Hierarchical groups** — Recursive group trees (groups contain routers and/or sub-groups)
 4. **Code snippets** — Named/categorized library with `{{TAG}}` placeholder support; compose new snippets from existing ones with drag-to-reorder concatenation
-5. **Batch jobs** — Target individual routers and/or groups; SSH execution with per-router results; drag-to-reorder execution order for targets; job actions: Run Now (rerun), Copy, Edit (scheduled only, updates in-place via PUT), Stop (running), Cancel (scheduled), bulk delete
+5. **Batch jobs** — Target individual routers and/or groups; SSH execution with per-router results; drag-to-reorder execution order for targets; job actions: Run Now (rerun), Copy, Edit (scheduled only, updates in-place via PUT), Stop (running), Cancel (scheduled), bulk delete; auto-confirm SSH prompts toggle (default on); interactive mode when auto-confirm is off
 6. **Multi-snippet scripts** — Add multiple snippets from the library to a job, drag to reorder, and they are concatenated sequentially; optional custom code appended after snippets
 7. **Device reachability** — Real-time SSH port reachability check for all routers in the job form (green/red indicators, auto-refreshes every 10s)
 8. **Excel/CSV tag substitution** — Upload .xlsx or paste CSV data; column headers become tag names, rows applied per router in job order
@@ -76,8 +76,8 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 - `group_routers` — join table (group_id, router_id)
 - `group_subgroups` — join table (parent_group_id, child_group_id)
 - `snippets` — id, name, category, code, description, created_at, updated_at
-- `batch_jobs` — id, name, script_code, status (pending|running|completed|failed|cancelled|scheduled), target_router_ids[], target_group_ids[], excel_data, totals, created_by, timestamps
-- `job_tasks` — id, job_id, router_id, router_name, router_ip, status, output, error_message, timestamps
+- `batch_jobs` — id, name, script_code, status (pending|running|completed|failed|cancelled|scheduled), target_router_ids[], target_group_ids[], excel_data, auto_confirm, totals, created_by, timestamps
+- `job_tasks` — id, job_id, router_id, router_name, router_ip, status (pending|running|success|failed|waiting_input), output, error_message, connection_log, resolved_script, prompt_text, timestamps
 - `schedules` — id, name, job_id (template), type (once|interval|weekly), scheduled_at, interval_minutes, days_of_week[], time_of_day, next_run_at, last_run_at, enabled, run_count, created_by, created_at
 
 ## SSH Execution
@@ -88,6 +88,19 @@ The SSH engine (`lib/ssh.ts`) uses the `ssh2` package with Mikrotik-compatible a
 - Host keys: ssh-rsa, ecdsa-sha2-nistp256, ssh-dss
 
 Tag substitution: `{{TAG_NAME}}` in script code is replaced with values from the Excel data row matching the router's position in the job.
+
+### Interactive SSH Mode
+
+When auto-confirm is disabled on a job, SSH sessions run in interactive mode:
+- All target devices connect in parallel via `conn.shell()` (interactive shell)
+- Prompt detection identifies both yes/no confirmation prompts (`CONFIRM_PATTERNS`) and general input prompts (`INPUT_PATTERNS` — colon-terminated, question marks, etc.)
+- When a device hits a prompt, its task status changes to `waiting_input` with the prompt text stored in `promptText`
+- The backend uses SSE (Server-Sent Events) at `GET /api/jobs/:id/live` to stream real-time events: `task_status`, `task_output`, `input_required`, `input_sent`, `job_complete`
+- Users can send input via `POST /api/jobs/:id/respond` with `{ taskIds: number[], input: string }` — targeting one, some, or all waiting devices
+- The interactive session manager (`lib/interactive-session.ts`) keeps shell connections alive and routes user input back to specific device streams
+- The job detail page shows an amber "Waiting for Input" panel with device checkboxes, prompt text, and response input field
+- A "Group waiting" button sorts waiting devices to the top of the task results list
+- Global timeout of 120 seconds per device; 5-second idle timer closes completed sessions
 
 ## Mobile Responsiveness
 

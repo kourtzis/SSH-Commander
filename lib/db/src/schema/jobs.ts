@@ -6,6 +6,7 @@ import {
   timestamp,
   json,
   pgEnum,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -24,6 +25,7 @@ export const taskStatusEnum = pgEnum("task_status", [
   "running",
   "success",
   "failed",
+  "waiting_input",
 ]);
 
 export const batchJobsTable = pgTable("batch_jobs", {
@@ -34,6 +36,7 @@ export const batchJobsTable = pgTable("batch_jobs", {
   targetRouterIds: json("target_router_ids").$type<number[]>().notNull().default([]),
   targetGroupIds: json("target_group_ids").$type<number[]>().notNull().default([]),
   excelData: json("excel_data").$type<Record<string, string>[]>(),
+  autoConfirm: boolean("auto_confirm").notNull().default(true),
   totalTasks: integer("total_tasks").notNull().default(0),
   completedTasks: integer("completed_tasks").notNull().default(0),
   failedTasks: integer("failed_tasks").notNull().default(0),
@@ -53,6 +56,7 @@ export const jobTasksTable = pgTable("job_tasks", {
   errorMessage: text("error_message"),
   connectionLog: text("connection_log"),
   resolvedScript: text("resolved_script"),
+  promptText: text("prompt_text"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
 });

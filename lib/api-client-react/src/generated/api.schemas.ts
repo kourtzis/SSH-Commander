@@ -199,6 +199,7 @@ export interface BatchJob {
   status: BatchJobStatus;
   targetRouterIds: number[];
   targetGroupIds: number[];
+  autoConfirm: boolean;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;
@@ -228,6 +229,7 @@ export const JobTaskStatus = {
   running: "running",
   success: "success",
   failed: "failed",
+  waiting_input: "waiting_input",
 } as const;
 
 export interface JobTask {
@@ -241,6 +243,7 @@ export interface JobTask {
   errorMessage?: string | null;
   connectionLog?: string | null;
   resolvedScript?: string | null;
+  promptText?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
 }
@@ -253,6 +256,7 @@ export interface BatchJobWithTasks {
   targetRouterIds: number[];
   targetGroupIds: number[];
   excelData?: BatchJobWithTasksExcelDataItem[] | null;
+  autoConfirm: boolean;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;
@@ -284,6 +288,8 @@ export interface CreateJobRequest {
   excelData?: CreateJobRequestExcelDataItem[];
   /** Run executes immediately (default), schedule saves as template for scheduling */
   mode?: CreateJobRequestMode;
+  /** Automatically answer yes to SSH confirmation prompts (default true) */
+  autoConfirm?: boolean;
 }
 
 export type ScheduleType = (typeof ScheduleType)[keyof typeof ScheduleType];
