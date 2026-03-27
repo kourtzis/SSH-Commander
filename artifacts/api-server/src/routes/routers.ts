@@ -90,6 +90,46 @@ router.delete("/routers/:id", async (req, res) => {
   res.json({ message: "Router deleted" });
 });
 
+router.post("/routers/import", async (req, res) => {
+  requireAuth(req);
+  const { routers: items } = req.body as { routers: any[] };
+  if (!Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ error: "No routers provided" });
+    return;
+  }
+
+  const results: { index: number; name: string; status: "created" | "error"; error?: string }[] = [];
+  let created = 0;
+  let failed = 0;
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const name = (item.name || "").toString().trim();
+    const ipAddress = (item.ipAddress || "").toString().trim();
+    const sshUsername = (item.sshUsername || "admin").toString().trim();
+    const sshPort = parseInt(item.sshPort) || 22;
+    const sshPassword = (item.sshPassword || "").toString().trim() || undefined;
+    const description = (item.description || "").toString().trim() || undefined;
+
+    if (!name || !ipAddress) {
+      results.push({ index: i, name: name || `Row ${i + 1}`, status: "error", error: "Missing name or IP address" });
+      failed++;
+      continue;
+    }
+
+    try {
+      await db.insert(routersTable).values({ name, ipAddress, sshPort, sshUsername, sshPassword, description });
+      results.push({ index: i, name, status: "created" });
+      created++;
+    } catch (err: any) {
+      results.push({ index: i, name, status: "error", error: err.message });
+      failed++;
+    }
+  }
+
+  res.json({ created, failed, total: items.length, results });
+});
+
 function checkPort(host: string, port: number, timeoutMs = 3000): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new net.Socket();

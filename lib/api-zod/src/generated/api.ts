@@ -202,6 +202,36 @@ export const DeleteRouterResponse = zod.object({
 });
 
 /**
+ * @summary Mass import routers from parsed file data
+ */
+export const ImportRoutersBody = zod.object({
+  routers: zod.array(
+    zod.object({
+      name: zod.string(),
+      ipAddress: zod.string(),
+      sshPort: zod.number().optional(),
+      sshUsername: zod.string().optional(),
+      sshPassword: zod.string().optional(),
+      description: zod.string().optional(),
+    }),
+  ),
+});
+
+export const ImportRoutersResponse = zod.object({
+  created: zod.number(),
+  failed: zod.number(),
+  total: zod.number(),
+  results: zod.array(
+    zod.object({
+      index: zod.number(),
+      name: zod.string(),
+      status: zod.enum(["created", "error"]),
+      error: zod.string().optional(),
+    }),
+  ),
+});
+
+/**
  * @summary List all groups (tree structure)
  */
 export const ListGroupsResponseItem = zod.object({

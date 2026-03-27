@@ -100,6 +100,41 @@ export interface UpdateRouterRequest {
   description?: string;
 }
 
+export type ImportRoutersRequestRoutersItem = {
+  name: string;
+  ipAddress: string;
+  sshPort?: number;
+  sshUsername?: string;
+  sshPassword?: string;
+  description?: string;
+};
+
+export interface ImportRoutersRequest {
+  routers: ImportRoutersRequestRoutersItem[];
+}
+
+export type ImportRouterResultStatus =
+  (typeof ImportRouterResultStatus)[keyof typeof ImportRouterResultStatus];
+
+export const ImportRouterResultStatus = {
+  created: "created",
+  error: "error",
+} as const;
+
+export interface ImportRouterResult {
+  index: number;
+  name: string;
+  status: ImportRouterResultStatus;
+  error?: string;
+}
+
+export interface ImportRoutersResponse {
+  created: number;
+  failed: number;
+  total: number;
+  results: ImportRouterResult[];
+}
+
 export interface RouterGroup {
   id: number;
   name: string;

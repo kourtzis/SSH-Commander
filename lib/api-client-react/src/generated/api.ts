@@ -29,6 +29,8 @@ import type {
   CreateUserRequest,
   ErrorResponse,
   HealthStatus,
+  ImportRoutersRequest,
+  ImportRoutersResponse,
   ListSnippetsParams,
   LoginRequest,
   MessageResponse,
@@ -1172,6 +1174,92 @@ export const useDeleteRouter = <
   TContext
 > => {
   return useMutation(getDeleteRouterMutationOptions(options));
+};
+
+/**
+ * @summary Mass import routers from parsed file data
+ */
+export const getImportRoutersUrl = () => {
+  return `/api/routers/import`;
+};
+
+export const importRouters = async (
+  importRoutersRequest: ImportRoutersRequest,
+  options?: RequestInit,
+): Promise<ImportRoutersResponse> => {
+  return customFetch<ImportRoutersResponse>(getImportRoutersUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(importRoutersRequest),
+  });
+};
+
+export const getImportRoutersMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof importRouters>>,
+    TError,
+    { data: BodyType<ImportRoutersRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof importRouters>>,
+  TError,
+  { data: BodyType<ImportRoutersRequest> },
+  TContext
+> => {
+  const mutationKey = ["importRouters"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof importRouters>>,
+    { data: BodyType<ImportRoutersRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return importRouters(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ImportRoutersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof importRouters>>
+>;
+export type ImportRoutersMutationBody = BodyType<ImportRoutersRequest>;
+export type ImportRoutersMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mass import routers from parsed file data
+ */
+export const useImportRouters = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof importRouters>>,
+    TError,
+    { data: BodyType<ImportRoutersRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof importRouters>>,
+  TError,
+  { data: BodyType<ImportRoutersRequest> },
+  TContext
+> => {
+  return useMutation(getImportRoutersMutationOptions(options));
 };
 
 /**

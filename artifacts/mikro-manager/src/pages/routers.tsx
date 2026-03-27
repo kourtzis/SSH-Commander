@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useListRouters } from "@workspace/api-client-react";
+import { useState, useRef } from "react";
+import { useListRouters, useImportRouters } from "@workspace/api-client-react";
 import { useRoutersMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
@@ -9,12 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Plus, Search, Server, Edit2, Trash2 } from "lucide-react";
+import { Plus, Search, Server, Edit2, Trash2, Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { formatDate } from "@/lib/utils";
+import * as XLSX from "xlsx";
 
 const routerSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -27,15 +29,113 @@ const routerSchema = z.object({
 
 type FormData = z.infer<typeof routerSchema>;
 
+const EXPECTED_COLUMNS = ["name", "ipAddress", "sshPort", "sshUsername", "sshPassword", "description"];
+
+const COLUMN_ALIASES: Record<string, string> = {
+  "name": "name",
+  "device_name": "name",
+  "device name": "name",
+  "hostname": "name",
+  "router_name": "name",
+  "router name": "name",
+  "ip": "ipAddress",
+  "ip_address": "ipAddress",
+  "ip address": "ipAddress",
+  "ipaddress": "ipAddress",
+  "address": "ipAddress",
+  "host": "ipAddress",
+  "port": "sshPort",
+  "ssh_port": "sshPort",
+  "ssh port": "sshPort",
+  "sshport": "sshPort",
+  "username": "sshUsername",
+  "ssh_username": "sshUsername",
+  "ssh username": "sshUsername",
+  "sshusername": "sshUsername",
+  "user": "sshUsername",
+  "password": "sshPassword",
+  "ssh_password": "sshPassword",
+  "ssh password": "sshPassword",
+  "sshpassword": "sshPassword",
+  "pass": "sshPassword",
+  "description": "description",
+  "desc": "description",
+  "notes": "description",
+  "note": "description",
+  "comment": "description",
+};
+
+function mapColumnName(header: string): string | null {
+  const lower = header.toLowerCase().trim();
+  if (EXPECTED_COLUMNS.includes(lower)) return lower;
+  return COLUMN_ALIASES[lower] || null;
+}
+
+interface ParsedRow {
+  name: string;
+  ipAddress: string;
+  sshPort?: number;
+  sshUsername?: string;
+  sshPassword?: string;
+  description?: string;
+  valid: boolean;
+  error?: string;
+}
+
+function parseFileData(rawRows: Record<string, string>[]): { rows: ParsedRow[]; columnMap: Record<string, string> } {
+  if (rawRows.length === 0) return { rows: [], columnMap: {} };
+
+  const headers = Object.keys(rawRows[0]);
+  const columnMap: Record<string, string> = {};
+  for (const h of headers) {
+    const mapped = mapColumnName(h);
+    if (mapped) columnMap[h] = mapped;
+  }
+
+  const rows: ParsedRow[] = rawRows.map((raw) => {
+    const mapped: Record<string, string> = {};
+    for (const [orig, target] of Object.entries(columnMap)) {
+      if (raw[orig] !== undefined && raw[orig] !== "") {
+        mapped[target] = raw[orig];
+      }
+    }
+    const name = (mapped.name || "").trim();
+    const ipAddress = (mapped.ipAddress || "").trim();
+    const valid = !!name && !!ipAddress;
+    return {
+      name,
+      ipAddress,
+      sshPort: mapped.sshPort ? parseInt(mapped.sshPort) || 22 : undefined,
+      sshUsername: mapped.sshUsername?.trim() || undefined,
+      sshPassword: mapped.sshPassword?.trim() || undefined,
+      description: mapped.description?.trim() || undefined,
+      valid,
+      error: !name ? "Missing name" : !ipAddress ? "Missing IP" : undefined,
+    };
+  });
+
+  return { rows, columnMap };
+}
+
 export default function Routers() {
   const { data: routers = [], isLoading } = useListRouters();
   const { createRouter, updateRouter, deleteRouter } = useRoutersMutations();
+  const importRouters = useImportRouters();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingRouter, setEditingRouter] = useState<number | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importStep, setImportStep] = useState<"upload" | "preview" | "results">("upload");
+  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  const [columnMap, setColumnMap] = useState<Record<string, string>>({});
+  const [fileName, setFileName] = useState("");
+  const [importResults, setImportResults] = useState<{ created: number; failed: number; total: number; results: any[] } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<FormData>({
     resolver: zodResolver(routerSchema),
@@ -106,6 +206,83 @@ export default function Routers() {
     }
   };
 
+  const openImportDialog = () => {
+    setImportStep("upload");
+    setParsedRows([]);
+    setColumnMap({});
+    setFileName("");
+    setImportResults(null);
+    setIsImportOpen(true);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    const isCSV = file.name.toLowerCase().endsWith(".csv");
+
+    if (isCSV) {
+      reader.onload = (evt) => {
+        const text = evt.target?.result as string;
+        const wb = XLSX.read(text, { type: "string" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "" });
+        const { rows, columnMap: cm } = parseFileData(rawRows);
+        setParsedRows(rows);
+        setColumnMap(cm);
+        setImportStep("preview");
+      };
+      reader.readAsText(file);
+    } else {
+      reader.onload = (evt) => {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "" });
+        const { rows, columnMap: cm } = parseFileData(rawRows);
+        setParsedRows(rows);
+        setColumnMap(cm);
+        setImportStep("preview");
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleImport = async () => {
+    const validRows = parsedRows.filter(r => r.valid);
+    if (validRows.length === 0) return;
+
+    try {
+      const res = await importRouters.mutateAsync({
+        data: {
+          routers: validRows.map(r => ({
+            name: r.name,
+            ipAddress: r.ipAddress,
+            sshPort: r.sshPort,
+            sshUsername: r.sshUsername,
+            sshPassword: r.sshPassword,
+            description: r.description,
+          })),
+        },
+      });
+      setImportResults(res);
+      setImportStep("results");
+      queryClient.invalidateQueries({ queryKey: ["/api/routers"] });
+      if (res.created > 0) {
+        toast({ title: `Imported ${res.created} router(s)` });
+      }
+    } catch (err: any) {
+      toast({ title: "Import failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const validCount = parsedRows.filter(r => r.valid).length;
+  const invalidCount = parsedRows.filter(r => !r.valid).length;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -113,9 +290,14 @@ export default function Routers() {
           <h1 className="text-3xl font-bold tracking-tight">Routers</h1>
           <p className="text-muted-foreground mt-1">Manage your Mikrotik devices for batch jobs.</p>
         </div>
-        <Button onClick={() => handleOpenDialog()} className="gap-2">
-          <Plus className="w-4 h-4" /> Add Router
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={openImportDialog} className="gap-2">
+            <Upload className="w-4 h-4" /> Import
+          </Button>
+          <Button onClick={() => handleOpenDialog()} className="gap-2">
+            <Plus className="w-4 h-4" /> Add Router
+          </Button>
+        </div>
       </div>
 
       <SelectionBar count={selection.count} label="routers" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
@@ -247,6 +429,186 @@ export default function Routers() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5 text-primary" />
+              Import Routers
+            </DialogTitle>
+          </DialogHeader>
+
+          {importStep === "upload" && (
+            <div className="py-6">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-white/10 rounded-xl p-12 flex flex-col items-center gap-4 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all"
+              >
+                <Upload className="w-10 h-10 text-muted-foreground" />
+                <div className="text-center">
+                  <p className="text-lg font-medium">Drop a file or click to browse</p>
+                  <p className="text-sm text-muted-foreground mt-1">Supports .xlsx, .xls, and .csv files</p>
+                </div>
+              </div>
+              <div className="mt-6 p-4 bg-black/20 rounded-lg border border-white/5">
+                <p className="text-sm font-medium mb-2">Expected columns:</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                  <div><code className="text-primary">name</code> <span className="text-muted-foreground">(required)</span></div>
+                  <div><code className="text-primary">ipAddress</code> / <code className="text-primary">ip</code> <span className="text-muted-foreground">(required)</span></div>
+                  <div><code className="text-primary">sshUsername</code> / <code className="text-primary">username</code></div>
+                  <div><code className="text-primary">sshPort</code> / <code className="text-primary">port</code></div>
+                  <div><code className="text-primary">sshPassword</code> / <code className="text-primary">password</code></div>
+                  <div><code className="text-primary">description</code> / <code className="text-primary">notes</code></div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">Column names are matched flexibly — "hostname", "device_name", "ip_address", etc. all work.</p>
+              </div>
+            </div>
+          )}
+
+          {importStep === "preview" && (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <FileSpreadsheet className="w-5 h-5 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">{fileName}</p>
+                    <p className="text-xs text-muted-foreground">{parsedRows.length} row(s) found</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  {validCount > 0 && (
+                    <span className="flex items-center gap-1 text-emerald-400">
+                      <CheckCircle2 className="w-4 h-4" /> {validCount} valid
+                    </span>
+                  )}
+                  {invalidCount > 0 && (
+                    <span className="flex items-center gap-1 text-red-400">
+                      <XCircle className="w-4 h-4" /> {invalidCount} invalid
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {Object.keys(columnMap).length > 0 && (
+                <div className="p-3 bg-black/20 rounded-lg border border-white/5">
+                  <p className="text-xs font-medium mb-2 text-muted-foreground">Column mapping:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(columnMap).map(([from, to]) => (
+                      <span key={from} className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">
+                        {from} → {to}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {Object.keys(columnMap).length === 0 && (
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+                  <p className="text-sm text-red-300">No matching columns found. Make sure your file has columns like "name", "ip" or "ipAddress".</p>
+                </div>
+              )}
+
+              <div className="overflow-x-auto border border-white/5 rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="bg-black/40 text-muted-foreground uppercase">
+                    <tr>
+                      <th className="px-3 py-2 text-left w-8">#</th>
+                      <th className="px-3 py-2 text-left">Status</th>
+                      <th className="px-3 py-2 text-left">Name</th>
+                      <th className="px-3 py-2 text-left">IP Address</th>
+                      <th className="px-3 py-2 text-left">Username</th>
+                      <th className="px-3 py-2 text-left">Port</th>
+                      <th className="px-3 py-2 text-left">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {parsedRows.slice(0, 100).map((row, i) => (
+                      <tr key={i} className={row.valid ? "" : "bg-red-500/5"}>
+                        <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
+                        <td className="px-3 py-2">
+                          {row.valid ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <span className="text-red-400 text-xs">{row.error}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-medium">{row.name || "—"}</td>
+                        <td className="px-3 py-2 font-mono">{row.ipAddress || "—"}</td>
+                        <td className="px-3 py-2">{row.sshUsername || "admin"}</td>
+                        <td className="px-3 py-2">{row.sshPort || 22}</td>
+                        <td className="px-3 py-2 text-muted-foreground truncate max-w-[150px]">{row.description || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {parsedRows.length > 100 && (
+                  <p className="text-xs text-muted-foreground text-center py-2">Showing first 100 of {parsedRows.length} rows</p>
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setImportStep("upload")}>Back</Button>
+                <Button
+                  onClick={handleImport}
+                  disabled={validCount === 0 || importRouters.isPending}
+                  className="gap-2"
+                >
+                  {importRouters.isPending ? "Importing..." : `Import ${validCount} Router(s)`}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {importStep === "results" && importResults && (
+            <div className="space-y-4 py-2">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-emerald-400">{importResults.created}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Created</p>
+                </div>
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-red-400">{importResults.failed}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Failed</p>
+                </div>
+                <div className="p-4 bg-white/5 border border-white/10 rounded-lg text-center">
+                  <p className="text-2xl font-bold">{importResults.total}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Total</p>
+                </div>
+              </div>
+
+              {importResults.results.some((r: any) => r.status === "error") && (
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {importResults.results
+                    .filter((r: any) => r.status === "error")
+                    .map((r: any, i: number) => (
+                      <div key={i} className="flex items-center gap-2 text-xs p-2 bg-red-500/5 rounded">
+                        <XCircle className="w-3 h-3 text-red-400 shrink-0" />
+                        <span className="font-medium">{r.name}</span>
+                        <span className="text-muted-foreground">— {r.error}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsImportOpen(false)}>Close</Button>
+                <Button onClick={openImportDialog} className="gap-2">
+                  <Upload className="w-4 h-4" /> Import More
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

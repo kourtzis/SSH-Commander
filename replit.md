@@ -55,7 +55,7 @@ artifacts-monorepo/
 ## Features
 
 1. **Multi-user auth** — Session-based login with admin and operator roles
-2. **Router management** — CRUD list of Mikrotik devices with SSH credentials
+2. **Router management** — CRUD list of Mikrotik devices with SSH credentials; mass import from .xlsx/.csv files with flexible column mapping and preview
 3. **Hierarchical groups** — Recursive group trees (groups contain routers and/or sub-groups)
 4. **Code snippets** — Named/categorized library with `{{TAG}}` placeholder support; compose new snippets from existing ones with drag-to-reorder concatenation
 5. **Batch jobs** — Target individual routers and/or groups; SSH execution with per-router results; drag-to-reorder execution order for targets; job actions: Run Now (rerun), Copy, Edit (scheduled only, updates in-place via PUT), Stop (running), Cancel (scheduled), bulk delete; auto-confirm SSH prompts toggle (default on); interactive mode when auto-confirm is off

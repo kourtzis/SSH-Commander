@@ -289,6 +289,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
 
+  /routers/import:
+    post:
+      operationId: importRouters
+      tags: [routers]
+      summary: Mass import routers from parsed file data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportRoutersRequest"
+      responses:
+        "200":
+          description: Import results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportRoutersResponse"
+
   /groups:
     get:
       operationId: listGroups
@@ -942,6 +961,68 @@ components:
           type: string
         description:
           type: string
+
+    ImportRoutersRequest:
+      type: object
+      properties:
+        routers:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              ipAddress:
+                type: string
+              sshPort:
+                type: integer
+              sshUsername:
+                type: string
+              sshPassword:
+                type: string
+              description:
+                type: string
+            required:
+              - name
+              - ipAddress
+      required:
+        - routers
+
+    ImportRouterResult:
+      type: object
+      properties:
+        index:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum: [created, error]
+        error:
+          type: string
+      required:
+        - index
+        - name
+        - status
+
+    ImportRoutersResponse:
+      type: object
+      properties:
+        created:
+          type: integer
+        failed:
+          type: integer
+        total:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportRouterResult"
+      required:
+        - created
+        - failed
+        - total
+        - results
 
     RouterGroup:
       type: object
