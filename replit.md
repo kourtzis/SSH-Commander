@@ -58,7 +58,7 @@ artifacts-monorepo/
 2. **Router management** — CRUD list of Mikrotik devices with SSH credentials
 3. **Hierarchical groups** — Recursive group trees (groups contain routers and/or sub-groups)
 4. **Code snippets** — Named/categorized library with `{{TAG}}` placeholder support; compose new snippets from existing ones with drag-to-reorder concatenation
-5. **Batch jobs** — Target individual routers and/or groups; SSH execution with per-router results; drag-to-reorder execution order for targets
+5. **Batch jobs** — Target individual routers and/or groups; SSH execution with per-router results; drag-to-reorder execution order for targets; job actions: Run Now (rerun), Copy, Edit (scheduled only, updates in-place via PUT), Stop (running), Cancel (scheduled), bulk delete
 6. **Multi-snippet scripts** — Add multiple snippets from the library to a job, drag to reorder, and they are concatenated sequentially; optional custom code appended after snippets
 7. **Device reachability** — Real-time SSH port reachability check for all routers in the job form (green/red indicators, auto-refreshes every 10s)
 8. **Excel/CSV tag substitution** — Upload .xlsx or paste CSV data; column headers become tag names, rows applied per router in job order

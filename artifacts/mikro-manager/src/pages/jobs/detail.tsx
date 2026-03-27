@@ -34,7 +34,7 @@ export default function JobDetail() {
   const progress = job.totalTasks > 0 ? (doneTasks / job.totalTasks) * 100 : 0;
 
   const handleCancel = async () => {
-    if (confirm("Are you sure you want to cancel this running job?")) {
+    if (confirm(job.status === "running" ? "Are you sure you want to stop this running job?" : "Are you sure you want to cancel this scheduled job?")) {
       try {
         await cancelJob.mutateAsync({ id: jobId });
         toast({ title: "Cancel requested" });
@@ -83,9 +83,9 @@ export default function JobDetail() {
           </p>
         </div>
         
-        {job.status === 'running' && (
+        {(job.status === 'running' || job.status === 'scheduled') && (
           <Button variant="destructive" onClick={handleCancel} className="gap-2 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
-            <Ban className="w-4 h-4" /> Cancel Job
+            <Ban className="w-4 h-4" /> {job.status === 'running' ? 'Stop Job' : 'Cancel Job'}
           </Button>
         )}
       </div>

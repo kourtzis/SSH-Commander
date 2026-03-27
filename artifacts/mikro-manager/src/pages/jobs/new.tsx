@@ -103,7 +103,7 @@ export default function NewJob() {
   const isEditMode = !!editId;
 
   const { toast } = useToast();
-  const { createJob } = useJobsMutations();
+  const { createJob, updateJob } = useJobsMutations();
 
   const { data: routers = [], isSuccess: routersLoaded } = useListRouters();
   const { data: groups = [], isSuccess: groupsLoaded } = useListGroups();
@@ -239,26 +239,43 @@ export default function NewJob() {
     setJobMode(mode);
     setIsSubmitting(true);
     try {
-      const res = await createJob.mutateAsync({
-        data: {
-          name,
-          scriptCode: combinedScript,
-          targetRouterIds: selectedRouterIds,
-          targetGroupIds: selectedGroupIds,
-          excelData: excelData.length > 0 ? excelData : undefined,
-          mode: mode === "schedule" ? "schedule" : undefined,
-        },
-      });
-
-      if (mode === "schedule") {
-        toast({ title: "Job template saved! Now configure the schedule." });
-        setLocation(`/scheduler/new?jobId=${res.id}`);
+      if (isEditMode && editId) {
+        const jobId = parseInt(editId);
+        await updateJob.mutateAsync({
+          id: jobId,
+          data: {
+            name,
+            scriptCode: combinedScript,
+            targetRouterIds: selectedRouterIds,
+            targetGroupIds: selectedGroupIds,
+            excelData: excelData.length > 0 ? excelData : undefined,
+            mode: "schedule",
+          },
+        });
+        toast({ title: "Job updated successfully!" });
+        setLocation(`/jobs/${jobId}`);
       } else {
-        toast({ title: "Job started successfully!" });
-        setLocation(`/jobs/${res.id}`);
+        const res = await createJob.mutateAsync({
+          data: {
+            name,
+            scriptCode: combinedScript,
+            targetRouterIds: selectedRouterIds,
+            targetGroupIds: selectedGroupIds,
+            excelData: excelData.length > 0 ? excelData : undefined,
+            mode: mode === "schedule" ? "schedule" : undefined,
+          },
+        });
+
+        if (mode === "schedule") {
+          toast({ title: "Job template saved! Now configure the schedule." });
+          setLocation(`/scheduler/new?jobId=${res.id}`);
+        } else {
+          toast({ title: "Job started successfully!" });
+          setLocation(`/jobs/${res.id}`);
+        }
       }
     } catch (e: any) {
-      toast({ title: "Failed to start job", description: e.message, variant: "destructive" });
+      toast({ title: isEditMode ? "Failed to update job" : "Failed to start job", description: e.message, variant: "destructive" });
       setIsSubmitting(false);
     }
   };
@@ -538,29 +555,42 @@ export default function NewJob() {
       <Card className="glass-panel">
         <CardContent className="py-4">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3">
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={() => handleSubmit("schedule")}
-              disabled={isSubmitting}
-              className="text-lg gap-2"
-            >
-              {isSubmitting && jobMode === "schedule"
-                ? "Saving..."
-                : <><Clock className="w-5 h-5" /> Save & Schedule</>
-              }
-            </Button>
-            <Button
-              size="lg"
-              onClick={() => handleSubmit("run")}
-              disabled={isSubmitting}
-              className="text-lg gap-2 shadow-[0_0_20px_rgba(45,212,191,0.3)]"
-            >
-              {isSubmitting && jobMode === "run"
-                ? "Starting..."
-                : <><Play className="w-5 h-5 fill-current" /> Save & Run</>
-              }
-            </Button>
+            {isEditMode ? (
+              <Button
+                size="lg"
+                onClick={() => handleSubmit("schedule")}
+                disabled={isSubmitting}
+                className="text-lg gap-2 shadow-[0_0_20px_rgba(45,212,191,0.3)]"
+              >
+                {isSubmitting ? "Saving..." : <><Clock className="w-5 h-5" /> Save Changes</>}
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => handleSubmit("schedule")}
+                  disabled={isSubmitting}
+                  className="text-lg gap-2"
+                >
+                  {isSubmitting && jobMode === "schedule"
+                    ? "Saving..."
+                    : <><Clock className="w-5 h-5" /> Save & Schedule</>
+                  }
+                </Button>
+                <Button
+                  size="lg"
+                  onClick={() => handleSubmit("run")}
+                  disabled={isSubmitting}
+                  className="text-lg gap-2 shadow-[0_0_20px_rgba(45,212,191,0.3)]"
+                >
+                  {isSubmitting && jobMode === "run"
+                    ? "Starting..."
+                    : <><Play className="w-5 h-5 fill-current" /> Save & Run</>
+                  }
+                </Button>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>

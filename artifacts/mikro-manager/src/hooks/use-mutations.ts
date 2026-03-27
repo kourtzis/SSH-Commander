@@ -3,7 +3,7 @@ import {
   useCreateRouter, useUpdateRouter, useDeleteRouter, getListRoutersQueryKey, getGetRouterQueryKey,
   useCreateGroup, useUpdateGroup, useDeleteGroup, getListGroupsQueryKey, getGetGroupQueryKey, useAddGroupMember, useRemoveGroupMember,
   useCreateSnippet, useUpdateSnippet, useDeleteSnippet, getListSnippetsQueryKey, getGetSnippetQueryKey,
-  useCreateJob, useCancelJob, useRerunJob, useDeleteJob, getListJobsQueryKey, getGetJobQueryKey,
+  useCreateJob, useUpdateJob, useCancelJob, useRerunJob, useDeleteJob, getListJobsQueryKey, getGetJobQueryKey,
   useCreateUser, useUpdateUser, useDeleteUser, getListUsersQueryKey,
   useCreateSchedule, useUpdateSchedule, useDeleteSchedule, getListSchedulesQueryKey
 } from "@workspace/api-client-react";
@@ -103,6 +103,15 @@ export function useJobsMutations() {
   const createJob = useCreateJob({
     mutation: { onSuccess: () => qc.invalidateQueries({ queryKey: getListJobsQueryKey() }) }
   });
+
+  const updateJob = useUpdateJob({
+    mutation: {
+      onSuccess: (_, vars) => {
+        qc.invalidateQueries({ queryKey: getListJobsQueryKey() });
+        qc.invalidateQueries({ queryKey: getGetJobQueryKey(vars.id) });
+      }
+    }
+  });
   
   const cancelJob = useCancelJob({
     mutation: { 
@@ -125,7 +134,7 @@ export function useJobsMutations() {
     }
   });
 
-  return { createJob, cancelJob, rerunJob, deleteJob };
+  return { createJob, updateJob, cancelJob, rerunJob, deleteJob };
 }
 
 export function useUsersMutations() {

@@ -496,6 +496,54 @@ export const GetJobResponse = zod.object({
 });
 
 /**
+ * @summary Update a scheduled job
+ */
+export const UpdateJobParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateJobBody = zod.object({
+  name: zod.string(),
+  scriptCode: zod.string(),
+  targetRouterIds: zod.array(zod.number()),
+  targetGroupIds: zod.array(zod.number()),
+  excelData: zod
+    .array(zod.record(zod.string(), zod.string()))
+    .optional()
+    .describe(
+      "Rows from Excel file for tag substitution, each row is applied per router",
+    ),
+  mode: zod
+    .enum(["run", "schedule"])
+    .optional()
+    .describe(
+      "Run executes immediately (default), schedule saves as template for scheduling",
+    ),
+});
+
+export const UpdateJobResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  scriptCode: zod.string(),
+  status: zod.enum([
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "scheduled",
+  ]),
+  targetRouterIds: zod.array(zod.number()),
+  targetGroupIds: zod.array(zod.number()),
+  totalTasks: zod.number(),
+  completedTasks: zod.number(),
+  failedTasks: zod.number(),
+  createdBy: zod.number(),
+  createdAt: zod.date(),
+  completedAt: zod.date().nullish(),
+});
+
+/**
  * @summary Delete a job and its tasks
  */
 export const DeleteJobParams = zod.object({

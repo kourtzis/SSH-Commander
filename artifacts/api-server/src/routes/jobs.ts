@@ -358,6 +358,42 @@ router.get("/jobs/:id", async (req, res) => {
   });
 });
 
+router.put("/jobs/:id", async (req, res) => {
+  requireAuth(req);
+  const id = parseInt(req.params.id);
+  const [job] = await db
+    .select()
+    .from(batchJobsTable)
+    .where(eq(batchJobsTable.id, id))
+    .limit(1);
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+  if (job.status !== "scheduled") {
+    res.status(400).json({ error: "Only scheduled jobs can be edited" });
+    return;
+  }
+  const parsed = CreateJobBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request body" });
+    return;
+  }
+  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData } = parsed.data;
+  const [updated] = await db
+    .update(batchJobsTable)
+    .set({
+      name,
+      scriptCode,
+      targetRouterIds: targetRouterIds ?? [],
+      targetGroupIds: targetGroupIds ?? [],
+      excelData: excelData as any,
+    })
+    .where(eq(batchJobsTable.id, id))
+    .returning();
+  res.json({ ...updated, completedAt: updated.completedAt ?? null });
+});
+
 router.delete("/jobs/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);

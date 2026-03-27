@@ -82,16 +82,16 @@ export default function JobsList() {
     setLocation(`/jobs/new?edit=${jobId}`);
   };
 
-  const handleStop = async (e: React.MouseEvent, jobId: number, status: string) => {
+  const handleCancel = async (e: React.MouseEvent, jobId: number, status: string) => {
     e.preventDefault();
     e.stopPropagation();
-    const action = status === "scheduled" ? "unschedule" : "stop";
-    if (!confirm(`Are you sure you want to ${action} this job?`)) return;
+    const message = status === "running" ? "stop this running job" : "cancel this scheduled job";
+    if (!confirm(`Are you sure you want to ${message}?`)) return;
     try {
       await cancelJob.mutateAsync({ id: jobId });
-      toast({ title: status === "scheduled" ? "Job unscheduled" : "Job stopped" });
+      toast({ title: status === "running" ? "Job stopped" : "Job cancelled" });
     } catch (err: any) {
-      toast({ title: `Failed to ${action} job`, description: err.message, variant: "destructive" });
+      toast({ title: "Failed to cancel job", description: err.message, variant: "destructive" });
     }
   };
 
@@ -205,11 +205,11 @@ export default function JobsList() {
                             size="sm"
                             variant="ghost"
                             className="h-8 px-2.5 text-xs gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={(e) => handleStop(e, job.id, job.status)}
-                            title={job.status === "scheduled" ? "Unschedule" : "Stop"}
+                            onClick={(e) => handleCancel(e, job.id, job.status)}
+                            title={job.status === "running" ? "Stop" : "Cancel"}
                           >
                             <Square className="w-3.5 h-3.5 fill-current" />
-                            {job.status === "scheduled" ? "Unschedule" : "Stop"}
+                            {job.status === "running" ? "Stop" : "Cancel"}
                           </Button>
                         )}
                         <Button
@@ -230,15 +230,17 @@ export default function JobsList() {
                         >
                           <Copy className="w-3.5 h-3.5" /> Copy
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 px-2.5 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
-                          onClick={(e) => handleEdit(e, job.id)}
-                          title="Edit"
-                        >
-                          <Pencil className="w-3.5 h-3.5" /> Edit
-                        </Button>
+                        {job.status === "scheduled" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 px-2.5 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                            onClick={(e) => handleEdit(e, job.id)}
+                            title="Edit"
+                          >
+                            <Pencil className="w-3.5 h-3.5" /> Edit
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
