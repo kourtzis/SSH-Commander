@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Plus, FileCode, Wifi, WifiOff, Clock, ShieldCheck } from "lucide-react";
+import { ControlCharInsert } from "@/components/control-char-insert";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -352,12 +353,15 @@ export default function NewJob() {
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <Label>{addedSnippets.length > 0 ? "Additional Custom Code (appended after snippets)" : "Script Code *"}</Label>
-              {tags.length > 0 && (
-                <div className="flex gap-2 items-center flex-wrap justify-end">
-                  <span className="text-xs text-muted-foreground">Variables:</span>
-                  {tags.map(t => <Badge key={t} variant="outline" className="text-primary border-primary/30 text-xs px-1.5 py-0">{t}</Badge>)}
-                </div>
-              )}
+              <div className="flex gap-2 items-center flex-wrap justify-end">
+                {tags.length > 0 && (
+                  <>
+                    <span className="text-xs text-muted-foreground">Variables:</span>
+                    {tags.map(t => <Badge key={t} variant="outline" className="text-primary border-primary/30 text-xs px-1.5 py-0">{t}</Badge>)}
+                  </>
+                )}
+                <ControlCharInsert onInsert={(tag) => setCustomCode(prev => prev + tag)} />
+              </div>
             </div>
             <Textarea
               value={customCode}

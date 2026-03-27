@@ -62,6 +62,74 @@ export function extractPromptText(buffer: string): string {
   return lastLines.join("\n").trim();
 }
 
+const CONTROL_CHAR_MAP: Record<string, string> = {
+  "CTRL+A": "\x01",
+  "CTRL+B": "\x02",
+  "CTRL+C": "\x03",
+  "CTRL+D": "\x04",
+  "CTRL+E": "\x05",
+  "CTRL+F": "\x06",
+  "CTRL+G": "\x07",
+  "CTRL+H": "\x08",
+  "TAB": "\x09",
+  "CTRL+I": "\x09",
+  "CTRL+J": "\x0A",
+  "CTRL+K": "\x0B",
+  "CTRL+L": "\x0C",
+  "ENTER": "\r",
+  "CTRL+M": "\r",
+  "CTRL+N": "\x0E",
+  "CTRL+O": "\x0F",
+  "CTRL+P": "\x10",
+  "CTRL+Q": "\x11",
+  "CTRL+R": "\x12",
+  "CTRL+S": "\x13",
+  "CTRL+T": "\x14",
+  "CTRL+U": "\x15",
+  "CTRL+V": "\x16",
+  "CTRL+W": "\x17",
+  "CTRL+X": "\x18",
+  "CTRL+Y": "\x19",
+  "CTRL+Z": "\x1A",
+  "ESC": "\x1B",
+  "CTRL+[": "\x1B",
+  "CTRL+\\": "\x1C",
+  "CTRL+]": "\x1D",
+  "DEL": "\x7F",
+  "BACKSPACE": "\x08",
+};
+
+const CONTROL_CHAR_REGEX = /<<([A-Z+\\\[\]]+)>>/g;
+
+export function writeCommandWithControlChars(
+  stream: NodeJS.WritableStream,
+  command: string,
+  appendNewline: boolean = true,
+): void {
+  const segments = command.split(CONTROL_CHAR_REGEX);
+  for (let i = 0; i < segments.length; i++) {
+    if (i % 2 === 0) {
+      const text = segments[i];
+      if (text) stream.write(text);
+    } else {
+      const key = segments[i].toUpperCase();
+      const charByte = CONTROL_CHAR_MAP[key];
+      if (charByte) {
+        stream.write(charByte);
+      } else {
+        stream.write(`<<${segments[i]}>>`);
+      }
+    }
+  }
+  if (appendNewline) stream.write("\n");
+}
+
+export function hasControlChars(script: string): boolean {
+  return CONTROL_CHAR_REGEX.test(script);
+}
+
+export const SUPPORTED_CONTROL_CHARS = Object.keys(CONTROL_CHAR_MAP);
+
 export const SSH_ALGORITHMS = {
   kex: [
     "diffie-hellman-group14-sha256",
@@ -195,7 +263,7 @@ export async function executeSSHCommand(
 
           setTimeout(() => {
             commandSent = true;
-            stream.write(command + "\n");
+            writeCommandWithControlChars(stream, command);
             resetIdleTimer();
           }, 500);
         });

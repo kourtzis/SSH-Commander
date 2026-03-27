@@ -8,6 +8,7 @@ import {
   detectPromptType,
   extractPromptText,
   applyTagSubstitution,
+  writeCommandWithControlChars,
 } from "./ssh.js";
 
 export interface LiveEvent {
@@ -342,7 +343,7 @@ class InteractiveSessionManager {
 
         setTimeout(() => {
           dev.commandSent = true;
-          stream.write(command + "\n");
+          writeCommandWithControlChars(stream, command);
           resetIdleTimer();
         }, 500);
       });

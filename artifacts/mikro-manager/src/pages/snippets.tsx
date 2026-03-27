@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Code2, Trash2, Edit2, Search, GripVertical, X, FileCode } from "lucide-react";
 import { SnippetViewer } from "@/components/snippet-viewer";
+import { ControlCharInsert } from "@/components/control-char-insert";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
 
@@ -324,9 +325,12 @@ export default function Snippets() {
             </div>
 
             <div className="space-y-2">
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <Label>{composerSnippets.length > 0 ? "Additional Custom Code (appended after composed snippets)" : "Script Code"}</Label>
-                <span className="text-xs text-muted-foreground">Use {'{{VAR_NAME}}'} for variables</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Use {'{{VAR_NAME}}'} for variables</span>
+                  <ControlCharInsert onInsert={(tag) => setCode(prev => prev + tag)} />
+                </div>
               </div>
               <Textarea
                 value={code}

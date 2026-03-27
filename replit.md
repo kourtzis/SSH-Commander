@@ -102,6 +102,14 @@ When auto-confirm is disabled on a job, SSH sessions run in interactive mode:
 - A "Group waiting" button sorts waiting devices to the top of the task results list
 - Global timeout of 120 seconds per device; 5-second idle timer closes completed sessions
 
+### Control Character Injection
+
+Scripts and snippets support inline control character tags using `<<NAME>>` syntax. When the SSH engine sends a script to a device, these tags are replaced with the actual raw bytes at that exact position.
+
+Supported tags: `<<CTRL+A>>` through `<<CTRL+Z>>`, `<<TAB>>`, `<<ENTER>>`, `<<ESC>>`, `<<DEL>>`, `<<BACKSPACE>>`. The snippet editor and job form both include a "Ctrl Char" dropdown button for easy insertion.
+
+Implementation: `writeCommandWithControlChars()` in `ssh.ts` splits the command at `<<...>>` boundaries and writes text segments + raw control bytes sequentially to the SSH stream.
+
 ## Mobile Responsiveness
 
 - **Sidebar**: Collapsible hamburger drawer on mobile (`md:` breakpoint); auto-closes on route change; dismissible via overlay tap, close button, or Escape key
