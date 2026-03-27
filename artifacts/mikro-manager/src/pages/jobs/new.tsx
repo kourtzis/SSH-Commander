@@ -105,8 +105,8 @@ export default function NewJob() {
   const { toast } = useToast();
   const { createJob } = useJobsMutations();
 
-  const { data: routers = [] } = useListRouters();
-  const { data: groups = [] } = useListGroups();
+  const { data: routers = [], isSuccess: routersLoaded } = useListRouters();
+  const { data: groups = [], isSuccess: groupsLoaded } = useListGroups();
   const { data: snippets = [] } = useListSnippets();
 
   const { data: sourceJob } = useGetJob(sourceJobId ? parseInt(sourceJobId) : 0, {
@@ -123,7 +123,7 @@ export default function NewJob() {
   const [populated, setPopulated] = useState(false);
 
   useEffect(() => {
-    if (!sourceJob || populated || routers.length === 0 || groups.length === 0) return;
+    if (!sourceJob || populated || !routersLoaded || !groupsLoaded) return;
     setPopulated(true);
 
     setName(copyFromId ? `${sourceJob.name} (copy)` : sourceJob.name);
@@ -151,7 +151,7 @@ export default function NewJob() {
     if (sourceJob.excelData && Array.isArray(sourceJob.excelData)) {
       setExcelData(sourceJob.excelData as any[]);
     }
-  }, [sourceJob, populated, routers, groups, copyFromId]);
+  }, [sourceJob, populated, routers, groups, routersLoaded, groupsLoaded, copyFromId]);
 
   const selectedRouterIds = targets.filter(t => t.type === "router").map(t => t.id);
   const selectedGroupIds = targets.filter(t => t.type === "group").map(t => t.id);
