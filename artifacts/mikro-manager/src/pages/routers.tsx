@@ -460,17 +460,47 @@ export default function Routers() {
                   <p className="text-sm text-muted-foreground mt-1">Supports .xlsx, .xls, and .csv files</p>
                 </div>
               </div>
-              <div className="mt-6 p-4 bg-black/20 rounded-lg border border-white/5">
-                <p className="text-sm font-medium mb-2">Expected columns:</p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                  <div><code className="text-primary">name</code> <span className="text-muted-foreground">(required)</span></div>
-                  <div><code className="text-primary">ipAddress</code> / <code className="text-primary">ip</code> <span className="text-muted-foreground">(required)</span></div>
-                  <div><code className="text-primary">sshUsername</code> / <code className="text-primary">username</code></div>
-                  <div><code className="text-primary">sshPort</code> / <code className="text-primary">port</code></div>
-                  <div><code className="text-primary">sshPassword</code> / <code className="text-primary">password</code></div>
-                  <div><code className="text-primary">description</code> / <code className="text-primary">notes</code></div>
+              <div className="mt-6 p-4 bg-black/20 rounded-lg border border-white/5 space-y-4">
+                <div>
+                  <p className="text-sm font-medium mb-2">Expected columns:</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                    <div><code className="text-primary">name</code> <span className="text-muted-foreground">(required)</span></div>
+                    <div><code className="text-primary">ipAddress</code> <span className="text-muted-foreground">(required)</span></div>
+                    <div><code className="text-primary">sshUsername</code> <span className="text-muted-foreground">(default: admin)</span></div>
+                    <div><code className="text-primary">sshPort</code> <span className="text-muted-foreground">(default: 22)</span></div>
+                    <div><code className="text-primary">sshPassword</code></div>
+                    <div><code className="text-primary">description</code></div>
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">Column names are matched flexibly — "hostname", "device_name", "ip_address", etc. all work.</p>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Accepted column name variations:</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">Name:</span>{" "}
+                      <code className="text-primary/70">name</code>, <code className="text-primary/70">hostname</code>, <code className="text-primary/70">device_name</code>, <code className="text-primary/70">device name</code>, <code className="text-primary/70">router_name</code>, <code className="text-primary/70">router name</code>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">IP Address:</span>{" "}
+                      <code className="text-primary/70">ipAddress</code>, <code className="text-primary/70">ip</code>, <code className="text-primary/70">ip_address</code>, <code className="text-primary/70">ip address</code>, <code className="text-primary/70">address</code>, <code className="text-primary/70">host</code>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Username:</span>{" "}
+                      <code className="text-primary/70">sshUsername</code>, <code className="text-primary/70">username</code>, <code className="text-primary/70">ssh_username</code>, <code className="text-primary/70">ssh username</code>, <code className="text-primary/70">user</code>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Port:</span>{" "}
+                      <code className="text-primary/70">sshPort</code>, <code className="text-primary/70">port</code>, <code className="text-primary/70">ssh_port</code>, <code className="text-primary/70">ssh port</code>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Password:</span>{" "}
+                      <code className="text-primary/70">sshPassword</code>, <code className="text-primary/70">password</code>, <code className="text-primary/70">ssh_password</code>, <code className="text-primary/70">ssh password</code>, <code className="text-primary/70">pass</code>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Description:</span>{" "}
+                      <code className="text-primary/70">description</code>, <code className="text-primary/70">desc</code>, <code className="text-primary/70">notes</code>, <code className="text-primary/70">note</code>, <code className="text-primary/70">comment</code>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
