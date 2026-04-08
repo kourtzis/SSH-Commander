@@ -1,11 +1,93 @@
 ---
 name: docker-deployment
-description: Best practices for Dockerizing Node.js/pnpm monorepo apps. Use when creating Dockerfiles, docker-compose files, or debugging Docker build/runtime errors for any Node.js application.
+description: Best practices for Dockerizing Node.js/pnpm monorepo apps. Use when creating Dockerfiles, docker-compose files, or debugging Docker build/runtime errors for any Node.js application. Also contains project-wide lessons learned covering logo generation, database optimization, frontend performance, and backend reliability patterns.
 ---
 
 # Docker Deployment for Node.js / pnpm Monorepos
 
-## Common Pitfalls and Solutions
+## Project-Wide Lessons Learned
+
+### Logo / Asset Generation
+
+#### AI Image Generator Limitations
+- AI image generators struggle with **precise geometric control**: exact element count (3 vs 4 vs 5 chevrons), exact proportions, and progressive thickness differences.
+- Prompting for "exactly three" chevrons often produced four or five; requesting "progressive thinning" yielded nearly uniform thickness.
+- The `"nested/concentric"` prompt interpretation varied wildly — sometimes producing side-by-side arrows, sometimes overlapping shapes.
+
+#### Solution: Programmatic SVG
+- For precise geometric logos, **generate SVG programmatically** and convert to PNG using ImageMagick (`magick` command).
+- This gives pixel-perfect control over count, spacing, stroke width, and color.
+- SVG example: three `<polyline>` elements with `stroke-width` values of 70, 45, and 22 for clear progressive thinning.
+
+#### Transparent PNG Gotchas
+- Default ImageMagick `convert` produces opaque white backgrounds even with `-background none`.
+- Must use `magick -background transparent` combined with `-define png:color-type=6` to force RGBA (TrueColorAlpha) output.
+- Verify transparency with `magick identify -verbose` — look for `Type: PaletteAlpha` or `TrueColorAlpha` and `Channels: 4.0`.
+
+#### Color Iteration
+- Keep a backup of approved logo variants (e.g., `logo-blue.png`) for easy revert.
+- Final logo: three teal (#2DD4BF) chevrons with progressive thinning, matching the app's primary accent color.
+
+---
+
+### Database Optimization
+
+#### Always Add Indexes on Foreign Keys
+- Drizzle ORM does not auto-create indexes on FK columns. Declare them explicitly using the third argument of `pgTable()`:
+```typescript
+export const jobTasksTable = pgTable("job_tasks", {
+  jobId: integer("job_id").notNull(),
+  // ...
+}, (table) => [
+  index("idx_job_tasks_job_id").on(table.jobId),
+]);
+```
+- Critical indexes: all FK columns, `status`/enum columns used in `WHERE`, timestamp columns used in `ORDER BY` or scheduler polling (`next_run_at`).
+
+#### Schema Push Safety
+- Never change primary key ID column types (e.g., `serial` to `varchar`) — generates destructive `ALTER TABLE`.
+- When adding columns, use `.default()` or `.notNull().default()` to avoid breaking existing rows.
+- Migration from `category text` to `tags text[]`: done via raw SQL to preserve existing data.
+
+---
+
+### Frontend Performance (React + Vite)
+
+#### Remove `"use client"` in Vite Projects
+- shadcn/ui components ship with `"use client"` — a Next.js directive with **no meaning in Vite**.
+- Causes sourcemap warnings during production builds. Safe to remove from all components.
+
+#### React Query Defaults
+- Default `staleTime` is `0`, causing aggressive refetching on mount and window focus.
+- Set `staleTime: 30_000` and `refetchOnWindowFocus: false` as QueryClient defaults.
+
+#### Route Component Stability
+- Inline `<Route component={() => <Foo />} />` creates new refs each render, causing unmount/remount.
+- Fix: define stable component references outside the render function.
+
+#### Dead Code Cleanup
+- Periodically audit `components/ui/` for unused shadcn components — removed 18 in one pass.
+- Remove boilerplate scripts (e.g., `scripts/src/hello.ts`).
+
+---
+
+### Backend Reliability
+
+#### Background Job Error Handling
+- `async` functions called without `await` (fire-and-forget) **must** have `.catch()` handlers.
+- Pattern: `runJobInBackground(...).catch(err => { log; update job status to "failed" })`.
+
+#### Batch Database Inserts
+- Router import: use Drizzle's `insert().values([...])` for bulk inserts instead of one-by-one loops.
+- Fallback strategy: if batch fails, retry each row individually to maximize successful inserts while reporting per-row errors.
+
+#### Session Cookie Settings (Replit Proxy)
+- Use `secure: false` and `sameSite: "lax"` — Replit's proxy handles HTTPS termination.
+- `secure: true` causes cookies to be rejected in the proxied iframe context.
+
+---
+
+## Docker-Specific Pitfalls and Solutions
 
 ### 1. pnpm node_modules Cannot Be Copied Between Docker Stages
 
