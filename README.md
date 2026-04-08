@@ -33,14 +33,16 @@ Organize routers into a flexible tree structure:
 Build and maintain a reusable library of RouterOS scripts:
 - Categorize snippets for easy organization and quick lookup
 - Use `{{TAG}}` syntax for variables that get substituted per-router at execution time (e.g., `{{HOSTNAME}}`, `{{VLAN_ID}}`, `{{GATEWAY}}`)
-- **Snippet Composer** — combine multiple existing snippets into new ones with drag-to-reorder concatenation
+- **Modular script builder** — each snippet is composed from an ordered sequence of building blocks (references to other snippets and/or custom code blocks); add, remove, and drag-to-reorder blocks freely
 - **Control character support** — insert terminal control characters (`<<CTRL+C>>`, `<<CTRL+Z>>`, `<<TAB>>`, `<<ESC>>`, etc.) anywhere in a script using the built-in "Ctrl Char" dropdown; they are sent as raw bytes to the SSH session at the exact position in the command stream
 - Visual syntax highlighting for both variable tags (green) and control character tags (orange) in the snippet viewer
+- **Final script preview** — a collapsible panel shows the fully assembled script from all blocks, with line count and block count summary
 
 ### Batch SSH Job Execution
 The core of SSH Commander — run scripts across dozens or hundreds of routers in a single operation:
 - **Target selection** — pick individual routers and/or entire groups; drag to reorder the execution sequence
-- **Multi-snippet scripts** — compose a job's script from multiple snippets in your library, drag to reorder, with optional custom code appended after the composed script
+- **Modular script composition** — assemble the job's script from an arbitrary number of building blocks (snippet references and/or custom code); blocks can be inserted at any position, removed, and reordered via drag-and-drop with a visible dot-grid drag handle on each block
+- **Final script preview** — a collapsible "Final Script Preview" panel lets you review the fully combined script before executing
 - **Excel/CSV variable injection** — upload a spreadsheet where column headers become `{{TAG}}` names and each row maps to a router in job order, enabling fully customized per-device scripts from a single template
 - **Device reachability check** — the job form shows real-time green/red SSH port reachability indicators for all target devices, auto-refreshing every 10 seconds so you know which devices are online before running
 - **Detailed results** — per-router execution status (success/failed/waiting), full SSH output, connection negotiation logs, and the resolved script with all variables substituted

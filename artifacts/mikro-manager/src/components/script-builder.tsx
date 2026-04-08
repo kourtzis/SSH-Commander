@@ -7,7 +7,7 @@ import { SnippetViewer } from "@/components/snippet-viewer";
 import { ControlCharInsert } from "@/components/control-char-insert";
 import { useDragReorder } from "@/hooks/use-drag-reorder";
 import { extractTags } from "@/lib/utils";
-import { GripVertical, X, FileCode, Code2, Plus, ChevronDown, ChevronUp } from "lucide-react";
+import { GripVertical, X, FileCode, Code2, Plus, ChevronDown, ChevronUp, Eye } from "lucide-react";
 
 export interface ScriptBlock {
   instanceId: string;
@@ -46,6 +46,9 @@ export function buildCombinedScript(blocks: ScriptBlock[]): string {
 export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: ScriptBuilderProps) {
   const [insertIndex, setInsertIndex] = useState<number | null>(null);
   const [expandedCode, setExpandedCode] = useState<Set<string>>(new Set());
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   const drag = useDragReorder(blocks, onChange);
@@ -127,6 +130,27 @@ export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: 
     }
   };
 
+  const handleDragStart = (idx: number) => {
+    setDraggingIdx(idx);
+    drag.onDragStart(idx);
+  };
+
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    setDragOverIdx(idx);
+    drag.onDragOver(e, idx);
+  };
+
+  const handleDrop = () => {
+    drag.onDrop();
+    setDragOverIdx(null);
+    setDraggingIdx(null);
+  };
+
+  const handleDragEnd = () => {
+    setDragOverIdx(null);
+    setDraggingIdx(null);
+  };
+
   const combined = buildCombinedScript(blocks);
   const tags = extractTags(combined);
 
@@ -202,81 +226,112 @@ export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: 
       <div className="space-y-0">
         {renderInsertBar(0)}
 
-        {blocks.map((block, idx) => (
-          <div key={block.instanceId}>
-            <div
-              draggable
-              onDragStart={() => drag.onDragStart(idx)}
-              onDragOver={(e) => drag.onDragOver(e, idx)}
-              onDrop={drag.onDrop}
-              className="flex flex-col rounded-lg bg-black/30 border border-white/5 hover:border-primary/30 transition-colors group cursor-grab active:cursor-grabbing"
-            >
-              <div className="flex items-center gap-2 p-2.5">
-                <GripVertical className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground shrink-0" />
-                <span className="text-xs text-muted-foreground font-mono w-5 shrink-0">{idx + 1}.</span>
+        {blocks.map((block, idx) => {
+          const isDragging = draggingIdx === idx;
+          const isDragOver = dragOverIdx === idx && draggingIdx !== idx;
 
-                {block.type === "snippet" ? (
-                  <>
-                    <FileCode className="w-4 h-4 text-primary shrink-0" />
-                    <span className="text-sm font-medium flex-1 truncate">{block.snippetName}</span>
-                    <Badge variant="outline" className="text-xs border-white/10 shrink-0">{block.snippetCategory}</Badge>
+          return (
+            <div key={block.instanceId}>
+              <div
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragOver={(e) => handleDragOver(e, idx)}
+                onDrop={handleDrop}
+                onDragEnd={handleDragEnd}
+                className={`flex flex-col rounded-lg border transition-all duration-150 ${
+                  isDragging
+                    ? "opacity-40 scale-[0.98] border-primary/40 bg-primary/5"
+                    : isDragOver
+                    ? "border-primary/60 bg-primary/10 shadow-[0_0_12px_rgba(45,212,191,0.15)]"
+                    : "bg-black/30 border-white/5 hover:border-white/15"
+                }`}
+              >
+                <div className="flex items-center gap-0">
+                  <div
+                    className={`flex items-center justify-center w-10 shrink-0 self-stretch rounded-l-lg cursor-grab active:cursor-grabbing transition-colors ${
+                      isDragOver
+                        ? "bg-primary/20"
+                        : "bg-white/[0.03] hover:bg-white/[0.07]"
+                    }`}
+                    title="Drag to reorder"
+                  >
+                    <div className="flex flex-col items-center gap-[3px]">
+                      <div className="flex gap-[3px]">
+                        <span className={`w-[3px] h-[3px] rounded-full transition-colors ${isDragOver ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                        <span className={`w-[3px] h-[3px] rounded-full transition-colors ${isDragOver ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                      </div>
+                      <div className="flex gap-[3px]">
+                        <span className={`w-[3px] h-[3px] rounded-full transition-colors ${isDragOver ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                        <span className={`w-[3px] h-[3px] rounded-full transition-colors ${isDragOver ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                      </div>
+                      <div className="flex gap-[3px]">
+                        <span className={`w-[3px] h-[3px] rounded-full transition-colors ${isDragOver ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                        <span className={`w-[3px] h-[3px] rounded-full transition-colors ${isDragOver ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 p-2.5 flex-1 min-w-0">
+                    <span className="text-xs text-muted-foreground font-mono w-5 shrink-0">{idx + 1}.</span>
+
+                    {block.type === "snippet" ? (
+                      <>
+                        <FileCode className="w-4 h-4 text-primary shrink-0" />
+                        <span className="text-sm font-medium flex-1 truncate">{block.snippetName}</span>
+                        <Badge variant="outline" className="text-xs border-white/10 shrink-0">{block.snippetCategory}</Badge>
+                      </>
+                    ) : (
+                      <>
+                        <Code2 className="w-4 h-4 text-orange-400 shrink-0" />
+                        <span className="text-sm font-medium flex-1 truncate text-orange-400/80">Custom Code</span>
+                        <ControlCharInsert onInsert={(tag) => handleInsertCtrlChar(block.instanceId, tag)} />
+                      </>
+                    )}
+
                     <button
                       onClick={() => toggleExpand(block.instanceId)}
-                      className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                      className="text-muted-foreground hover:text-foreground transition-colors shrink-0 p-0.5"
                       title={expandedCode.has(block.instanceId) ? "Collapse" : "Expand"}
                     >
                       {expandedCode.has(block.instanceId) ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </button>
-                  </>
-                ) : (
-                  <>
-                    <Code2 className="w-4 h-4 text-orange-400 shrink-0" />
-                    <span className="text-sm font-medium flex-1 truncate text-orange-400/80">Custom Code</span>
-                    <ControlCharInsert onInsert={(tag) => handleInsertCtrlChar(block.instanceId, tag)} />
+
                     <button
-                      onClick={() => toggleExpand(block.instanceId)}
-                      className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                      title={expandedCode.has(block.instanceId) ? "Collapse" : "Expand"}
+                      onClick={() => removeBlock(block.instanceId)}
+                      className="text-muted-foreground hover:text-destructive transition-colors shrink-0 p-0.5"
                     >
-                      {expandedCode.has(block.instanceId) ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      <X className="w-4 h-4" />
                     </button>
-                  </>
-                )}
-
-                <button
-                  onClick={() => removeBlock(block.instanceId)}
-                  className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {block.type === "snippet" && expandedCode.has(block.instanceId) && (
-                <div className="px-3 pb-3">
-                  <div className="max-h-32 overflow-y-auto rounded-lg">
-                    <SnippetViewer code={block.code} />
                   </div>
                 </div>
-              )}
 
-              {block.type === "code" && expandedCode.has(block.instanceId) && (
-                <div className="px-3 pb-3">
-                  <Textarea
-                    ref={(el) => { textareaRefs.current[block.instanceId] = el; }}
-                    value={block.code}
-                    onChange={(e) => updateCodeBlock(block.instanceId, e.target.value)}
-                    className="h-32 font-mono text-sm"
-                    placeholder="/system identity set name={{HOSTNAME}}"
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                  />
-                </div>
-              )}
+                {block.type === "snippet" && expandedCode.has(block.instanceId) && (
+                  <div className="px-3 pb-3 ml-10">
+                    <div className="max-h-32 overflow-y-auto rounded-lg">
+                      <SnippetViewer code={block.code} />
+                    </div>
+                  </div>
+                )}
+
+                {block.type === "code" && expandedCode.has(block.instanceId) && (
+                  <div className="px-3 pb-3 ml-10">
+                    <Textarea
+                      ref={(el) => { textareaRefs.current[block.instanceId] = el; }}
+                      value={block.code}
+                      onChange={(e) => updateCodeBlock(block.instanceId, e.target.value)}
+                      className="h-32 font-mono text-sm"
+                      placeholder="/system identity set name={{HOSTNAME}}"
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {renderInsertBar(idx + 1)}
             </div>
-
-            {renderInsertBar(idx + 1)}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="flex items-center gap-2 pt-1">
@@ -305,12 +360,26 @@ export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: 
         </Button>
       </div>
 
-      {blocks.length > 1 && combined && (
-        <div className="space-y-2 pt-2">
-          <Label className="text-muted-foreground">Combined Script Preview</Label>
-          <div className="max-h-48 overflow-y-auto rounded-xl">
-            <SnippetViewer code={combined} />
-          </div>
+      {combined && (
+        <div className="border border-white/5 rounded-xl overflow-hidden mt-2">
+          <button
+            onClick={() => setPreviewOpen(prev => !prev)}
+            className="w-full flex items-center justify-between px-4 py-2.5 bg-black/20 hover:bg-white/[0.03] transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Eye className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium">Final Script Preview</span>
+              <span className="text-xs text-muted-foreground">
+                ({blocks.filter(b => b.code.trim()).length} block{blocks.filter(b => b.code.trim()).length !== 1 ? "s" : ""}, {combined.split("\n").length} line{combined.split("\n").length !== 1 ? "s" : ""})
+              </span>
+            </div>
+            {previewOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </button>
+          {previewOpen && (
+            <div className="max-h-64 overflow-y-auto border-t border-white/5">
+              <SnippetViewer code={combined} />
+            </div>
+          )}
         </div>
       )}
     </div>
