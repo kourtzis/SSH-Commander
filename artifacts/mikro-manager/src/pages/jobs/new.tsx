@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useListRouters, useListGroups, useListSnippets, useGetJob } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
@@ -7,10 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Plus, FileCode, Wifi, WifiOff, Clock, ShieldCheck } from "lucide-react";
-import { ControlCharInsert } from "@/components/control-char-insert";
+import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Wifi, WifiOff, Clock, ShieldCheck } from "lucide-react";
+import { ScriptBuilder, ScriptBlock, buildCombinedScript } from "@/components/script-builder";
+import { useDragReorder } from "@/hooks/use-drag-reorder";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -53,45 +53,11 @@ function useReachability(routerIds: number[]) {
   });
 }
 
-interface SnippetEntry {
-  id: number;
-  instanceId: string;
-  name: string;
-  category: string;
-  code: string;
-}
-
 interface TargetEntry {
   type: "router" | "group";
   id: number;
   label: string;
   sublabel?: string;
-}
-
-function useDragReorder<T>(items: T[], setItems: (items: T[]) => void) {
-  const dragIdx = useRef<number | null>(null);
-  const overIdx = useRef<number | null>(null);
-
-  const onDragStart = useCallback((idx: number) => {
-    dragIdx.current = idx;
-  }, []);
-
-  const onDragOver = useCallback((e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    overIdx.current = idx;
-  }, []);
-
-  const onDrop = useCallback(() => {
-    if (dragIdx.current === null || overIdx.current === null || dragIdx.current === overIdx.current) return;
-    const next = [...items];
-    const [moved] = next.splice(dragIdx.current, 1);
-    next.splice(overIdx.current, 0, moved);
-    setItems(next);
-    dragIdx.current = null;
-    overIdx.current = null;
-  }, [items, setItems]);
-
-  return { onDragStart, onDragOver, onDrop };
 }
 
 export default function NewJob() {
@@ -115,8 +81,7 @@ export default function NewJob() {
   });
 
   const [name, setName] = useState("");
-  const [addedSnippets, setAddedSnippets] = useState<SnippetEntry[]>([]);
-  const [customCode, setCustomCode] = useState("");
+  const [scriptBlocks, setScriptBlocks] = useState<ScriptBlock[]>([]);
   const [targets, setTargets] = useState<TargetEntry[]>([]);
   const [excelData, setExcelData] = useState<any[]>([]);
   const [autoConfirm, setAutoConfirm] = useState(true);
@@ -129,7 +94,14 @@ export default function NewJob() {
     setPopulated(true);
 
     setName(copyFromId ? `${sourceJob.name} (copy)` : sourceJob.name);
-    setCustomCode(sourceJob.scriptCode);
+
+    if (sourceJob.scriptCode) {
+      setScriptBlocks([{
+        instanceId: `imported-${Date.now()}`,
+        type: "code",
+        code: sourceJob.scriptCode,
+      }]);
+    }
 
     if (sourceJob.status === "scheduled") {
       setJobMode("schedule");
@@ -167,37 +139,10 @@ export default function NewJob() {
     selectedGroupIds
   );
 
-  const combinedScript = [
-    ...addedSnippets.map(s => s.code),
-    ...(customCode.trim() ? [customCode.trim()] : []),
-  ].join("\n\n");
-
+  const combinedScript = buildCombinedScript(scriptBlocks);
   const tags = extractTags(combinedScript);
 
-  const snippetDrag = useDragReorder(addedSnippets, setAddedSnippets);
   const targetDrag = useDragReorder(targets, setTargets);
-
-  const handleAddSnippet = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = parseInt(e.target.value);
-    const snippet = snippets.find(s => s.id === id);
-    if (!snippet) return;
-    setAddedSnippets(prev => [
-      ...prev,
-      {
-        id: snippet.id,
-        instanceId: `${snippet.id}-${Date.now()}`,
-        name: snippet.name,
-        category: snippet.category,
-        code: snippet.code,
-      },
-    ]);
-    if (!name && addedSnippets.length === 0) setName(`Job: ${snippet.name}`);
-    e.target.value = "";
-  };
-
-  const removeSnippet = (instanceId: string) => {
-    setAddedSnippets(prev => prev.filter(s => s.instanceId !== instanceId));
-  };
 
   const toggleTarget = (type: "router" | "group", id: number, label: string, sublabel?: string) => {
     setTargets(prev => {
@@ -236,7 +181,7 @@ export default function NewJob() {
 
   const handleSubmit = async (mode: "run" | "schedule") => {
     if (!name || !combinedScript || targets.length === 0) {
-      toast({ title: "Missing fields", description: "Please fill in job name, at least one script/snippet, and at least one target.", variant: "destructive" });
+      toast({ title: "Missing fields", description: "Please fill in job name, at least one script block, and at least one target.", variant: "destructive" });
       return;
     }
     setJobMode(mode);
@@ -308,75 +253,11 @@ export default function NewJob() {
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Firmware Update Q3" />
           </div>
 
-          <div className="space-y-3">
-            <div className="flex justify-between items-end">
-              <Label>Add Snippets from Library</Label>
-            </div>
-            <select
-              className="flex h-10 w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              onChange={handleAddSnippet}
-              value=""
-            >
-              <option value="" disabled>Select a snippet to add...</option>
-              {snippets.map(s => <option key={s.id} value={s.id}>{s.name} ({s.category})</option>)}
-            </select>
-
-            {addedSnippets.length > 0 && (
-              <div className="space-y-1 border border-white/5 rounded-xl bg-black/20 p-2">
-                <div className="px-2 py-1 flex justify-between items-center">
-                  <span className="text-xs text-muted-foreground font-semibold uppercase">Execution Order (drag to reorder)</span>
-                  <span className="text-xs text-muted-foreground">{addedSnippets.length} snippet{addedSnippets.length !== 1 ? "s" : ""}</span>
-                </div>
-                {addedSnippets.map((s, idx) => (
-                  <div
-                    key={s.instanceId}
-                    draggable
-                    onDragStart={() => snippetDrag.onDragStart(idx)}
-                    onDragOver={(e) => snippetDrag.onDragOver(e, idx)}
-                    onDrop={snippetDrag.onDrop}
-                    className="flex items-center gap-2 p-2.5 rounded-lg bg-black/30 border border-white/5 hover:border-primary/30 transition-colors group cursor-grab active:cursor-grabbing"
-                  >
-                    <GripVertical className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground shrink-0" />
-                    <span className="text-xs text-muted-foreground font-mono w-5 shrink-0">{idx + 1}.</span>
-                    <FileCode className="w-4 h-4 text-primary shrink-0" />
-                    <span className="text-sm font-medium flex-1 truncate">{s.name}</span>
-                    <Badge variant="outline" className="text-xs border-white/10 shrink-0">{s.category}</Badge>
-                    <button onClick={() => removeSnippet(s.instanceId)} className="text-muted-foreground hover:text-destructive transition-colors shrink-0">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <Label>{addedSnippets.length > 0 ? "Additional Custom Code (appended after snippets)" : "Script Code *"}</Label>
-              <div className="flex gap-2 items-center flex-wrap justify-end">
-                {tags.length > 0 && (
-                  <>
-                    <span className="text-xs text-muted-foreground">Variables:</span>
-                    {tags.map(t => <Badge key={t} variant="outline" className="text-primary border-primary/30 text-xs px-1.5 py-0">{t}</Badge>)}
-                  </>
-                )}
-                <ControlCharInsert onInsert={(tag) => setCustomCode(prev => prev + tag)} />
-              </div>
-            </div>
-            <Textarea
-              value={customCode}
-              onChange={e => setCustomCode(e.target.value)}
-              className="h-40 font-mono"
-              placeholder={addedSnippets.length > 0 ? "Optional: add custom commands after the snippets above..." : "/system identity set name={{HOSTNAME}}"}
-            />
-          </div>
-
-          {combinedScript && addedSnippets.length > 0 && (
-            <div className="space-y-2">
-              <Label className="text-muted-foreground">Combined Script Preview</Label>
-              <pre className="text-xs font-mono text-emerald-400 bg-black/40 p-4 rounded-xl border border-white/5 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">{combinedScript}</pre>
-            </div>
-          )}
+          <ScriptBuilder
+            blocks={scriptBlocks}
+            onChange={setScriptBlocks}
+            snippets={snippets}
+          />
         </CardContent>
       </Card>
 

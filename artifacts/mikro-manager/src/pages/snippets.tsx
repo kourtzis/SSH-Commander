@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState } from "react";
 import { useListSnippets } from "@workspace/api-client-react";
 import { useSnippetsMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
@@ -6,50 +6,15 @@ import { SelectionBar } from "@/components/selection-bar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Code2, Trash2, Edit2, Search, GripVertical, X, FileCode } from "lucide-react";
+import { Plus, Code2, Trash2, Edit2, Search } from "lucide-react";
 import { SnippetViewer } from "@/components/snippet-viewer";
-import { ControlCharInsert } from "@/components/control-char-insert";
+import { ScriptBuilder, ScriptBlock, buildCombinedScript } from "@/components/script-builder";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
-
-interface ComposerEntry {
-  id: number;
-  instanceId: string;
-  name: string;
-  category: string;
-  code: string;
-}
-
-function useDragReorder<T>(items: T[], setItems: (items: T[]) => void) {
-  const dragIdx = useRef<number | null>(null);
-  const overIdx = useRef<number | null>(null);
-
-  const onDragStart = useCallback((idx: number) => {
-    dragIdx.current = idx;
-  }, []);
-
-  const onDragOver = useCallback((e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    overIdx.current = idx;
-  }, []);
-
-  const onDrop = useCallback(() => {
-    if (dragIdx.current === null || overIdx.current === null || dragIdx.current === overIdx.current) return;
-    const next = [...items];
-    const [moved] = next.splice(dragIdx.current, 1);
-    next.splice(overIdx.current, 0, moved);
-    setItems(next);
-    dragIdx.current = null;
-    overIdx.current = null;
-  }, [items, setItems]);
-
-  return { onDragStart, onDragOver, onDrop };
-}
 
 export default function Snippets() {
   const { data: snippets = [], isLoading } = useListSnippets();
@@ -64,10 +29,7 @@ export default function Snippets() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
-  const [code, setCode] = useState("");
-  const [composerSnippets, setComposerSnippets] = useState<ComposerEntry[]>([]);
-
-  const composerDrag = useDragReorder(composerSnippets, setComposerSnippets);
+  const [scriptBlocks, setScriptBlocks] = useState<ScriptBlock[]>([]);
 
   const filteredSnippets = snippets.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -76,10 +38,7 @@ export default function Snippets() {
 
   const selection = useSelection(filteredSnippets.map(s => s.id));
 
-  const composedCode = composerSnippets.map(s => s.code).join("\n\n");
-  const combinedCode = composedCode
-    ? (code.trim() ? composedCode + "\n\n" + code.trim() : composedCode)
-    : code;
+  const combinedCode = buildCombinedScript(scriptBlocks);
 
   const handleOpenDialog = (snippet?: any) => {
     if (snippet) {
@@ -87,15 +46,17 @@ export default function Snippets() {
       setName(snippet.name);
       setCategory(snippet.category);
       setDescription(snippet.description || "");
-      setCode(snippet.code);
-      setComposerSnippets([]);
+      setScriptBlocks([{
+        instanceId: `existing-${Date.now()}`,
+        type: "code",
+        code: snippet.code,
+      }]);
     } else {
       setEditingSnippet(null);
       setName("");
       setCategory("");
       setDescription("");
-      setCode("");
-      setComposerSnippets([]);
+      setScriptBlocks([]);
     }
     setIsDialogOpen(true);
   };
@@ -141,32 +102,7 @@ export default function Snippets() {
     }
   };
 
-  const handleAddComposerSnippet = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = parseInt(e.target.value);
-    const snippet = snippets.find(s => s.id === id);
-    if (!snippet) return;
-    setComposerSnippets(prev => [
-      ...prev,
-      {
-        id: snippet.id,
-        instanceId: `${snippet.id}-${Date.now()}`,
-        name: snippet.name,
-        category: snippet.category,
-        code: snippet.code,
-      },
-    ]);
-    e.target.value = "";
-  };
-
-  const removeComposerSnippet = (instanceId: string) => {
-    setComposerSnippets(prev => prev.filter(s => s.instanceId !== instanceId));
-  };
-
   const currentTags = extractTags(combinedCode);
-
-  const availableForComposer = editingSnippet
-    ? snippets.filter(s => s.id !== editingSnippet.id)
-    : snippets;
 
   return (
     <div className="space-y-6">
@@ -276,88 +212,25 @@ export default function Snippets() {
               <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="What does this do?" />
             </div>
 
-            <div className="space-y-3">
-              <div className="flex justify-between items-end">
-                <Label>Compose from Existing Snippets (Optional)</Label>
-              </div>
-              {availableForComposer.length > 0 ? (
-                <select
-                  className="flex h-10 w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  onChange={handleAddComposerSnippet}
-                  value=""
-                >
-                  <option value="" disabled>Add a snippet to compose...</option>
-                  {availableForComposer.map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.category})</option>
-                  ))}
-                </select>
-              ) : (
-                <p className="text-xs text-muted-foreground italic p-2 border border-white/5 rounded-xl bg-black/20">No other snippets available yet. Create snippets first, then you can compose new ones from them.</p>
-              )}
+            <ScriptBuilder
+              blocks={scriptBlocks}
+              onChange={setScriptBlocks}
+              snippets={snippets}
+              excludeSnippetId={editingSnippet?.id}
+            />
 
-              {composerSnippets.length > 0 && (
-                <div className="space-y-1 border border-white/5 rounded-xl bg-black/20 p-2">
-                  <div className="px-2 py-1 flex justify-between items-center">
-                    <span className="text-xs text-muted-foreground font-semibold uppercase">Composition Order (drag to reorder)</span>
-                    <span className="text-xs text-muted-foreground">{composerSnippets.length} snippet{composerSnippets.length !== 1 ? "s" : ""}</span>
-                  </div>
-                  {composerSnippets.map((s, idx) => (
-                    <div
-                      key={s.instanceId}
-                      draggable
-                      onDragStart={() => composerDrag.onDragStart(idx)}
-                      onDragOver={(e) => composerDrag.onDragOver(e, idx)}
-                      onDrop={composerDrag.onDrop}
-                      className="flex items-center gap-2 p-2.5 rounded-lg bg-black/30 border border-white/5 hover:border-primary/30 transition-colors group cursor-grab active:cursor-grabbing"
-                    >
-                      <GripVertical className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground shrink-0" />
-                      <span className="text-xs text-muted-foreground font-mono w-5 shrink-0">{idx + 1}.</span>
-                      <FileCode className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-sm font-medium flex-1 truncate">{s.name}</span>
-                      <Badge variant="outline" className="text-xs border-white/10 shrink-0">{s.category}</Badge>
-                      <button onClick={() => removeComposerSnippet(s.instanceId)} className="text-muted-foreground hover:text-destructive transition-colors shrink-0">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <Label>{composerSnippets.length > 0 ? "Additional Custom Code (appended after composed snippets)" : "Script Code"}</Label>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Use {'{{VAR_NAME}}'} for variables</span>
-                  <ControlCharInsert onInsert={(tag) => setCode(prev => prev + tag)} />
-                </div>
-              </div>
-              <Textarea
-                value={code}
-                onChange={e => setCode(e.target.value)}
-                className="h-48 font-mono text-sm"
-                placeholder={composerSnippets.length > 0 ? "Optional: add custom commands after the composed snippets..." : "/system identity set name={{HOSTNAME}}"}
-              />
-              {currentTags.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  <span className="text-xs text-muted-foreground self-center">Detected Tags:</span>
-                  {currentTags.map(tag => (
-                    <span key={tag} className="tag-highlight">{`{{${tag}}}`}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {composerSnippets.length > 0 && combinedCode && (
-              <div className="space-y-2">
-                <Label className="text-muted-foreground">Combined Script Preview</Label>
-                <pre className="text-xs font-mono text-emerald-400 bg-black/40 p-4 rounded-xl border border-white/5 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">{combinedCode}</pre>
+            {currentTags.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                <span className="text-xs text-muted-foreground self-center">Detected Tags:</span>
+                {currentTags.map(tag => (
+                  <span key={tag} className="tag-highlight">{`{{${tag}}}`}</span>
+                ))}
               </div>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!name || !category || (!code && composerSnippets.length === 0)}>Save Snippet</Button>
+            <Button onClick={handleSave} disabled={!name || !category || !combinedCode}>Save Snippet</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
