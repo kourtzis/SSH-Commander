@@ -102,6 +102,8 @@ router.post("/routers/import", async (req, res) => {
   let created = 0;
   let failed = 0;
 
+  const validRows: { index: number; name: string; values: typeof routersTable.$inferInsert }[] = [];
+
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const name = (item.name || "").toString().trim();
@@ -117,13 +119,27 @@ router.post("/routers/import", async (req, res) => {
       continue;
     }
 
+    validRows.push({ index: i, name, values: { name, ipAddress, sshPort, sshUsername, sshPassword, description } });
+  }
+
+  if (validRows.length > 0) {
     try {
-      await db.insert(routersTable).values({ name, ipAddress, sshPort, sshUsername, sshPassword, description });
-      results.push({ index: i, name, status: "created" });
-      created++;
+      await db.insert(routersTable).values(validRows.map((r) => r.values));
+      for (const row of validRows) {
+        results.push({ index: row.index, name: row.name, status: "created" });
+        created++;
+      }
     } catch (err: any) {
-      results.push({ index: i, name, status: "error", error: err.message });
-      failed++;
+      for (const row of validRows) {
+        try {
+          await db.insert(routersTable).values(row.values);
+          results.push({ index: row.index, name: row.name, status: "created" });
+          created++;
+        } catch (rowErr: any) {
+          results.push({ index: row.index, name: row.name, status: "error", error: rowErr.message });
+          failed++;
+        }
+      }
     }
   }
 

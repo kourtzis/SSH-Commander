@@ -21,7 +21,14 @@ import Users from "@/pages/users";
 import SchedulerList from "@/pages/scheduler/index";
 import NewSchedule from "@/pages/scheduler/new";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 // Protected route wrapper
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -53,20 +60,31 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   );
 }
 
+const ProtectedDashboard = () => <ProtectedRoute component={Dashboard} />;
+const ProtectedRouters = () => <ProtectedRoute component={Routers} />;
+const ProtectedGroups = () => <ProtectedRoute component={Groups} />;
+const ProtectedSnippets = () => <ProtectedRoute component={Snippets} />;
+const ProtectedJobsList = () => <ProtectedRoute component={JobsList} />;
+const ProtectedNewJob = () => <ProtectedRoute component={NewJob} />;
+const ProtectedJobDetail = () => <ProtectedRoute component={JobDetail} />;
+const ProtectedSchedulerList = () => <ProtectedRoute component={SchedulerList} />;
+const ProtectedNewSchedule = () => <ProtectedRoute component={NewSchedule} />;
+const ProtectedUsers = () => <ProtectedRoute component={Users} />;
+
 function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
-      <Route path="/" component={() => <ProtectedRoute component={Dashboard} />} />
-      <Route path="/routers" component={() => <ProtectedRoute component={Routers} />} />
-      <Route path="/groups" component={() => <ProtectedRoute component={Groups} />} />
-      <Route path="/snippets" component={() => <ProtectedRoute component={Snippets} />} />
-      <Route path="/jobs" component={() => <ProtectedRoute component={JobsList} />} />
-      <Route path="/jobs/new" component={() => <ProtectedRoute component={NewJob} />} />
-      <Route path="/jobs/:id" component={() => <ProtectedRoute component={JobDetail} />} />
-      <Route path="/scheduler" component={() => <ProtectedRoute component={SchedulerList} />} />
-      <Route path="/scheduler/new" component={() => <ProtectedRoute component={NewSchedule} />} />
-      <Route path="/users" component={() => <ProtectedRoute component={Users} />} />
+      <Route path="/" component={ProtectedDashboard} />
+      <Route path="/routers" component={ProtectedRouters} />
+      <Route path="/groups" component={ProtectedGroups} />
+      <Route path="/snippets" component={ProtectedSnippets} />
+      <Route path="/jobs" component={ProtectedJobsList} />
+      <Route path="/jobs/new" component={ProtectedNewJob} />
+      <Route path="/jobs/:id" component={ProtectedJobDetail} />
+      <Route path="/scheduler" component={ProtectedSchedulerList} />
+      <Route path="/scheduler/new" component={ProtectedNewSchedule} />
+      <Route path="/users" component={ProtectedUsers} />
       <Route component={NotFound} />
     </Switch>
   );

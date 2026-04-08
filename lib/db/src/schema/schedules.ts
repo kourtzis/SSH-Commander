@@ -7,6 +7,7 @@ import {
   boolean,
   json,
   pgEnum,
+  index,
 } from "drizzle-orm/pg-core";
 
 export const scheduleTypeEnum = pgEnum("schedule_type", [
@@ -30,6 +31,11 @@ export const schedulesTable = pgTable("schedules", {
   runCount: integer("run_count").notNull().default(0),
   createdBy: integer("created_by").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_schedules_job_id").on(table.jobId),
+  index("idx_schedules_next_run_at").on(table.nextRunAt),
+  index("idx_schedules_enabled").on(table.enabled),
+  index("idx_schedules_created_by").on(table.createdBy),
+]);
 
 export type Schedule = typeof schedulesTable.$inferSelect;

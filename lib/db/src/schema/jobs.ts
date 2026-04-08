@@ -7,6 +7,7 @@ import {
   json,
   pgEnum,
   boolean,
+  index,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -43,7 +44,11 @@ export const batchJobsTable = pgTable("batch_jobs", {
   createdBy: integer("created_by").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => [
+  index("idx_batch_jobs_status").on(table.status),
+  index("idx_batch_jobs_created_by").on(table.createdBy),
+  index("idx_batch_jobs_created_at").on(table.createdAt),
+]);
 
 export const jobTasksTable = pgTable("job_tasks", {
   id: serial("id").primaryKey(),
@@ -59,7 +64,11 @@ export const jobTasksTable = pgTable("job_tasks", {
   promptText: text("prompt_text"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => [
+  index("idx_job_tasks_job_id").on(table.jobId),
+  index("idx_job_tasks_router_id").on(table.routerId),
+  index("idx_job_tasks_status").on(table.status),
+]);
 
 export const insertJobSchema = createInsertSchema(batchJobsTable).omit({
   id: true,

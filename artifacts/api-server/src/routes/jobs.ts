@@ -183,7 +183,14 @@ router.post("/jobs", async (req, res) => {
       insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
     );
   } else {
-    runJobInBackground(job.id, routers, scriptCode, excelData as Record<string, string>[] | undefined, autoConfirm ?? true);
+    runJobInBackground(job.id, routers, scriptCode, excelData as Record<string, string>[] | undefined, autoConfirm ?? true)
+      .catch((err) => {
+        console.error(`[Job ${job.id}] Background execution failed:`, err);
+        db.update(batchJobsTable)
+          .set({ status: "failed", completedAt: new Date() })
+          .where(eq(batchJobsTable.id, job.id))
+          .catch(() => {});
+      });
   }
 
   res.status(201).json({
@@ -575,7 +582,14 @@ router.post("/jobs/:id/rerun", async (req, res) => {
       insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
     );
   } else {
-    runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined, sourceJob.autoConfirm);
+    runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined, sourceJob.autoConfirm)
+      .catch((err) => {
+        console.error(`[Job ${newJob.id}] Background execution failed:`, err);
+        db.update(batchJobsTable)
+          .set({ status: "failed", completedAt: new Date() })
+          .where(eq(batchJobsTable.id, newJob.id))
+          .catch(() => {});
+      });
   }
 
   res.status(201).json({
