@@ -183,21 +183,48 @@ pnpm --filter @workspace/api-server run dev
 pnpm --filter @workspace/mikro-manager run dev
 ```
 
-### Docker Deployment
+### Docker Installation (Recommended for Production)
+
+Docker is the simplest way to run SSH Commander. The setup includes the application and a PostgreSQL database, fully orchestrated with Docker Compose.
+
+#### 1. Clone and configure
 
 ```bash
-# Build and start with Docker Compose
-docker compose up -d
-
-# The app will be available at http://localhost:3000
-# PostgreSQL runs alongside with persistent volume storage
+git clone <your-repo-url> ssh-commander
+cd ssh-commander
 ```
 
-The Docker setup handles everything automatically:
-1. Multi-stage build compiles TypeScript and bundles the API server
-2. Vite builds the frontend as static files
-3. On startup, the entrypoint script runs database migrations and seeds the admin user
-4. The API server serves both the REST API and the frontend static files
+Before starting, edit `docker-compose.yml` to set secure values for your environment:
+
+```yaml
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: changeme        # ← Set a strong database password
+
+  app:
+    environment:
+      DATABASE_URL: postgresql://mikromanager:changeme@db:5432/mikromanager  # ← Match the DB password above
+      SESSION_SECRET: change-this-to-a-long-random-string                   # ← Set a unique random string
+```
+
+#### 2. Build and start
+
+```bash
+docker compose up -d
+```
+
+This will:
+1. Build the application image (multi-stage: compiles TypeScript, bundles the API server, builds the React frontend)
+2. Start PostgreSQL 16 with a persistent data volume
+3. Wait for the database to be healthy
+4. Automatically run database migrations (Drizzle `push`)
+5. Seed the default admin user (skipped if users already exist)
+6. Start the application on port 3000
+
+#### 3. Access the application
+
+Open `http://localhost:3000` in your browser.
 
 ### Default Credentials
 
@@ -205,7 +232,69 @@ The Docker setup handles everything automatically:
 |----------|----------|------|
 | `admin` | `admin123` | Administrator |
 
-> **Note:** Change the default password after first login.
+> **Important:** Change the default admin password immediately after your first login via the Users page.
+
+---
+
+## Upgrading
+
+SSH Commander is designed for safe, zero-data-loss upgrades. Your data lives in the PostgreSQL database which is stored in a persistent Docker volume, completely separate from the application container.
+
+### Docker Upgrade Steps
+
+```bash
+# 1. Navigate to your SSH Commander directory
+cd ssh-commander
+
+# 2. Pull the latest code
+git pull
+
+# 3. Rebuild the application image
+docker compose build --no-cache
+
+# 4. Restart with the new version
+docker compose up -d
+```
+
+On startup, the entrypoint script automatically:
+- Runs database migrations to apply any new schema changes (new tables, new columns)
+- Seeds the admin user only if no users exist (your existing accounts are untouched)
+
+### Why your data is safe
+
+- **Database volume persists** — PostgreSQL data is stored in the `pgdata` Docker volume, which survives container rebuilds and restarts. Only explicitly removing the volume (`docker compose down -v`) deletes data.
+- **Migrations are additive** — Drizzle's schema push adds new tables and columns without dropping or altering existing ones. Your routers, jobs, snippets, schedules, and user accounts all remain intact.
+- **Admin seed is idempotent** — The seed script checks if users exist before creating the default admin, so it never overwrites your accounts.
+
+### Backup and Restore
+
+For extra safety, back up your database before upgrading:
+
+```bash
+# Create a backup
+docker compose exec db pg_dump -U mikromanager mikromanager > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Restore from backup (if ever needed)
+docker compose exec -i db psql -U mikromanager mikromanager < backup_YYYYMMDD_HHMMSS.sql
+```
+
+### Upgrading without Docker
+
+If running directly on a server without Docker:
+
+```bash
+# 1. Pull the latest code
+git pull
+
+# 2. Install any new dependencies
+pnpm install
+
+# 3. Apply database schema changes
+pnpm --filter @workspace/db run push
+
+# 4. Restart the API server and frontend
+# (use your process manager — systemd, pm2, etc.)
+```
 
 ---
 
