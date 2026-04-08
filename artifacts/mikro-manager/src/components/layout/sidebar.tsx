@@ -9,7 +9,6 @@ import {
   PlaySquare,
   Users,
   LogOut,
-  TerminalSquare,
   Clock,
   Menu,
   X
@@ -52,8 +51,8 @@ export function AppSidebar() {
     <>
       <div className="p-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="bg-primary/20 p-2 rounded-xl text-primary border border-primary/30 shadow-[0_0_15px_rgba(45,212,191,0.2)]">
-            <TerminalSquare className="w-6 h-6" />
+          <div className="bg-primary/10 p-1.5 rounded-xl border border-primary/30 shadow-[0_0_15px_rgba(45,212,191,0.2)] overflow-hidden">
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="SSH Commander" className="w-7 h-7 object-contain" />
           </div>
           <span className="font-display font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
             SSH Commander

@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { TerminalSquare, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 
@@ -50,8 +50,8 @@ export default function Login() {
       >
         <Card className="glass-panel border-white/10 p-2 rounded-3xl shadow-2xl shadow-primary/10">
           <CardHeader className="text-center pb-8 pt-8">
-            <div className="mx-auto bg-primary/20 w-16 h-16 rounded-2xl flex items-center justify-center text-primary mb-6 shadow-[0_0_30px_rgba(45,212,191,0.2)] border border-primary/30">
-              <TerminalSquare className="w-8 h-8" />
+            <div className="mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(45,212,191,0.2)] border border-primary/30 bg-primary/10 overflow-hidden">
+              <img src={`${import.meta.env.BASE_URL}logo.png`} alt="SSH Commander" className="w-12 h-12 object-contain" />
             </div>
             <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
               SSH Commander
