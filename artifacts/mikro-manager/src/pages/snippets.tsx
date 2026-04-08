@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useListSnippets } from "@workspace/api-client-react";
 import { useSnippetsMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
@@ -10,9 +10,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Code2, Trash2, Edit2, Search } from "lucide-react";
+import { Plus, Code2, Trash2, Edit2 } from "lucide-react";
 import { SnippetViewer } from "@/components/snippet-viewer";
 import { ScriptBuilder, ScriptBlock, buildCombinedScript } from "@/components/script-builder";
+import { TagInput } from "@/components/tag-input";
+import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
 
@@ -22,21 +24,43 @@ export default function Snippets() {
   const { toast } = useToast();
 
   const [search, setSearch] = useState("");
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [sort, setSort] = useState<ActiveSort>({ key: "name", dir: "asc" });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSnippet, setEditingSnippet] = useState<any>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const [name, setName] = useState("");
-  const [category, setCategory] = useState("");
+  const [formTags, setFormTags] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [scriptBlocks, setScriptBlocks] = useState<ScriptBlock[]>([]);
 
-  const filteredSnippets = snippets.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.category.toLowerCase().includes(search.toLowerCase())
-  );
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    snippets.forEach(s => (s.tags || []).forEach(t => set.add(t)));
+    return Array.from(set).sort();
+  }, [snippets]);
 
-  const selection = useSelection(filteredSnippets.map(s => s.id));
+  const filtered = useMemo(() => {
+    let result = snippets.filter(s => {
+      const matchesSearch = !search ||
+        s.name.toLowerCase().includes(search.toLowerCase()) ||
+        (s.tags || []).some(t => t.toLowerCase().includes(search.toLowerCase()));
+      const matchesTags = filterTags.length === 0 ||
+        filterTags.every(ft => (s.tags || []).includes(ft));
+      return matchesSearch && matchesTags;
+    });
+
+    result = applySort(result, sort, {
+      name: (s) => s.name,
+      date: (s) => new Date(s.updatedAt),
+      tags: (s) => (s.tags || []).length,
+    });
+
+    return result;
+  }, [snippets, search, filterTags, sort]);
+
+  const selection = useSelection(filtered.map(s => s.id));
 
   const combinedCode = buildCombinedScript(scriptBlocks);
 
@@ -44,7 +68,7 @@ export default function Snippets() {
     if (snippet) {
       setEditingSnippet(snippet);
       setName(snippet.name);
-      setCategory(snippet.category);
+      setFormTags(snippet.tags || []);
       setDescription(snippet.description || "");
       setScriptBlocks([{
         instanceId: `existing-${Date.now()}`,
@@ -54,7 +78,7 @@ export default function Snippets() {
     } else {
       setEditingSnippet(null);
       setName("");
-      setCategory("");
+      setFormTags([]);
       setDescription("");
       setScriptBlocks([]);
     }
@@ -63,7 +87,7 @@ export default function Snippets() {
 
   const handleSave = async () => {
     try {
-      const data = { name, category, description, code: combinedCode };
+      const data = { name, tags: formTags, description, code: combinedCode };
       if (editingSnippet) {
         await updateSnippet.mutateAsync({ id: editingSnippet.id, data });
         toast({ title: "Snippet updated" });
@@ -116,25 +140,37 @@ export default function Snippets() {
         </Button>
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Search snippets or categories..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9 bg-card border-border/50 shadow-sm"
-        />
-      </div>
+      <FilterSortBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search snippets by name or tag..."
+        filters={allTags.length > 0 ? [
+          { key: "tags", label: "Tags", type: "tags", allTags },
+        ] : []}
+        activeFilters={{ tags: filterTags }}
+        onFilterChange={(key, value) => {
+          if (key === "tags") setFilterTags(value as string[]);
+        }}
+        sortOptions={[
+          { key: "name", label: "Name" },
+          { key: "date", label: "Updated" },
+          { key: "tags", label: "Tags" },
+        ]}
+        activeSort={sort}
+        onSortChange={setSort}
+      />
 
       <SelectionBar count={selection.count} label="snippets" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 
       {isLoading ? (
         <div className="text-muted-foreground">Loading snippets...</div>
-      ) : filteredSnippets.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <Card className="glass-panel text-center p-12">
           <Code2 className="w-12 h-12 mx-auto text-muted-foreground/30 mb-4" />
           <h3 className="text-lg font-medium">No snippets found</h3>
-          <p className="text-muted-foreground mt-1">Create your first script template.</p>
+          <p className="text-muted-foreground mt-1">
+            {search || filterTags.length > 0 ? "Try adjusting your filters." : "Create your first script template."}
+          </p>
         </Card>
       ) : (
         <div className="space-y-4">
@@ -145,11 +181,11 @@ export default function Snippets() {
               aria-label="Select all snippets"
             />
             <span className="text-sm text-muted-foreground">
-              {selection.isAllSelected ? "Deselect all" : "Select all"} ({filteredSnippets.length})
+              {selection.isAllSelected ? "Deselect all" : "Select all"} ({filtered.length})
             </span>
           </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {filteredSnippets.map((snippet) => (
+          {filtered.map((snippet) => (
             <Card key={snippet.id} className={`glass-panel flex flex-col ${selection.selected.has(snippet.id) ? "ring-1 ring-primary/50" : ""}`}>
               <CardHeader className="flex flex-row items-start justify-between pb-4">
                 <div className="flex items-start gap-3">
@@ -161,10 +197,12 @@ export default function Snippets() {
                     />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="secondary" className="bg-primary/10 text-primary">{snippet.category}</Badge>
+                    <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                      {(snippet.tags || []).map(tag => (
+                        <Badge key={tag} variant="secondary" className="bg-primary/10 text-primary text-xs">{tag}</Badge>
+                      ))}
                       {extractTags(snippet.code).length > 0 && (
-                        <Badge variant="outline" className="border-primary/30 text-primary/70">{extractTags(snippet.code).length} Tags</Badge>
+                        <Badge variant="outline" className="border-primary/30 text-primary/70">{extractTags(snippet.code).length} Vars</Badge>
                       )}
                     </div>
                     <CardTitle className="text-xl">{snippet.name}</CardTitle>
@@ -197,15 +235,13 @@ export default function Snippets() {
             <DialogTitle>{editingSnippet ? "Edit Snippet" : "New Snippet"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Name</Label>
-                <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Set Identity" />
-              </div>
-              <div className="space-y-2">
-                <Label>Category</Label>
-                <Input value={category} onChange={e => setCategory(e.target.value)} placeholder="e.g. Provisioning" />
-              </div>
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Set Identity" />
+            </div>
+            <div className="space-y-2">
+              <Label>Tags</Label>
+              <TagInput tags={formTags} onChange={setFormTags} allTags={allTags} placeholder="e.g. provisioning, firewall..." />
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
@@ -221,7 +257,7 @@ export default function Snippets() {
 
             {currentTags.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                <span className="text-xs text-muted-foreground self-center">Detected Tags:</span>
+                <span className="text-xs text-muted-foreground self-center">Detected Variables:</span>
                 {currentTags.map(tag => (
                   <span key={tag} className="tag-highlight">{`{{${tag}}}`}</span>
                 ))}
@@ -230,7 +266,7 @@ export default function Snippets() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!name || !category || !combinedCode}>Save Snippet</Button>
+            <Button onClick={handleSave} disabled={!name || !combinedCode}>Save Snippet</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

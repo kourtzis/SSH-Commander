@@ -459,7 +459,7 @@ paths:
       tags: [snippets]
       summary: List all snippets
       parameters:
-        - name: category
+        - name: tag
           in: query
           required: false
           schema:
@@ -1129,8 +1129,10 @@ components:
           type: integer
         name:
           type: string
-        category:
-          type: string
+        tags:
+          type: array
+          items:
+            type: string
         code:
           type: string
         description:
@@ -1144,7 +1146,7 @@ components:
       required:
         - id
         - name
-        - category
+        - tags
         - code
         - createdAt
         - updatedAt
@@ -1154,15 +1156,17 @@ components:
       properties:
         name:
           type: string
-        category:
-          type: string
+        tags:
+          type: array
+          items:
+            type: string
         code:
           type: string
         description:
           type: string
       required:
         - name
-        - category
+        - tags
         - code
 
     UpdateSnippetRequest:
@@ -1170,8 +1174,10 @@ components:
       properties:
         name:
           type: string
-        category:
-          type: string
+        tags:
+          type: array
+          items:
+            type: string
         code:
           type: string
         description:

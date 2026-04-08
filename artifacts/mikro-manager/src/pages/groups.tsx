@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useListGroups, useListRouters, useGetGroup } from "@workspace/api-client-react";
 import { useGroupsMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
+import { FilterSortBar, ActiveSort } from "@/components/filter-sort-bar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,6 +26,7 @@ export default function Groups() {
   const [isMemberDialogOpen, setIsMemberDialogOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<any>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [groupSearch, setGroupSearch] = useState("");
 
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
@@ -120,8 +122,26 @@ export default function Groups() {
     }
   };
 
+  const matchingGroupIds = useMemo(() => {
+    if (!groupSearch) return null;
+    const ids = new Set<number>();
+    const addAncestors = (gId: number | null) => {
+      if (gId === null) return;
+      const g = groups.find(x => x.id === gId);
+      if (g) { ids.add(g.id); addAncestors(g.parentId); }
+    };
+    groups.forEach(g => {
+      if (g.name.toLowerCase().includes(groupSearch.toLowerCase())) {
+        ids.add(g.id);
+        addAncestors(g.parentId);
+      }
+    });
+    return ids;
+  }, [groups, groupSearch]);
+
   const renderTree = (parentId: number | null, depth = 0) => {
-    const children = groups.filter(g => g.parentId === parentId);
+    let children = groups.filter(g => g.parentId === parentId);
+    if (matchingGroupIds) children = children.filter(g => matchingGroupIds.has(g.id));
     if (children.length === 0) return null;
 
     return (
@@ -176,6 +196,12 @@ export default function Groups() {
           <Plus className="w-4 h-4 mr-2" /> New Root Group
         </Button>
       </div>
+
+      <FilterSortBar
+        searchValue={groupSearch}
+        onSearchChange={setGroupSearch}
+        searchPlaceholder="Search groups by name..."
+      />
 
       <SelectionBar count={selection.count} label="groups" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 

@@ -5,7 +5,7 @@ import { z } from "zod/v4";
 export const snippetsTable = pgTable("snippets", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  category: text("category").notNull(),
+  tags: text("tags").array().notNull().default([]),
   code: text("code").notNull(),
   description: text("description"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

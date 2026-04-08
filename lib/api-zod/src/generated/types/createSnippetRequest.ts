@@ -8,7 +8,7 @@
 
 export interface CreateSnippetRequest {
   name: string;
-  category: string;
+  tags: string[];
   code: string;
   description?: string;
 }

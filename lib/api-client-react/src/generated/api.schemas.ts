@@ -194,7 +194,7 @@ export interface RemoveGroupMemberRequest {
 export interface Snippet {
   id: number;
   name: string;
-  category: string;
+  tags: string[];
   code: string;
   description?: string;
   createdAt: string;
@@ -203,14 +203,14 @@ export interface Snippet {
 
 export interface CreateSnippetRequest {
   name: string;
-  category: string;
+  tags: string[];
   code: string;
   description?: string;
 }
 
 export interface UpdateSnippetRequest {
   name?: string;
-  category?: string;
+  tags?: string[];
   code?: string;
   description?: string;
 }
@@ -377,5 +377,5 @@ export interface UpdateScheduleRequest {
 }
 
 export type ListSnippetsParams = {
-  category?: string;
+  tag?: string;
 };

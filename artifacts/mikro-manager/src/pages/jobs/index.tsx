@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useListJobs } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { useJobsMutations } from "@/hooks/use-mutations";
 import { useToast } from "@/hooks/use-toast";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
+import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
 
 function formatDuration(startStr: string, endStr: string | null | undefined): string {
   const start = new Date(startStr).getTime();
@@ -35,8 +36,24 @@ export default function JobsList() {
   const { rerunJob, cancelJob, deleteJob } = useJobsMutations();
   const { toast } = useToast();
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [sort, setSort] = useState<ActiveSort>({ key: "date", dir: "desc" });
 
-  const sortedJobs = [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const sortedJobs = useMemo(() => {
+    let result = jobs.filter(j => {
+      const matchesSearch = !search ||
+        j.name.toLowerCase().includes(search.toLowerCase());
+      const matchesStatus = !filterStatus || j.status === filterStatus;
+      return matchesSearch && matchesStatus;
+    });
+    return applySort(result, sort, {
+      name: (j) => j.name,
+      date: (j) => new Date(j.createdAt),
+      status: (j) => j.status,
+    });
+  }, [jobs, search, filterStatus, sort]);
+
   const selection = useSelection(sortedJobs.map(j => j.id));
 
   const getDisplayStatus = (job: { status: string; completedTasks: number; failedTasks: number; totalTasks: number }) => {
@@ -123,6 +140,37 @@ export default function JobsList() {
         </Link>
       </div>
 
+      <FilterSortBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search jobs by name..."
+        filters={[
+          {
+            key: "status",
+            label: "Status",
+            type: "select",
+            options: [
+              { value: "running", label: "Running" },
+              { value: "completed", label: "Completed" },
+              { value: "failed", label: "Failed" },
+              { value: "cancelled", label: "Stopped" },
+              { value: "scheduled", label: "Scheduled" },
+            ],
+          },
+        ]}
+        activeFilters={{ status: filterStatus }}
+        onFilterChange={(key, value) => {
+          if (key === "status") setFilterStatus(value as string);
+        }}
+        sortOptions={[
+          { key: "name", label: "Name" },
+          { key: "date", label: "Date" },
+          { key: "status", label: "Status" },
+        ]}
+        activeSort={sort}
+        onSortChange={setSort}
+      />
+
       <SelectionBar count={selection.count} label="jobs" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 
       <Card className="glass-panel">
@@ -133,7 +181,9 @@ export default function JobsList() {
             <div className="p-12 text-center">
               <PlaySquare className="w-12 h-12 mx-auto text-muted-foreground/30 mb-4" />
               <h3 className="text-lg font-medium">No jobs found</h3>
-              <p className="text-muted-foreground mt-1">Create a new batch job to execute scripts.</p>
+              <p className="text-muted-foreground mt-1">
+                {search || filterStatus ? "Try adjusting your filters." : "Create a new batch job to execute scripts."}
+              </p>
             </div>
           ) : (
             <div className="divide-y divide-border/50">

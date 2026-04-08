@@ -7,5 +7,5 @@
  */
 
 export type ListSnippetsParams = {
-  category?: string;
+  tag?: string;
 };

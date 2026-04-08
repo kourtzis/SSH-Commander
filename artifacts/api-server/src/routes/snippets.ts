@@ -9,9 +9,9 @@ const router: IRouter = Router();
 router.get("/snippets", async (req, res) => {
   requireAuth(req);
   const snippets = await db.select().from(snippetsTable).orderBy(snippetsTable.name);
-  const category = req.query.category as string | undefined;
-  if (category) {
-    res.json(snippets.filter((s) => s.category === category));
+  const tag = req.query.tag as string | undefined;
+  if (tag) {
+    res.json(snippets.filter((s) => s.tags.includes(tag)));
   } else {
     res.json(snippets);
   }
@@ -24,10 +24,10 @@ router.post("/snippets", async (req, res) => {
     res.status(400).json({ error: "Invalid request body" });
     return;
   }
-  const { name, category, code, description } = parsed.data;
+  const { name, tags, code, description } = parsed.data;
   const [snippet] = await db
     .insert(snippetsTable)
-    .values({ name, category, code, description })
+    .values({ name, tags: tags || [], code, description })
     .returning();
   res.status(201).json(snippet);
 });
@@ -57,7 +57,7 @@ router.put("/snippets/:id", async (req, res) => {
   }
   const updates: Record<string, any> = { updatedAt: new Date() };
   if (parsed.data.name !== undefined) updates.name = parsed.data.name;
-  if (parsed.data.category !== undefined) updates.category = parsed.data.category;
+  if (parsed.data.tags !== undefined) updates.tags = parsed.data.tags;
   if (parsed.data.code !== undefined) updates.code = parsed.data.code;
   if (parsed.data.description !== undefined) updates.description = parsed.data.description;
 

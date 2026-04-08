@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import { useListSchedules, useListJobs } from "@workspace/api-client-react";
 import { useSchedulesMutations } from "@/hooks/use-mutations";
 import { Link } from "wouter";
@@ -7,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Clock, Calendar, Repeat, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -40,7 +42,28 @@ export default function SchedulerList() {
   const { updateSchedule, deleteSchedule } = useSchedulesMutations();
   const { toast } = useToast();
 
+  const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState("");
+  const [filterEnabled, setFilterEnabled] = useState("");
+  const [sort, setSort] = useState<ActiveSort>({ key: "name", dir: "asc" });
+
   const jobMap = new Map(jobs.map((j) => [j.id, j]));
+
+  const filteredSchedules = useMemo(() => {
+    let result = schedules.filter(s => {
+      const matchesSearch = !search ||
+        s.name.toLowerCase().includes(search.toLowerCase());
+      const matchesType = !filterType || s.type === filterType;
+      const matchesEnabled = !filterEnabled ||
+        (filterEnabled === "active" ? s.enabled : !s.enabled);
+      return matchesSearch && matchesType && matchesEnabled;
+    });
+    return applySort(result, sort, {
+      name: (s) => s.name,
+      type: (s) => s.type,
+      nextRun: (s) => s.nextRunAt ? new Date(s.nextRunAt) : new Date(0),
+    });
+  }, [schedules, search, filterType, filterEnabled, sort]);
 
   const handleToggle = async (id: number, enabled: boolean) => {
     try {
@@ -74,19 +97,62 @@ export default function SchedulerList() {
         </Link>
       </div>
 
+      <FilterSortBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search schedules..."
+        filters={[
+          {
+            key: "type",
+            label: "Type",
+            type: "select",
+            options: [
+              { value: "once", label: "Once" },
+              { value: "interval", label: "Interval" },
+              { value: "weekly", label: "Weekly" },
+            ],
+          },
+          {
+            key: "enabled",
+            label: "Status",
+            type: "select",
+            options: [
+              { value: "active", label: "Active" },
+              { value: "paused", label: "Paused" },
+            ],
+          },
+        ]}
+        activeFilters={{ type: filterType, enabled: filterEnabled }}
+        onFilterChange={(key, value) => {
+          if (key === "type") setFilterType(value as string);
+          if (key === "enabled") setFilterEnabled(value as string);
+        }}
+        sortOptions={[
+          { key: "name", label: "Name" },
+          { key: "type", label: "Type" },
+          { key: "nextRun", label: "Next Run" },
+        ]}
+        activeSort={sort}
+        onSortChange={setSort}
+      />
+
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12">Loading...</div>
-      ) : schedules.length === 0 ? (
+      ) : filteredSchedules.length === 0 ? (
         <Card className="glass-panel">
           <CardContent className="py-16 text-center text-muted-foreground">
             <Clock className="w-12 h-12 mx-auto mb-4 opacity-40" />
-            <p className="text-lg font-medium">No schedules yet</p>
-            <p className="text-sm mt-1">Create a batch job and schedule it, or create a schedule directly.</p>
+            <p className="text-lg font-medium">No schedules found</p>
+            <p className="text-sm mt-1">
+              {search || filterType || filterEnabled
+                ? "Try adjusting your filters."
+                : "Create a batch job and schedule it, or create a schedule directly."}
+            </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {schedules.map((s) => {
+          {filteredSchedules.map((s) => {
             const job = jobMap.get(s.jobId);
             return (
               <Card key={s.id} className="glass-panel">

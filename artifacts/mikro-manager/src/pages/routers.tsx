@@ -1,15 +1,16 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { useListRouters, useImportRouters } from "@workspace/api-client-react";
 import { useRoutersMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
+import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Plus, Search, Server, Edit2, Trash2, Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { Plus, Server, Edit2, Trash2, Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -125,6 +126,7 @@ export default function Routers() {
   const { toast } = useToast();
   
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<ActiveSort>({ key: "name", dir: "asc" });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingRouter, setEditingRouter] = useState<number | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -142,10 +144,17 @@ export default function Routers() {
     defaultValues: { sshPort: 22 }
   });
 
-  const filteredRouters = routers.filter(r => 
-    r.name.toLowerCase().includes(search.toLowerCase()) || 
-    r.ipAddress.includes(search)
-  );
+  const filteredRouters = useMemo(() => {
+    let result = routers.filter(r =>
+      r.name.toLowerCase().includes(search.toLowerCase()) ||
+      r.ipAddress.includes(search)
+    );
+    return applySort(result, sort, {
+      name: (r) => r.name,
+      ip: (r) => r.ipAddress,
+      date: (r) => new Date(r.createdAt),
+    });
+  }, [routers, search, sort]);
 
   const selection = useSelection(filteredRouters.map(r => r.id));
 
@@ -300,20 +309,22 @@ export default function Routers() {
         </div>
       </div>
 
+      <FilterSortBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search by name or IP..."
+        sortOptions={[
+          { key: "name", label: "Name" },
+          { key: "ip", label: "IP" },
+          { key: "date", label: "Added" },
+        ]}
+        activeSort={sort}
+        onSortChange={setSort}
+      />
+
       <SelectionBar count={selection.count} label="routers" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 
       <Card className="glass-panel">
-        <div className="p-4 border-b border-border/50 bg-black/20">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search by name or IP..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 bg-black/40 border-white/5"
-            />
-          </div>
-        </div>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-8 text-center text-muted-foreground">Loading routers...</div>

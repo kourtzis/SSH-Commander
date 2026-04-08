@@ -19,7 +19,7 @@ Sessions are managed securely with encrypted passwords and cookie-based authenti
 Maintain a centralized inventory of all your network devices:
 - Add routers individually with name, IP address, SSH credentials, and optional description
 - **Mass import** devices from `.xlsx`, `.xls`, or `.csv` files with intelligent column mapping — the importer recognizes dozens of column name variations (e.g., "hostname", "device_name", "ip", "address", "user", etc.) and provides a full data preview with row-by-row validation before importing
-- Search and filter your device list by name or IP address
+- **Filter & sort bar** — search by name or IP, sort by name, IP address, or date added with ascending/descending toggle
 - Bulk select and delete operations for easy cleanup
 
 ### Hierarchical Router Groups
@@ -31,7 +31,7 @@ Organize routers into a flexible tree structure:
 
 ### Code Snippet Library
 Build and maintain a reusable library of RouterOS scripts:
-- Categorize snippets for easy organization and quick lookup
+- **Multi-tag system** — assign multiple tags to each snippet (e.g., "firewall", "provisioning", "vlan") with an autocomplete tag input that suggests existing tags as you type; press Enter or Tab to add tags, or click suggestions from the dropdown
 - Use `{{TAG}}` syntax for variables that get substituted per-router at execution time (e.g., `{{HOSTNAME}}`, `{{VLAN_ID}}`, `{{GATEWAY}}`)
 - **Modular script builder** — each snippet is composed from an ordered sequence of building blocks (references to other snippets and/or custom code blocks); add, remove, and drag-to-reorder blocks freely
 - **Control character support** — insert terminal control characters (`<<CTRL+C>>`, `<<CTRL+Z>>`, `<<TAB>>`, `<<ESC>>`, etc.) anywhere in a script using the built-in "Ctrl Char" dropdown; they are sent as raw bytes to the SSH session at the exact position in the command stream
@@ -58,6 +58,7 @@ When the "Auto-confirm SSH prompts" toggle is turned off, jobs run in a fully in
 
 ### Job Management
 Full lifecycle control over your batch jobs:
+- **Filter & sort bar** — search by name, filter by status (running/completed/failed/stopped/scheduled), sort by name, date, or status
 - **Run Now** — re-execute any completed job with the same configuration
 - **Copy** — duplicate a job configuration as a starting point for a new job
 - **Edit** — update scheduled jobs in-place without recreating them
@@ -67,6 +68,7 @@ Full lifecycle control over your batch jobs:
 
 ### Job Scheduler
 Automate recurring network tasks with flexible scheduling:
+- **Filter & sort bar** — search by name, filter by type (once/interval/weekly) and status (active/paused), sort by name, type, or next run
 - **One-time** — schedule a job to run at a specific date and time
 - **Interval-based** — repeat every N minutes (e.g., every 30 minutes, every 2 hours)
 - **Weekly** — run on selected days of the week at a specific time

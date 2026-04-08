@@ -9,7 +9,7 @@
 export interface Snippet {
   id: number;
   name: string;
-  category: string;
+  tags: string[];
   code: string;
   description?: string;
   createdAt: Date;

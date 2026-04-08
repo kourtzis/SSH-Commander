@@ -14,14 +14,14 @@ export interface ScriptBlock {
   type: "snippet" | "code";
   snippetId?: number;
   snippetName?: string;
-  snippetCategory?: string;
+  snippetTags?: string[];
   code: string;
 }
 
 interface SnippetOption {
   id: number;
   name: string;
-  category: string;
+  tags: string[];
   code: string;
 }
 
@@ -65,7 +65,7 @@ export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: 
       type: "snippet",
       snippetId: snippet.id,
       snippetName: snippet.name,
-      snippetCategory: snippet.category,
+      snippetTags: snippet.tags,
       code: snippet.code,
     };
     const next = [...blocks];
@@ -172,7 +172,7 @@ export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: 
               >
                 <option value="" disabled>+ Snippet</option>
                 {availableSnippets.map(s => (
-                  <option key={s.id} value={s.id}>{s.name} ({s.category})</option>
+                  <option key={s.id} value={s.id}>{s.name} ({(s.tags || []).join(", ") || "no tags"})</option>
                 ))}
               </select>
             )}
@@ -278,7 +278,7 @@ export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: 
                       <>
                         <FileCode className="w-4 h-4 text-primary shrink-0" />
                         <span className="text-sm font-medium flex-1 truncate">{block.snippetName}</span>
-                        <Badge variant="outline" className="text-xs border-white/10 shrink-0">{block.snippetCategory}</Badge>
+                        <Badge variant="outline" className="text-xs border-white/10 shrink-0">{(block.snippetTags || []).join(", ") || "no tags"}</Badge>
                       </>
                     ) : (
                       <>
@@ -346,7 +346,7 @@ export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: 
           >
             <option value="" disabled>Add snippet block...</option>
             {availableSnippets.map(s => (
-              <option key={s.id} value={s.id}>{s.name} ({s.category})</option>
+              <option key={s.id} value={s.id}>{s.name} ({(s.tags || []).join(", ") || "no tags"})</option>
             ))}
           </select>
         )}

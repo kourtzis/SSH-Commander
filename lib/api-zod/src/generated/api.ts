@@ -355,13 +355,13 @@ export const RemoveGroupMemberResponse = zod.object({
  * @summary List all snippets
  */
 export const ListSnippetsQueryParams = zod.object({
-  category: zod.coerce.string().optional(),
+  tag: zod.coerce.string().optional(),
 });
 
 export const ListSnippetsResponseItem = zod.object({
   id: zod.number(),
   name: zod.string(),
-  category: zod.string(),
+  tags: zod.array(zod.string()),
   code: zod.string(),
   description: zod.string().optional(),
   createdAt: zod.date(),
@@ -374,7 +374,7 @@ export const ListSnippetsResponse = zod.array(ListSnippetsResponseItem);
  */
 export const CreateSnippetBody = zod.object({
   name: zod.string(),
-  category: zod.string(),
+  tags: zod.array(zod.string()),
   code: zod.string(),
   description: zod.string().optional(),
 });
@@ -389,7 +389,7 @@ export const GetSnippetParams = zod.object({
 export const GetSnippetResponse = zod.object({
   id: zod.number(),
   name: zod.string(),
-  category: zod.string(),
+  tags: zod.array(zod.string()),
   code: zod.string(),
   description: zod.string().optional(),
   createdAt: zod.date(),
@@ -405,7 +405,7 @@ export const UpdateSnippetParams = zod.object({
 
 export const UpdateSnippetBody = zod.object({
   name: zod.string().optional(),
-  category: zod.string().optional(),
+  tags: zod.array(zod.string()).optional(),
   code: zod.string().optional(),
   description: zod.string().optional(),
 });
@@ -413,7 +413,7 @@ export const UpdateSnippetBody = zod.object({
 export const UpdateSnippetResponse = zod.object({
   id: zod.number(),
   name: zod.string(),
-  category: zod.string(),
+  tags: zod.array(zod.string()),
   code: zod.string(),
   description: zod.string().optional(),
   createdAt: zod.date(),
