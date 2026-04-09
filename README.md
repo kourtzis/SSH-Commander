@@ -189,34 +189,81 @@ pnpm --filter @workspace/mikro-manager run dev
 
 ### Docker Installation (Recommended for Production)
 
-Docker is the simplest way to run SSH Commander. The setup includes the application and a PostgreSQL database, fully orchestrated with Docker Compose.
+Docker is the simplest way to run SSH Commander. There are two options: using Docker Compose (recommended) or running containers manually.
 
-#### 1. Clone and configure
+---
+
+#### Option A: Docker Compose (Recommended)
+
+This is the easiest method — one file, one command.
+
+**Using the pre-built image from Docker Hub:**
+
+1. Create a project folder on your server:
 
 ```bash
-git clone <your-repo-url> ssh-commander
-cd ssh-commander
+mkdir ssh-commander && cd ssh-commander
 ```
 
-Before starting, edit `docker-compose.yml` to set secure values for your environment:
+2. Create a `docker-compose.yml` file with the following contents:
 
 ```yaml
 services:
   db:
+    image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_PASSWORD: changeme        # ← Set a strong database password
+      POSTGRES_DB: mikromanager
+      POSTGRES_USER: mikromanager
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mikromanager"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   app:
+    image: kourtzis/ssh-commander:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-3000}:3000"
     environment:
-      DATABASE_URL: postgresql://mikromanager:changeme@db:5432/mikromanager  # ← Match the DB password above
-      SESSION_SECRET: change-this-to-a-long-random-string                   # ← Set a unique random string
+      DATABASE_URL: postgresql://mikromanager:${DB_PASSWORD:-changeme}@db:5432/mikromanager
+      SESSION_SECRET: ${SESSION_SECRET:-change-this-to-a-long-random-string}
+      PORT: 3000
+      NODE_ENV: production
+      PUBLIC_DIR: /app/public
+
+volumes:
+  pgdata:
 ```
 
-#### 2. Build and start
+3. Set secure passwords and start:
 
 ```bash
+export DB_PASSWORD=your-strong-database-password
+export SESSION_SECRET=$(openssl rand -hex 32)
 docker compose up -d
 ```
+
+4. Open `http://your-server-ip:3000` in your browser.
+
+**Building from source instead of Docker Hub:**
+
+If you prefer to build the image yourself from the source code:
+
+```bash
+git clone <your-repo-url> ssh-commander
+cd ssh-commander
+docker compose up -d --build
+```
+
+Before starting, edit `docker-compose.yml` to set secure values for `POSTGRES_PASSWORD` and `SESSION_SECRET`.
 
 This will:
 1. Build the application image (multi-stage: compiles TypeScript, bundles the API server, builds the React frontend)
@@ -226,9 +273,69 @@ This will:
 5. Seed the default admin user (skipped if users already exist)
 6. Start the application on port 3000
 
-#### 3. Access the application
+---
 
-Open `http://localhost:3000` in your browser.
+#### Option B: Manual Docker Setup (Without Docker Compose)
+
+If you prefer to run each container individually:
+
+1. Create a Docker network so the containers can communicate:
+
+```bash
+docker network create ssh-commander-net
+```
+
+2. Start the PostgreSQL database:
+
+```bash
+docker run -d \
+  --name ssh-commander-db \
+  --network ssh-commander-net \
+  --restart unless-stopped \
+  -e POSTGRES_DB=mikromanager \
+  -e POSTGRES_USER=mikromanager \
+  -e POSTGRES_PASSWORD=your-strong-db-password \
+  -v ssh-commander-pgdata:/var/lib/postgresql/data \
+  postgres:16-alpine
+```
+
+3. Wait a few seconds, then verify the database is ready:
+
+```bash
+docker exec ssh-commander-db pg_isready -U mikromanager
+```
+
+You should see `accepting connections`.
+
+4. Start the application:
+
+```bash
+docker run -d \
+  --name ssh-commander-app \
+  --network ssh-commander-net \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  -e DATABASE_URL=postgresql://mikromanager:your-strong-db-password@ssh-commander-db:5432/mikromanager \
+  -e SESSION_SECRET=$(openssl rand -hex 32) \
+  -e PORT=3000 \
+  -e NODE_ENV=production \
+  -e PUBLIC_DIR=/app/public \
+  kourtzis/ssh-commander:latest
+```
+
+5. Open `http://your-server-ip:3000` in your browser.
+
+**Useful manual commands:**
+- View app logs: `docker logs -f ssh-commander-app`
+- Stop both: `docker stop ssh-commander-app ssh-commander-db`
+- Remove both: `docker rm ssh-commander-app ssh-commander-db`
+- Wipe database: `docker volume rm ssh-commander-pgdata`
+
+---
+
+#### After Installation
+
+Open your browser and navigate to the application.
 
 ### Default Credentials
 
