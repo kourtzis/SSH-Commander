@@ -11,7 +11,7 @@ on:
 #     - '.github/workflows/**'
 
 env:
-  IMAGE_NAME: ssh-commander
+  IMAGE_NAME: kourtzis/ssh-commander
   REGISTRY: docker.io   # or docker.io for Docker Hub
 
 jobs:
