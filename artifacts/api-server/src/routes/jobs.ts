@@ -1,3 +1,11 @@
+// ─── Batch Job Routes ───────────────────────────────────────────────
+// Create, monitor, rerun, and cancel batch SSH jobs. A job runs a script
+// across multiple routers (resolved from direct IDs + group hierarchy).
+// Supports two execution modes:
+//   - Auto-confirm (default): runs in background, auto-answers y/n prompts
+//   - Interactive: opens parallel SSH sessions with SSE live streaming,
+//     pauses at prompts for user input via the /respond endpoint
+
 import { Router, type IRouter } from "express";
 import {
   db,
@@ -16,6 +24,10 @@ import { interactiveSessions, type LiveEvent } from "../lib/interactive-session.
 
 const router: IRouter = Router();
 
+// ─── Group Resolution ───────────────────────────────────────────────
+// Iterative BFS that walks the group hierarchy and collects all router IDs.
+// Each depth level is processed in 2 parallel queries (router links + subgroup links).
+// Returns de-duplicated IDs preserving insertion order (direct routers first).
 async function resolveRouterIds(
   directRouterIds: number[],
   groupIds: number[]
@@ -30,16 +42,19 @@ async function resolveRouterIds(
     }
   }
 
+  // Add directly-selected routers first
   for (const id of directRouterIds) {
     addUnique(id);
   }
 
+  // BFS through group tree — `pending` = groups at the current depth level
   const visited = new Set<number>();
   let pending = groupIds.filter((id) => !visited.has(id));
 
   while (pending.length > 0) {
     for (const id of pending) visited.add(id);
 
+    // Fetch router members and child subgroups in parallel
     const [routerLinks, subgroupLinks] = await Promise.all([
       db
         .select({ routerId: groupRoutersTable.routerId })
@@ -55,6 +70,7 @@ async function resolveRouterIds(
       addUnique(link.routerId);
     }
 
+    // Move to next depth level, skipping already-visited groups (prevents cycles)
     pending = subgroupLinks
       .map((s) => s.childGroupId)
       .filter((id) => !visited.has(id));
@@ -63,6 +79,8 @@ async function resolveRouterIds(
   return ordered;
 }
 
+// POST /jobs/resolve-count — Preview how many routers a job would target
+// (used by the UI to show "X routers will be affected" before creating the job)
 router.post("/jobs/resolve-count", async (req, res) => {
   requireAuth(req);
   const { targetRouterIds, targetGroupIds } = req.body ?? {};
@@ -73,6 +91,7 @@ router.post("/jobs/resolve-count", async (req, res) => {
   res.json({ count: allRouterIds.length });
 });
 
+// GET /jobs — List all jobs (most recent last)
 router.get("/jobs", async (req, res) => {
   requireAuth(req);
   const jobs = await db
@@ -87,6 +106,9 @@ router.get("/jobs", async (req, res) => {
   );
 });
 
+// POST /jobs — Create and execute a new batch job.
+// If mode="schedule", creates a template job (status="scheduled") for the scheduler.
+// Otherwise, resolves routers, creates tasks, and starts execution immediately.
 router.post("/jobs", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);
@@ -98,6 +120,7 @@ router.post("/jobs", async (req, res) => {
 
   const { name, scriptCode, targetRouterIds, targetGroupIds, excelData, mode, autoConfirm } = parsed.data;
 
+  // Resolve all target routers from direct IDs + group membership
   const allRouterIds = await resolveRouterIds(
     targetRouterIds ?? [],
     targetGroupIds ?? []
@@ -108,6 +131,7 @@ router.post("/jobs", async (req, res) => {
     return;
   }
 
+  // Schedule mode: save as a template without executing
   if (mode === "schedule") {
     const [job] = await db
       .insert(batchJobsTable)
@@ -133,6 +157,7 @@ router.post("/jobs", async (req, res) => {
     return;
   }
 
+  // Fetch full router details and preserve the resolved ordering
   const routersUnordered = await db
     .select()
     .from(routersTable)
@@ -141,6 +166,7 @@ router.post("/jobs", async (req, res) => {
   const routerMap = new Map(routersUnordered.map(r => [r.id, r]));
   const routers = allRouterIds.map(id => routerMap.get(id)!).filter(Boolean);
 
+  // Create the parent job record
   const [job] = await db
     .insert(batchJobsTable)
     .values({
@@ -158,6 +184,7 @@ router.post("/jobs", async (req, res) => {
     })
     .returning();
 
+  // Create one pending task per router
   const tasks = routers.map((r) => ({
     jobId: job.id,
     routerId: r.id,
@@ -168,14 +195,17 @@ router.post("/jobs", async (req, res) => {
 
   const insertedTasks = await db.insert(jobTasksTable).values(tasks).returning();
 
+  // Transition job to "running"
   await db
     .update(batchJobsTable)
     .set({ status: "running" })
     .where(eq(batchJobsTable.id, job.id));
 
+  // Choose execution mode based on autoConfirm setting
   const useInteractive = !(autoConfirm ?? true);
 
   if (useInteractive) {
+    // Interactive mode: parallel SSH sessions with live SSE streaming
     interactiveSessions.startInteractiveJob(
       job.id,
       routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword })),
@@ -185,6 +215,7 @@ router.post("/jobs", async (req, res) => {
       insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
     );
   } else {
+    // Auto-confirm mode: sequential background execution
     runJobInBackground(job.id, routers, scriptCode, excelData as Record<string, string>[] | undefined, autoConfirm ?? true, insertedTasks.map(t => t.id))
       .catch((err) => {
         console.error(`[Job ${job.id}] Background execution failed:`, err);
@@ -202,6 +233,9 @@ router.post("/jobs", async (req, res) => {
   });
 });
 
+// ─── Excel Variable Substitution Helpers ────────────────────────────
+
+// Build a fast lookup map from Excel data keyed by "ip:<address>" and "name:<lowercase>"
 function buildExcelLookup(
   excelData: Record<string, string>[] | undefined
 ): Map<string, Record<string, string>> | null {
@@ -217,6 +251,7 @@ function buildExcelLookup(
   return lookup;
 }
 
+// Match a router to its Excel row: tries IP → name → positional index → last row
 function findExcelRow(
   router: { name: string; ipAddress: string },
   lookup: Map<string, Record<string, string>> | null,
@@ -235,6 +270,9 @@ function findExcelRow(
   return {};
 }
 
+// ─── Background Job Runner ──────────────────────────────────────────
+// Executes SSH commands sequentially across all routers in a job.
+// Updates task status and job counters after each router completes.
 async function runJobInBackground(
   jobId: number,
   routers: (typeof routersTable.$inferSelect)[],
@@ -248,6 +286,7 @@ async function runJobInBackground(
 
   const excelLookup = buildExcelLookup(excelData);
 
+  // Build a task ID lookup from the pre-inserted task IDs (avoids re-querying DB)
   const taskIdByRouterId = new Map<number, number>();
   if (taskIds) {
     for (let i = 0; i < routers.length && i < taskIds.length; i++) {
@@ -258,6 +297,7 @@ async function runJobInBackground(
   for (let i = 0; i < routers.length; i++) {
     const r = routers[i];
 
+    // Use pre-mapped task ID; fallback to DB lookup only if missing
     let taskId = taskIdByRouterId.get(r.id);
     if (!taskId) {
       const [task] = await db
@@ -269,6 +309,7 @@ async function runJobInBackground(
       taskId = task.id;
     }
 
+    // Check for cancellation every 5 routers (reduces DB queries by 80%)
     if (i % 5 === 0) {
       const [currentJob] = await db
         .select({ status: batchJobsTable.status })
@@ -278,15 +319,18 @@ async function runJobInBackground(
       if (currentJob?.status === "cancelled") break;
     }
 
+    // Substitute {{TAG}} placeholders with matching Excel row values
     const row = findExcelRow(r, excelLookup, i, excelData);
     const finalScript = applyTagSubstitution(scriptCode, row);
 
+    // Mark task as running and store the resolved script (combined into one UPDATE)
     await db
       .update(jobTasksTable)
       .set({ status: "running", startedAt: new Date(), resolvedScript: finalScript })
       .where(eq(jobTasksTable.id, taskId));
 
     if (!r.sshPassword) {
+      // No password configured — fail immediately with a clear log
       const noPassLog = [
         `[${new Date().toISOString()}] SSH session initiated`,
         `[${new Date().toISOString()}] Target: ${r.sshUsername}@${r.ipAddress}:${r.sshPort}`,
@@ -304,6 +348,7 @@ async function runJobInBackground(
         .where(eq(jobTasksTable.id, taskId));
       failedCount++;
     } else {
+      // Execute the SSH command against this router
       const result = await executeSSHCommand(
         r.ipAddress,
         r.sshPort,
@@ -332,6 +377,7 @@ async function runJobInBackground(
       }
     }
 
+    // Update running counters on the parent job
     await db
       .update(batchJobsTable)
       .set({
@@ -341,6 +387,7 @@ async function runJobInBackground(
       .where(eq(batchJobsTable.id, jobId));
   }
 
+  // Determine final status: "failed" only if every task failed
   const finalStatus =
     failedCount === routers.length
       ? "failed"
@@ -359,6 +406,7 @@ async function runJobInBackground(
     .where(eq(batchJobsTable.id, jobId));
 }
 
+// GET /jobs/:id — Get full job details including all tasks
 router.get("/jobs/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -393,22 +441,28 @@ router.get("/jobs/:id", async (req, res) => {
   });
 });
 
+// ─── SSE Live Stream ────────────────────────────────────────────────
+// GET /jobs/:id/live — Server-Sent Events endpoint for real-time job updates.
+// Subscribes to the interactive session's event emitter and streams
+// task_status, task_output, input_required, and job_complete events.
 router.get("/jobs/:id/live", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
 
+  // Set up SSE headers
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
-    "X-Accel-Buffering": "no",
+    "X-Accel-Buffering": "no",  // Disable nginx buffering for real-time streaming
   });
 
-  res.write(":\n\n");
+  res.write(":\n\n");  // SSE comment — keeps the connection alive
 
   const emitter = interactiveSessions.getJobEmitter(id);
 
   if (!emitter) {
+    // No active session — check if the job already finished and send final status
     const [job] = await db
       .select()
       .from(batchJobsTable)
@@ -421,11 +475,13 @@ router.get("/jobs/:id/live", async (req, res) => {
     return;
   }
 
+  // Send current waiting-for-input prompts (in case the user reconnects mid-job)
   const waiting = interactiveSessions.getWaitingTasks(id);
   for (const w of waiting) {
     res.write(`data: ${JSON.stringify({ type: "input_required", taskId: w.taskId, routerId: w.routerId, routerName: w.routerName, routerIp: w.routerIp, promptText: w.promptText, promptType: w.promptType, status: "waiting_input" })}\n\n`);
   }
 
+  // Subscribe to live events from the interactive session
   const handler = (event: LiveEvent) => {
     try {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -434,16 +490,20 @@ router.get("/jobs/:id/live", async (req, res) => {
 
   emitter.on("event", handler);
 
+  // Keepalive: send a comment every 15s to prevent proxy/browser timeouts
   const heartbeat = setInterval(() => {
     try { res.write(":\n\n"); } catch {}
   }, 15000);
 
+  // Cleanup on client disconnect
   req.on("close", () => {
     emitter.off("event", handler);
     clearInterval(heartbeat);
   });
 });
 
+// POST /jobs/:id/respond — Forward user input to waiting interactive SSH sessions.
+// Used when a prompt is detected and the UI collects the user's response.
 router.post("/jobs/:id/respond", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -453,11 +513,13 @@ router.post("/jobs/:id/respond", async (req, res) => {
   }
   const { taskIds, input } = req.body ?? {};
 
+  // Validate: taskIds must be an array of integers, input must be a string
   if (!Array.isArray(taskIds) || !taskIds.every((t: any) => Number.isInteger(t)) || typeof input !== "string") {
     res.status(400).json({ error: "taskIds (array of integers) and input (string) are required" });
     return;
   }
 
+  // Limit input length to prevent abuse
   if (input.length > 4096) {
     res.status(400).json({ error: "Input too long (max 4096 characters)" });
     return;
@@ -467,6 +529,7 @@ router.post("/jobs/:id/respond", async (req, res) => {
   res.json(result);
 });
 
+// PUT /jobs/:id — Edit a scheduled (template) job. Only jobs with status="scheduled" can be edited.
 router.put("/jobs/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -504,6 +567,7 @@ router.put("/jobs/:id", async (req, res) => {
   res.json({ ...updated, completedAt: updated.completedAt ?? null });
 });
 
+// DELETE /jobs/:id — Delete a job and all its tasks
 router.delete("/jobs/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -516,11 +580,14 @@ router.delete("/jobs/:id", async (req, res) => {
     res.status(404).json({ error: "Job not found" });
     return;
   }
+  // Delete tasks first (child records), then the parent job
   await db.delete(jobTasksTable).where(eq(jobTasksTable.jobId, id));
   await db.delete(batchJobsTable).where(eq(batchJobsTable.id, id));
   res.json({ message: "Job deleted" });
 });
 
+// POST /jobs/:id/rerun — Clone a completed/failed job and re-execute it.
+// Creates a new job with fresh tasks using the same script, targets, and Excel data.
 router.post("/jobs/:id/rerun", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);
@@ -537,6 +604,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
     return;
   }
 
+  // Re-resolve routers (group membership may have changed since the original run)
   const allRouterIds = await resolveRouterIds(
     sourceJob.targetRouterIds ?? [],
     sourceJob.targetGroupIds ?? []
@@ -555,6 +623,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
   const routerMap = new Map(routersUnordered.map(r => [r.id, r]));
   const routers = allRouterIds.map(id => routerMap.get(id)!).filter(Boolean);
 
+  // Create the cloned job
   const [newJob] = await db
     .insert(batchJobsTable)
     .values({
@@ -587,6 +656,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
     .set({ status: "running" })
     .where(eq(batchJobsTable.id, newJob.id));
 
+  // Use the same execution mode as the original job
   const useInteractive = !sourceJob.autoConfirm;
 
   if (useInteractive) {
@@ -616,10 +686,13 @@ router.post("/jobs/:id/rerun", async (req, res) => {
   });
 });
 
+// POST /jobs/:id/cancel — Cancel a running or interactive job.
+// Cleans up any active SSH sessions and marks the job as cancelled.
 router.post("/jobs/:id/cancel", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
 
+  // Clean up interactive sessions (closes SSH connections, fails pending tasks)
   await interactiveSessions.cleanupJob(id);
 
   await db

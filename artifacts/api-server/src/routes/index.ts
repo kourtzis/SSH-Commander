@@ -1,3 +1,4 @@
+// Central route aggregator — mounts all API route modules under /api
 import { Router, type IRouter } from "express";
 import healthRouter from "./health.js";
 import authRouter from "./auth.js";
@@ -10,13 +11,13 @@ import schedulesRouter from "./schedules.js";
 
 const router: IRouter = Router();
 
-router.use(healthRouter);
-router.use(authRouter);
-router.use(usersRouter);
-router.use(routersRouter);
-router.use(groupsRouter);
-router.use(snippetsRouter);
-router.use(jobsRouter);
-router.use(schedulesRouter);
+router.use(healthRouter);     // GET /api/health
+router.use(authRouter);       // POST /api/auth/login, /logout, GET /api/auth/me
+router.use(usersRouter);      // CRUD /api/users (admin only)
+router.use(routersRouter);    // CRUD /api/routers + import + reachability
+router.use(groupsRouter);     // CRUD /api/groups + member management
+router.use(snippetsRouter);   // CRUD /api/snippets (with tag filtering)
+router.use(jobsRouter);       // CRUD /api/jobs + execution + SSE live stream
+router.use(schedulesRouter);  // CRUD /api/schedules
 
 export default router;

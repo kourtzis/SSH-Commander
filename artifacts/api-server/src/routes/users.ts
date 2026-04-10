@@ -1,3 +1,7 @@
+// ─── User Management Routes ─────────────────────────────────────────
+// Admin-only CRUD for managing application users. All endpoints except
+// GET /users/:id require the admin role. Passwords are hashed with bcrypt.
+
 import { Router, type IRouter } from "express";
 import bcrypt from "bcrypt";
 import { db, usersTable } from "@workspace/db";
@@ -7,6 +11,7 @@ import { getCurrentUser, requireAuth, requireAdmin } from "../lib/auth.js";
 
 const router: IRouter = Router();
 
+// Strip password hash from user records before sending to the client
 function sanitizeUser(user: typeof usersTable.$inferSelect) {
   return {
     id: user.id,
@@ -17,6 +22,7 @@ function sanitizeUser(user: typeof usersTable.$inferSelect) {
   };
 }
 
+// GET /users — List all users (admin only)
 router.get("/users", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);
@@ -25,6 +31,7 @@ router.get("/users", async (req, res) => {
   res.json(users.map(sanitizeUser));
 });
 
+// POST /users — Create a new user (admin only). Password is bcrypt-hashed before storage.
 router.post("/users", async (req, res) => {
   requireAuth(req);
   const currentUser = await getCurrentUser(req);
@@ -47,6 +54,7 @@ router.post("/users", async (req, res) => {
   res.status(201).json(sanitizeUser(newUser));
 });
 
+// GET /users/:id — Get a single user by ID
 router.get("/users/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -62,6 +70,7 @@ router.get("/users/:id", async (req, res) => {
   res.json(sanitizeUser(user));
 });
 
+// PUT /users/:id — Update user fields (admin only). If password is provided, it's re-hashed.
 router.put("/users/:id", async (req, res) => {
   requireAuth(req);
   const currentUser = await getCurrentUser(req);
@@ -95,6 +104,7 @@ router.put("/users/:id", async (req, res) => {
   res.json(sanitizeUser(updated));
 });
 
+// DELETE /users/:id — Delete a user (admin only)
 router.delete("/users/:id", async (req, res) => {
   requireAuth(req);
   const currentUser = await getCurrentUser(req);

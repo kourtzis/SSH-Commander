@@ -1,3 +1,7 @@
+// ─── Router Management Routes ───────────────────────────────────────
+// CRUD for SSH-managed devices (routers), plus bulk import from CSV/Excel
+// and TCP-based reachability checks for real-time status indicators.
+
 import { Router, type IRouter } from "express";
 import { db, routersTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
@@ -7,6 +11,7 @@ import * as net from "net";
 
 const router: IRouter = Router();
 
+// Strip the SSH password from responses to avoid leaking credentials to the frontend
 function sanitizeRouter(r: typeof routersTable.$inferSelect) {
   return {
     id: r.id,
@@ -19,6 +24,7 @@ function sanitizeRouter(r: typeof routersTable.$inferSelect) {
   };
 }
 
+// GET /routers — List all routers (column-selective: excludes sshPassword)
 router.get("/routers", async (req, res) => {
   requireAuth(req);
   const routers = await db
@@ -36,6 +42,7 @@ router.get("/routers", async (req, res) => {
   res.json(routers);
 });
 
+// POST /routers — Create a single router
 router.post("/routers", async (req, res) => {
   requireAuth(req);
   const parsed = CreateRouterBody.safeParse(req.body);
@@ -51,6 +58,7 @@ router.post("/routers", async (req, res) => {
   res.status(201).json(sanitizeRouter(newRouter));
 });
 
+// GET /routers/:id — Get a single router by ID
 router.get("/routers/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -66,6 +74,7 @@ router.get("/routers/:id", async (req, res) => {
   res.json(sanitizeRouter(r));
 });
 
+// PUT /routers/:id — Update router fields (partial update — only provided fields are changed)
 router.put("/routers/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -95,12 +104,16 @@ router.put("/routers/:id", async (req, res) => {
   res.json(sanitizeRouter(updated));
 });
 
+// DELETE /routers/:id — Remove a router
 router.delete("/routers/:id", async (req, res) => {
   requireAuth(req);
   await db.delete(routersTable).where(eq(routersTable.id, parseInt(req.params.id)));
   res.json({ message: "Router deleted" });
 });
 
+// POST /routers/import — Bulk import routers from CSV/Excel data.
+// Attempts a single batch insert first; if that fails (e.g. duplicate name),
+// falls back to inserting one-by-one so partial success is possible.
 router.post("/routers/import", async (req, res) => {
   requireAuth(req);
   const { routers: items } = req.body as { routers: any[] };
@@ -117,6 +130,7 @@ router.post("/routers/import", async (req, res) => {
   let created = 0;
   let failed = 0;
 
+  // Phase 1: Validate all rows and build insert values
   const validRows: { index: number; name: string; values: typeof routersTable.$inferInsert }[] = [];
 
   for (let i = 0; i < items.length; i++) {
@@ -137,6 +151,7 @@ router.post("/routers/import", async (req, res) => {
     validRows.push({ index: i, name, values: { name, ipAddress, sshPort, sshUsername, sshPassword, description } });
   }
 
+  // Phase 2: Try batch insert first (fast path), fall back to individual inserts on error
   if (validRows.length > 0) {
     try {
       await db.insert(routersTable).values(validRows.map((r) => r.values));
@@ -145,6 +160,7 @@ router.post("/routers/import", async (req, res) => {
         created++;
       }
     } catch (err: any) {
+      // Batch failed — retry each row individually to allow partial success
       for (const row of validRows) {
         try {
           await db.insert(routersTable).values(row.values);
@@ -161,6 +177,11 @@ router.post("/routers/import", async (req, res) => {
   res.json({ created, failed, total: items.length, results });
 });
 
+// ─── Reachability Check ─────────────────────────────────────────────
+// Attempts a TCP connection to each router's SSH port to determine
+// if the device is reachable. Used by the frontend for status indicators.
+
+// Try to open a TCP socket to host:port within the timeout window
 function checkPort(host: string, port: number, timeoutMs = 3000): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -179,6 +200,7 @@ function checkPort(host: string, port: number, timeoutMs = 3000): Promise<boolea
   });
 }
 
+// POST /routers/check-reachability — Check SSH port reachability for multiple routers in parallel
 router.post("/routers/check-reachability", async (req, res) => {
   requireAuth(req);
   const { routerIds } = req.body as { routerIds: number[] };
@@ -187,16 +209,19 @@ router.post("/routers/check-reachability", async (req, res) => {
     return;
   }
 
+  // Validate input: max 500 IDs, all must be positive integers
   if (routerIds.length > 500 || !routerIds.every((id) => Number.isInteger(id) && id > 0)) {
     res.status(400).json({ error: "Invalid routerIds (max 500 integer IDs)" });
     return;
   }
 
+  // Fetch only the fields needed for the TCP check
   const routers = await db
     .select({ id: routersTable.id, ipAddress: routersTable.ipAddress, sshPort: routersTable.sshPort })
     .from(routersTable)
     .where(inArray(routersTable.id, routerIds));
 
+  // Check all routers in parallel
   const results: Record<number, boolean> = {};
   await Promise.all(
     routers.map(async (r) => {

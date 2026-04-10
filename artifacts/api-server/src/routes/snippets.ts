@@ -1,3 +1,8 @@
+// ─── Snippet Library Routes ─────────────────────────────────────────
+// CRUD for reusable SSH command templates. Snippets can be tagged for
+// categorization, and filtered by tag using PostgreSQL's native @> array
+// containment operator (backed by a GIN index for fast lookups).
+
 import { Router, type IRouter } from "express";
 import { db, snippetsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
@@ -6,6 +11,8 @@ import { requireAuth } from "../lib/auth.js";
 
 const router: IRouter = Router();
 
+// GET /snippets — List all snippets, optionally filtered by a single tag.
+// Tag filtering uses SQL-level @> containment (O(log n) with GIN index).
 router.get("/snippets", async (req, res) => {
   requireAuth(req);
   const tag = req.query.tag as string | undefined;
@@ -20,6 +27,7 @@ router.get("/snippets", async (req, res) => {
   }
 });
 
+// POST /snippets — Create a new snippet
 router.post("/snippets", async (req, res) => {
   requireAuth(req);
   const parsed = CreateSnippetBody.safeParse(req.body);
@@ -35,6 +43,7 @@ router.post("/snippets", async (req, res) => {
   res.status(201).json(snippet);
 });
 
+// GET /snippets/:id — Get a single snippet by ID
 router.get("/snippets/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -50,6 +59,7 @@ router.get("/snippets/:id", async (req, res) => {
   res.json(snippet);
 });
 
+// PUT /snippets/:id — Update snippet fields (partial update, auto-updates updatedAt)
 router.put("/snippets/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -76,6 +86,7 @@ router.put("/snippets/:id", async (req, res) => {
   res.json(updated);
 });
 
+// DELETE /snippets/:id — Remove a snippet
 router.delete("/snippets/:id", async (req, res) => {
   requireAuth(req);
   await db.delete(snippetsTable).where(eq(snippetsTable.id, parseInt(req.params.id)));

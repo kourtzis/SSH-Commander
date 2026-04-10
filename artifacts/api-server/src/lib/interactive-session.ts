@@ -1,3 +1,13 @@
+// ─── Interactive SSH Session Manager ────────────────────────────────
+// Manages parallel SSH sessions for interactive (non-auto-confirm) jobs.
+// Each router gets its own SSH shell connection. When a prompt is detected
+// (y/n or input), the session pauses and emits an SSE event so the UI can
+// show the prompt and collect user input. The user's response is then
+// forwarded to the SSH stream.
+//
+// All sessions for a job share a single EventEmitter, which the SSE
+// endpoint (/jobs/:id/live) subscribes to for real-time updates.
+
 import { Client, type ClientChannel } from "ssh2";
 import { EventEmitter } from "events";
 import { db, jobTasksTable, batchJobsTable } from "@workspace/db";
@@ -11,13 +21,14 @@ import {
   writeCommandWithControlChars,
 } from "./ssh.js";
 
+// Event types emitted via SSE to the frontend
 export interface LiveEvent {
   type:
-    | "task_status"
-    | "task_output"
-    | "input_required"
-    | "input_sent"
-    | "job_complete";
+    | "task_status"     // Task changed state (running/success/failed)
+    | "task_output"     // New SSH output chunk received
+    | "input_required"  // Prompt detected — waiting for user input
+    | "input_sent"      // User's input was forwarded to the SSH stream
+    | "job_complete";   // All tasks finished
   taskId: number;
   routerId?: number;
   routerName?: string;
@@ -33,36 +44,39 @@ export interface LiveEvent {
   totalTasks?: number;
 }
 
+// Per-device SSH session state
 interface DeviceSession {
   taskId: number;
   routerId: number;
   routerName: string;
   routerIp: string;
-  conn: Client;
-  stream: ClientChannel | null;
-  shellBuffer: string;
-  log: string[];
+  conn: Client;                    // ssh2 connection instance
+  stream: ClientChannel | null;    // Shell stream (set after shell opens)
+  shellBuffer: string;             // Accumulated SSH output
+  log: string[];                   // Timestamped connection log entries
   state: "connecting" | "running" | "waiting_input" | "completed" | "failed";
-  promptText: string | null;
+  promptText: string | null;       // Current prompt text (while waiting for input)
   promptType: "confirm" | "input" | null;
-  lastPromptChecked: string;
-  autoConfirmCount: number;
-  commandSent: boolean;
-  idleTimerRef: ReturnType<typeof setTimeout> | null;
-  globalTimerRef: ReturnType<typeof setTimeout> | null;
-  resolved: boolean;
+  lastPromptChecked: string;       // Deduplication: last 200 chars checked for prompts
+  autoConfirmCount: number;        // How many prompts were auto-confirmed (if applicable)
+  commandSent: boolean;            // Whether the command has been sent (delayed by 500ms)
+  idleTimerRef: ReturnType<typeof setTimeout> | null;    // Idle timer (closes session on inactivity)
+  globalTimerRef: ReturnType<typeof setTimeout> | null;  // Global timeout (hard limit per device)
+  resolved: boolean;               // True once the device session is finalized
 }
 
+// Aggregated state for an entire job's interactive execution
 interface JobSession {
   jobId: number;
   autoConfirm: boolean;
-  devices: Map<number, DeviceSession>;
-  emitter: EventEmitter;
+  devices: Map<number, DeviceSession>;  // Keyed by taskId
+  emitter: EventEmitter;                // SSE event bus
   totalTasks: number;
   completedCount: number;
   failedCount: number;
 }
 
+// Timestamp helper for connection logs
 function ts(): string {
   return new Date().toISOString().replace("T", " ").replace("Z", "");
 }
@@ -70,6 +84,7 @@ function ts(): string {
 class InteractiveSessionManager {
   private jobs = new Map<number, JobSession>();
 
+  // Get the SSE event emitter for a job (used by the /live endpoint)
   getJobEmitter(jobId: number): EventEmitter | null {
     return this.jobs.get(jobId)?.emitter ?? null;
   }
@@ -78,6 +93,7 @@ class InteractiveSessionManager {
     return this.jobs.has(jobId);
   }
 
+  // Return all tasks currently waiting for user input (sent to SSE on reconnect)
   getWaitingTasks(jobId: number): { taskId: number; routerId: number; routerName: string; routerIp: string; promptText: string; promptType: string }[] {
     const job = this.jobs.get(jobId);
     if (!job) return [];
@@ -97,6 +113,7 @@ class InteractiveSessionManager {
     return results;
   }
 
+  // Forward user input to one or more waiting SSH sessions
   async sendInput(jobId: number, taskIds: number[], input: string): Promise<{ sent: number[]; notFound: number[] }> {
     const job = this.jobs.get(jobId);
     if (!job) return { sent: [], notFound: taskIds };
@@ -111,6 +128,7 @@ class InteractiveSessionManager {
         continue;
       }
 
+      // Write the user's response to the SSH stream
       dev.stream.write(input + "\n");
       dev.log.push(`[${ts()}] User input sent: "${input}"`);
       dev.state = "running";
@@ -122,6 +140,7 @@ class InteractiveSessionManager {
         .set({ status: "running", promptText: null })
         .where(eq(jobTasksTable.id, taskId));
 
+      // Reset idle timer — give the device 5s to produce more output
       dev.idleTimerRef = setTimeout(() => {
         this.handleDeviceIdle(jobId, taskId);
       }, 5000);
@@ -140,6 +159,8 @@ class InteractiveSessionManager {
     return { sent, notFound };
   }
 
+  // Launch parallel interactive SSH sessions for all routers in a job.
+  // Each device connects independently. All emit events through the shared emitter.
   async startInteractiveJob(
     jobId: number,
     routers: { id: number; name: string; ipAddress: string; sshPort: number; sshUsername: string; sshPassword: string | null }[],
@@ -163,19 +184,24 @@ class InteractiveSessionManager {
 
     this.jobs.set(jobId, jobSession);
 
+    // Build Excel lookup for variable substitution
     const excelLookup = this.buildExcelLookup(excelData);
 
+    // Connect all routers in parallel
     const promises = routers.map(async (r, i) => {
       const task = tasks.find(t => t.routerId === r.id);
       if (!task) return;
 
+      // Apply {{TAG}} substitution from the Excel data
       const row = this.findExcelRow(r, excelLookup, i, excelData);
       const finalScript = applyTagSubstitution(scriptCode, row);
 
+      // Store the resolved script for display in the UI
       await db.update(jobTasksTable)
         .set({ resolvedScript: finalScript })
         .where(eq(jobTasksTable.id, task.id));
 
+      // Handle missing password upfront
       if (!r.sshPassword) {
         const noPassLog = [
           `[${ts()}] SSH session initiated`,
@@ -192,18 +218,23 @@ class InteractiveSessionManager {
         return;
       }
 
+      // Mark task as running
       await db.update(jobTasksTable)
         .set({ status: "running", startedAt: new Date() })
         .where(eq(jobTasksTable.id, task.id));
 
       emitter.emit("event", { type: "task_status", taskId: task.id, routerId: r.id, routerName: r.name, routerIp: r.ipAddress, status: "running" } as LiveEvent);
 
+      // Start the SSH connection for this device
       this.connectDevice(jobId, task.id, r, finalScript, autoConfirm);
     });
 
     await Promise.all(promises);
   }
 
+  // ─── Per-Device SSH Connection ──────────────────────────────────
+  // Opens an interactive shell to one router, sends the command,
+  // and watches for prompts. Emits SSE events as output arrives.
   private connectDevice(
     jobId: number,
     taskId: number,
@@ -216,7 +247,7 @@ class InteractiveSessionManager {
 
     const conn = new Client();
     const log: string[] = [];
-    const timeoutMs = 120000;
+    const timeoutMs = 120000;  // 2 minute hard limit per device
 
     const dev: DeviceSession = {
       taskId,
@@ -240,12 +271,14 @@ class InteractiveSessionManager {
 
     job.devices.set(taskId, dev);
 
+    // Build connection log header
     log.push(`[${ts()}] SSH session initiated`);
     log.push(`[${ts()}] Target: ${router.sshUsername}@${router.ipAddress}:${router.sshPort}`);
     log.push(`[${ts()}] Mode: interactive shell`);
     log.push(`[${ts()}] Auto-confirm: ${autoConfirm ? "enabled" : "disabled"}`);
     log.push(`[${ts()}] Connecting...`);
 
+    // Global timeout — hard-kills the connection after 2 minutes
     dev.globalTimerRef = setTimeout(() => {
       if (dev.resolved) return;
       log.push(`[${ts()}] ERROR: Global timeout after ${timeoutMs}ms`);
@@ -274,6 +307,7 @@ class InteractiveSessionManager {
 
         dev.stream = stream;
 
+        // Idle timer: if no new data for 5s, check for prompts or close
         const resetIdleTimer = () => {
           if (dev.idleTimerRef) clearTimeout(dev.idleTimerRef);
           dev.idleTimerRef = setTimeout(() => {
@@ -283,7 +317,7 @@ class InteractiveSessionManager {
               if (pType && !autoConfirm) {
                 this.handlePromptDetected(jobId, taskId, pType);
               } else if (pType && autoConfirm && pType === "confirm") {
-                // already handled
+                // Already handled inline in the data event
               } else {
                 log.push(`[${ts()}] Shell idle — closing session`);
                 this.finalizeDevice(jobId, taskId, true);
@@ -305,6 +339,7 @@ class InteractiveSessionManager {
           dev.shellBuffer += chunk;
           resetIdleTimer();
 
+          // Stream output to SSE subscribers in real-time
           job.emitter.emit("event", {
             type: "task_output",
             taskId,
@@ -316,6 +351,7 @@ class InteractiveSessionManager {
 
           if (!dev.commandSent) return;
 
+          // Check for interactive prompts in the latest output
           const currentTail = dev.shellBuffer.slice(-200);
           if (currentTail === dev.lastPromptChecked) return;
 
@@ -341,6 +377,7 @@ class InteractiveSessionManager {
           dev.shellBuffer += chunk;
         });
 
+        // Delay command send to let shell banner/MOTD arrive first
         setTimeout(() => {
           dev.commandSent = true;
           writeCommandWithControlChars(stream, command);
@@ -369,6 +406,7 @@ class InteractiveSessionManager {
     }
   }
 
+  // Pause execution and emit an SSE event to request user input
   private async handlePromptDetected(jobId: number, taskId: number, promptType: "confirm" | "input"): Promise<void> {
     const job = this.jobs.get(jobId);
     const dev = job?.devices.get(taskId);
@@ -399,6 +437,7 @@ class InteractiveSessionManager {
     } as LiveEvent);
   }
 
+  // Mark a device session as complete/failed, clean up timers, and update the DB
   private async finalizeDevice(jobId: number, taskId: number, success: boolean, errorMessage?: string): Promise<void> {
     const job = this.jobs.get(jobId);
     const dev = job?.devices.get(taskId);
@@ -407,6 +446,7 @@ class InteractiveSessionManager {
     dev.resolved = true;
     dev.state = success ? "completed" : "failed";
 
+    // Clear all timers
     if (dev.idleTimerRef) clearTimeout(dev.idleTimerRef);
     if (dev.globalTimerRef) clearTimeout(dev.globalTimerRef);
 
@@ -417,6 +457,7 @@ class InteractiveSessionManager {
 
     try { dev.conn.end(); } catch {}
 
+    // Persist final task state to the database
     const dbUpdate: any = {
       status: success ? "success" : "failed",
       output: dev.shellBuffer.trim() || null,
@@ -430,6 +471,7 @@ class InteractiveSessionManager {
       .set(dbUpdate)
       .where(eq(jobTasksTable.id, taskId));
 
+    // Update running totals on the parent job
     if (success) job!.completedCount++;
     else job!.failedCount++;
 
@@ -437,6 +479,7 @@ class InteractiveSessionManager {
       .set({ completedTasks: job!.completedCount, failedTasks: job!.failedCount })
       .where(eq(batchJobsTable.id, jobId));
 
+    // Emit status change to SSE subscribers
     job!.emitter.emit("event", {
       type: "task_status",
       taskId,
@@ -449,6 +492,7 @@ class InteractiveSessionManager {
     this.checkJobComplete(jobId);
   }
 
+  // Check if all tasks are done — if so, finalize the job and emit job_complete
   private async checkJobComplete(jobId: number): Promise<void> {
     const job = this.jobs.get(jobId);
     if (!job) return;
@@ -456,6 +500,7 @@ class InteractiveSessionManager {
     const done = job.completedCount + job.failedCount;
     if (done < job.totalTasks) return;
 
+    // "failed" only if every single task failed
     const jobStatus = job.failedCount === job.totalTasks ? "failed" : "completed";
 
     await db.update(batchJobsTable)
@@ -476,11 +521,13 @@ class InteractiveSessionManager {
       totalTasks: job.totalTasks,
     } as LiveEvent);
 
+    // Keep the session around for 30s so late SSE subscribers can get the final event
     setTimeout(() => {
       this.jobs.delete(jobId);
     }, 30000);
   }
 
+  // Called when no new output arrives for 5s after user input was sent
   private handleDeviceIdle(jobId: number, taskId: number): void {
     const job = this.jobs.get(jobId);
     const dev = job?.devices.get(taskId);
@@ -490,6 +537,7 @@ class InteractiveSessionManager {
     this.finalizeDevice(jobId, taskId, true);
   }
 
+  // Force-close all SSH sessions for a cancelled job
   async cleanupJob(jobId: number): Promise<void> {
     const job = this.jobs.get(jobId);
     if (!job) return;
@@ -505,6 +553,7 @@ class InteractiveSessionManager {
       }
     }
 
+    // Batch-update all unresolved tasks to "failed"
     if (unresolvedTaskIds.length > 0) {
       await db.update(jobTasksTable)
         .set({ status: "failed", errorMessage: "Job cancelled", promptText: null, completedAt: new Date() })
@@ -523,6 +572,8 @@ class InteractiveSessionManager {
     this.jobs.delete(jobId);
   }
 
+  // ─── Excel Helpers (same logic as in jobs.ts) ────────────────────
+  // Build a fast lookup map keyed by IP and name for O(1) row matching
   private buildExcelLookup(excelData: Record<string, string>[] | undefined): Map<string, Record<string, string>> | null {
     if (!excelData || excelData.length === 0) return null;
     const lookup = new Map<string, Record<string, string>>();
@@ -535,6 +586,7 @@ class InteractiveSessionManager {
     return lookup;
   }
 
+  // Match a router to its Excel row: try IP, then name, then positional fallback
   private findExcelRow(
     router: { name: string; ipAddress: string },
     lookup: Map<string, Record<string, string>> | null,
@@ -554,4 +606,5 @@ class InteractiveSessionManager {
   }
 }
 
+// Singleton instance — used by both the job routes and the SSE endpoint
 export const interactiveSessions = new InteractiveSessionManager();

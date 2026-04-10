@@ -1,3 +1,8 @@
+// ─── Router Group Routes ────────────────────────────────────────────
+// Hierarchical groups for organizing routers. Groups can contain
+// individual routers and/or other groups (subgroups). When a job
+// targets a group, resolveRouterIds() walks the tree to collect all routers.
+
 import { Router, type IRouter } from "express";
 import { db, routerGroupsTable, groupRoutersTable, groupSubgroupsTable, routersTable } from "@workspace/db";
 import { eq, and, inArray } from "drizzle-orm";
@@ -11,12 +16,14 @@ import { requireAuth } from "../lib/auth.js";
 
 const router: IRouter = Router();
 
+// GET /groups — List all groups (flat list; hierarchy is rendered client-side)
 router.get("/groups", async (req, res) => {
   requireAuth(req);
   const groups = await db.select().from(routerGroupsTable).orderBy(routerGroupsTable.name);
   res.json(groups);
 });
 
+// POST /groups — Create a new group
 router.post("/groups", async (req, res) => {
   requireAuth(req);
   const parsed = CreateGroupBody.safeParse(req.body);
@@ -31,6 +38,10 @@ router.post("/groups", async (req, res) => {
   res.status(201).json(newGroup);
 });
 
+// GET /groups/:id — Get group details with its router members and subgroups.
+// Uses two parallel query rounds to minimize latency:
+//   Round 1: fetch link IDs (groupRouters + groupSubgroups) in parallel
+//   Round 2: fetch full router/subgroup details in parallel
 router.get("/groups/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -44,6 +55,7 @@ router.get("/groups/:id", async (req, res) => {
     return;
   }
 
+  // Round 1: get the join table entries for this group
   const [groupRouterLinks, subgroupLinks] = await Promise.all([
     db
       .select({ routerId: groupRoutersTable.routerId })
@@ -55,6 +67,7 @@ router.get("/groups/:id", async (req, res) => {
       .where(eq(groupSubgroupsTable.parentGroupId, id)),
   ]);
 
+  // Round 2: fetch the actual router and subgroup records (skipped if empty)
   const [routers, subGroups] = await Promise.all([
     groupRouterLinks.length > 0
       ? db
@@ -81,6 +94,7 @@ router.get("/groups/:id", async (req, res) => {
   res.json({ ...group, routers, subGroups });
 });
 
+// PUT /groups/:id — Update group name/description/parentId (partial update)
 router.put("/groups/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -106,6 +120,8 @@ router.put("/groups/:id", async (req, res) => {
   res.json(updated);
 });
 
+// DELETE /groups/:id — Delete a group and clean up all its membership links.
+// Removes: router members, parent subgroup links, child subgroup links, then the group itself.
 router.delete("/groups/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -116,6 +132,8 @@ router.delete("/groups/:id", async (req, res) => {
   res.json({ message: "Group deleted" });
 });
 
+// POST /groups/:id/members — Add a router or subgroup to this group.
+// Uses onConflictDoNothing to safely handle duplicate additions.
 router.post("/groups/:id/members", async (req, res) => {
   requireAuth(req);
   const groupId = parseInt(req.params.id);
@@ -131,6 +149,7 @@ router.post("/groups/:id/members", async (req, res) => {
       .values({ groupId, routerId: memberId })
       .onConflictDoNothing();
   } else {
+    // Prevent circular reference: a group cannot be a subgroup of itself
     if (memberId === groupId) {
       res.status(400).json({ error: "Cannot add group to itself" });
       return;
@@ -143,6 +162,8 @@ router.post("/groups/:id/members", async (req, res) => {
   res.json({ message: "Member added" });
 });
 
+// DELETE /groups/:id/members — Remove a specific router or subgroup from this group.
+// Filters by BOTH groupId AND memberId to avoid deleting unrelated links.
 router.delete("/groups/:id/members", async (req, res) => {
   requireAuth(req);
   const groupId = parseInt(req.params.id);

@@ -1,3 +1,9 @@
+// ─── Schedule Routes ────────────────────────────────────────────────
+// CRUD for job schedules. A schedule binds a template job (status="scheduled")
+// to a recurrence pattern (once, interval, or weekly). The scheduler tick
+// engine polls every 30 seconds and executes any schedule whose nextRunAt
+// has passed.
+
 import { Router, type IRouter } from "express";
 import { db, schedulesTable, batchJobsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -5,12 +11,14 @@ import { requireAuth, getCurrentUser } from "../lib/auth.js";
 
 const router: IRouter = Router();
 
+// GET /schedules — List all schedules (ordered by creation time)
 router.get("/schedules", async (req, res) => {
   requireAuth(req);
   const schedules = await db.select().from(schedulesTable).orderBy(schedulesTable.createdAt);
   res.json(schedules);
 });
 
+// GET /schedules/:id — Get a single schedule by ID
 router.get("/schedules/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -22,6 +30,9 @@ router.get("/schedules/:id", async (req, res) => {
   res.json(schedule);
 });
 
+// POST /schedules — Create a new schedule.
+// Validates the template job exists and has status="scheduled".
+// Computes the initial nextRunAt based on the schedule type.
 router.post("/schedules", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);
@@ -32,32 +43,38 @@ router.post("/schedules", async (req, res) => {
     return;
   }
 
+  // Verify the template job exists
   const [job] = await db.select().from(batchJobsTable).where(eq(batchJobsTable.id, jobId)).limit(1);
   if (!job) {
     res.status(404).json({ error: "Job not found" });
     return;
   }
 
+  // Only "scheduled" status jobs can be used as templates
   if (job.status !== "scheduled") {
     res.status(400).json({ error: "Only jobs saved with 'Schedule' mode can be used as templates" });
     return;
   }
 
+  // Compute the first run time based on schedule type
   let nextRunAt: Date | null = null;
 
   if (type === "once") {
+    // One-time: run at the specified absolute time
     if (!scheduledAt) {
       res.status(400).json({ error: "scheduledAt is required for one-time schedules" });
       return;
     }
     nextRunAt = new Date(scheduledAt);
   } else if (type === "interval") {
+    // Interval: first run is N minutes from now
     if (!intervalMinutes || intervalMinutes < 1) {
       res.status(400).json({ error: "intervalMinutes must be at least 1" });
       return;
     }
     nextRunAt = new Date(Date.now() + intervalMinutes * 60 * 1000);
   } else if (type === "weekly") {
+    // Weekly: find the next matching day+time within 7 days
     if (!daysOfWeek || !Array.isArray(daysOfWeek) || daysOfWeek.length === 0 || !timeOfDay) {
       res.status(400).json({ error: "daysOfWeek and timeOfDay are required for weekly schedules" });
       return;
@@ -73,6 +90,7 @@ router.post("/schedules", async (req, res) => {
         break;
       }
     }
+    // Fallback: same day next week
     if (!nextRunAt) {
       const candidate = new Date(now);
       candidate.setDate(candidate.getDate() + 7);
@@ -98,6 +116,7 @@ router.post("/schedules", async (req, res) => {
   res.status(201).json(schedule);
 });
 
+// PUT /schedules/:id — Update schedule name and/or enabled state
 router.put("/schedules/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -115,6 +134,7 @@ router.put("/schedules/:id", async (req, res) => {
   res.json(updated);
 });
 
+// DELETE /schedules/:id — Remove a schedule
 router.delete("/schedules/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);

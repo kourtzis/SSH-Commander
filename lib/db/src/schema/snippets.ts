@@ -3,16 +3,19 @@ import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
+// Reusable code snippet library — stores SSH command templates that can be
+// inserted into jobs. Tags enable categorization and fast filtering via
+// the GIN index (PostgreSQL array containment @> queries).
 export const snippetsTable = pgTable("snippets", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  tags: text("tags").array().notNull().default([]),
-  code: text("code").notNull(),
+  tags: text("tags").array().notNull().default([]),  // Filterable labels (e.g. ["mikrotik", "firewall"])
+  code: text("code").notNull(),                      // SSH command template — may contain {{TAG}} placeholders
   description: text("description"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
-  index("idx_snippets_tags").using("gin", table.tags),
+  index("idx_snippets_tags").using("gin", table.tags), // GIN index for fast @> containment queries
 ]);
 
 export const insertSnippetSchema = createInsertSchema(snippetsTable).omit({
