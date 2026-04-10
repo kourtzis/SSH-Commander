@@ -350,26 +350,27 @@ export default function Groups() {
             )}
           </div>
           <CardContent className="p-4 flex-1 overflow-y-auto">
-            {dragGroupId !== null && isValidDropTarget(null) && (
-              <div
-                onDragOver={(e) => { e.preventDefault(); setDropTargetId("root"); }}
-                onDragLeave={() => { if (dropTargetId === "root") setDropTargetId(null); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  if (dragGroupId !== null) handleDragDrop(dragGroupId, null);
-                  setDropTargetId(null);
-                }}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2 mb-2 rounded-lg border border-dashed transition-colors",
-                  dropTargetId === "root"
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-muted-foreground/30 text-muted-foreground"
-                )}
-              >
-                <Network className="w-4 h-4" />
-                <span className="text-xs font-medium">Drop here to move to root level</span>
-              </div>
-            )}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (dragGroupId !== null && isValidDropTarget(null)) setDropTargetId("root");
+              }}
+              onDragLeave={() => { if (dropTargetId === "root") setDropTargetId(null); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragGroupId !== null && isValidDropTarget(null)) handleDragDrop(dragGroupId, null);
+                setDropTargetId(null);
+              }}
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 mb-2 rounded-lg border border-dashed transition-colors",
+                dropTargetId === "root"
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-muted-foreground/20 text-muted-foreground"
+              )}
+            >
+              <Network className="w-4 h-4" />
+              <span className="text-xs font-medium">Root level — drag a group here to make it top-level</span>
+            </div>
             {isLoading ? <p className="text-muted-foreground text-sm">Loading...</p> : renderTree(null)}
             {!isLoading && groups.length === 0 && <p className="text-muted-foreground text-sm text-center py-8">No groups created yet.</p>}
           </CardContent>
