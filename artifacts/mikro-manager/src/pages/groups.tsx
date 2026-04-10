@@ -11,8 +11,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Network, Folder, Server, ChevronRight, ChevronDown, Trash2, Edit2, Link as LinkIcon, Unlink, Search, MoveRight, GripVertical } from "lucide-react";
+import { Plus, Network, Folder, Server, ChevronRight, ChevronDown, Trash2, Edit2, Link as LinkIcon, Unlink, Search, MoveRight, GripVertical, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 
 export default function Groups() {
@@ -20,6 +21,7 @@ export default function Groups() {
   const { data: routers = [] } = useListRouters();
   const { createGroup, updateGroup, deleteGroup, addMember, removeMember } = useGroupsMutations();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const { toast } = useToast();
 
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
@@ -53,6 +55,21 @@ export default function Groups() {
     else next.add(id);
     setExpandedGroups(next);
     setSelectedGroup(id);
+  };
+
+  const navigateToGroup = (groupId: number) => {
+    const ancestors = new Set<number>();
+    let current = groups.find(g => g.id === groupId);
+    while (current && current.parentId != null) {
+      ancestors.add(current.parentId);
+      current = groups.find(g => g.id === current!.parentId);
+    }
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      ancestors.forEach(id => next.add(id));
+      return next;
+    });
+    setSelectedGroup(groupId);
   };
 
   const handleSaveGroup = async () => {
@@ -404,14 +421,17 @@ export default function Groups() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {groupDetails.subGroups.map(sub => (
-                        <div key={`g-${sub.id}`} className="flex items-center justify-between p-3 rounded-xl bg-background border border-border/50">
+                        <div key={`g-${sub.id}`} className="flex items-center justify-between p-3 rounded-xl bg-background border border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer group/item" onClick={() => navigateToGroup(sub.id)}>
                           <div className="flex items-center gap-3">
                             <Folder className="w-5 h-5 text-purple-400" />
-                            <span className="text-sm font-medium">{sub.name}</span>
+                            <span className="text-sm font-medium group-hover/item:text-primary transition-colors">{sub.name}</span>
                           </div>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveMember("group", sub.id)}>
-                            <Unlink className="w-4 h-4" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/0 group-hover/item:text-muted-foreground/60 transition-colors" />
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); handleRemoveMember("group", sub.id); }}>
+                              <Unlink className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -425,17 +445,20 @@ export default function Groups() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {groupDetails.routers.map(router => (
-                        <div key={`r-${router.id}`} className="flex items-center justify-between p-3 rounded-xl bg-background border border-border/50">
+                        <div key={`r-${router.id}`} className="flex items-center justify-between p-3 rounded-xl bg-background border border-border/50 hover:border-blue-400/30 hover:bg-blue-400/5 transition-colors cursor-pointer group/item" onClick={() => navigate("/routers")}>
                           <div className="flex items-center gap-3">
                             <Server className="w-5 h-5 text-blue-400" />
                             <div className="flex flex-col">
-                              <span className="text-sm font-medium leading-none">{router.name}</span>
+                              <span className="text-sm font-medium leading-none group-hover/item:text-blue-400 transition-colors">{router.name}</span>
                               <span className="text-xs text-muted-foreground mt-1">{router.ipAddress}</span>
                             </div>
                           </div>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveMember("router", router.id)}>
-                            <Unlink className="w-4 h-4" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/0 group-hover/item:text-muted-foreground/60 transition-colors" />
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); handleRemoveMember("router", router.id); }}>
+                              <Unlink className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
