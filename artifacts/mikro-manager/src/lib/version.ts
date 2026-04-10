@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.0.2";
+export const APP_VERSION = "1.1.0";
 export const APP_VERSION_DATE = "2025-04-10";
 
 export interface ChangelogSection {
@@ -13,6 +13,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.1.0",
+    date: "2025-04-10",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Move Group feature: relocate any group (with its subgroups and devices) to a different parent or to root level via a dedicated Move dialog",
+          "Drag-and-drop group rearrangement: grab the 6-dot handle on any group row and drop it onto another group to reparent, or onto the root drop zone to make it top-level",
+          "Circular reference protection prevents moving a group under itself or any of its descendants",
+        ],
+      },
+    ],
+  },
   {
     version: "1.0.2",
     date: "2025-04-10",
