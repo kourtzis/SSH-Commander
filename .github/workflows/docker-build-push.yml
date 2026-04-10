@@ -5,13 +5,13 @@ on:
     branches:
       - master          # Trigger on push to master
     # Optional: only trigger when specific paths change
-    paths:
-      - 'src/**'
-      - 'Dockerfile'
-      - '.github/workflows/**'
+#    paths:
+#      - 'src/**'
+#      - 'Dockerfile'
+#      - '.github/workflows/**'
 
 env:
-  IMAGE_NAME: ssh-commander
+  IMAGE_NAME: SSH-Commander
   REGISTRY: docker.io   # or docker.io for Docker Hub
 
 jobs:
