@@ -6,9 +6,9 @@ on:
       - master          # Trigger on push to master
     # Optional: only trigger when specific paths change
     paths:
-      - 'src/**'
-      - 'Dockerfile'
-      - '.github/workflows/**'
+#     - 'src/**'
+#     - 'Dockerfile'
+#     - '.github/workflows/**'
 
 env:
   IMAGE_NAME: ssh-commander
