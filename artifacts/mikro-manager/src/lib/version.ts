@@ -18,6 +18,13 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "2025-04-10",
     sections: [
       {
+        title: "Added",
+        items: [
+          "Version number displayed on login screen and sidebar, with clickable changelog dialog showing release history",
+          "Changelog file and versioning schema (SemVer with -b pre-release tags)",
+        ],
+      },
+      {
         title: "Improved",
         items: [
           "Added inline comments across all backend source files for improved readability and maintainability",

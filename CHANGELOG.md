@@ -14,6 +14,10 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ## [1.0.2] - 2025-04-10
 
+### Added
+- Version number displayed on login screen and sidebar, with clickable changelog dialog showing release history
+- Changelog file (`CHANGELOG.md`) and versioning schema (SemVer with `-b` pre-release tags)
+
 ### Improved
 - Added inline comments across all backend source files (routes, libraries, DB schemas, entry points) for improved readability and maintainability
 - Updated skill file with database optimization patterns, query best practices, and input validation guidelines

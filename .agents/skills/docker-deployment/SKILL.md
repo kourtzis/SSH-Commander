@@ -331,6 +331,7 @@ docker compose up -d --build
 - Higher increments reset lower numbers to zero (e.g., `1.0.5` → `1.1.0`, `1.3.2` → `2.0.0`).
 - All changes must be documented in `CHANGELOG.md` at the project root.
 - After every substantial change, update both the version and the changelog.
+- Very minor changes (e.g., small UI tweaks, documentation updates) can be appended to the current version's section in both `CHANGELOG.md` and the in-app changelog (`artifacts/mikro-manager/src/lib/version.ts`) without bumping the version number.
 - **Docker Hub notification**: Every time a new version string is created, inform the user so they can tag the Docker Hub push (`kourtzis/ssh-commander:<version>`).
 
 ## Pre-Deployment Checklist
