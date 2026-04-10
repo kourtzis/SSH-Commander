@@ -15,17 +15,17 @@ export default function Dashboard() {
   const recentJobs = [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
 
   const stats = [
-    { label: "Total Routers", value: routers.length, icon: Server, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20" },
-    { label: "Router Groups", value: groups.length, icon: Network, color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/20" },
-    { label: "Code Snippets", value: snippets.length, icon: Code2, color: "text-amber-400", bg: "bg-amber-400/10", border: "border-amber-400/20" },
-    { label: "Active Jobs", value: jobs.filter(j => j.status === 'running' || j.status === 'pending').length, icon: Activity, color: "text-emerald-400", bg: "bg-emerald-400/10", border: "border-emerald-400/20" },
+    { label: "Total Devices", value: routers.length, icon: Server, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20", href: "/routers" },
+    { label: "Device Groups", value: groups.length, icon: Network, color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/20", href: "/groups" },
+    { label: "Code Snippets", value: snippets.length, icon: Code2, color: "text-amber-400", bg: "bg-amber-400/10", border: "border-amber-400/20", href: "/snippets" },
+    { label: "Active Jobs", value: jobs.filter(j => j.status === 'running' || j.status === 'pending').length, icon: Activity, color: "text-emerald-400", bg: "bg-emerald-400/10", border: "border-emerald-400/20", href: "/jobs" },
   ];
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground mt-2">Overview of your Mikrotik infrastructure.</p>
+        <p className="text-muted-foreground mt-2">Overview of your SSH infrastructure.</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -36,17 +36,19 @@ export default function Dashboard() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
           >
-            <Card className="glass-panel hover:shadow-2xl hover:shadow-primary/5 transition-all duration-300">
-              <CardContent className="p-6 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-1">{stat.label}</p>
-                  <p className="text-3xl font-display font-bold">{stat.value}</p>
-                </div>
-                <div className={`p-4 rounded-2xl ${stat.bg} ${stat.border} border`}>
-                  <stat.icon className={`w-8 h-8 ${stat.color}`} />
-                </div>
-              </CardContent>
-            </Card>
+            <Link href={stat.href} className="block">
+              <Card className="glass-panel hover:shadow-2xl hover:shadow-primary/5 hover:border-primary/20 transition-all duration-300 cursor-pointer">
+                <CardContent className="p-6 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">{stat.label}</p>
+                    <p className="text-3xl font-display font-bold">{stat.value}</p>
+                  </div>
+                  <div className={`p-4 rounded-2xl ${stat.bg} ${stat.border} border`}>
+                    <stat.icon className={`w-8 h-8 ${stat.color}`} />
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
           </motion.div>
         ))}
       </div>

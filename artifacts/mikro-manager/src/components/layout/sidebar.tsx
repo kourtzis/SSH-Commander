@@ -19,7 +19,7 @@ import { ChangelogDialog } from "@/components/changelog-dialog";
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Routers", href: "/routers", icon: Server },
+  { name: "Devices", href: "/routers", icon: Server },
   { name: "Groups", href: "/groups", icon: Network },
   { name: "Snippets", href: "/snippets", icon: Code2 },
   { name: "Batch Jobs", href: "/jobs", icon: PlaySquare },

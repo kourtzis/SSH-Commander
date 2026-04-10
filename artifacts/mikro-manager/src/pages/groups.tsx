@@ -189,7 +189,7 @@ export default function Groups() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Router Groups</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Device Groups</h1>
           <p className="text-muted-foreground mt-1">Organize your devices into logical groups.</p>
         </div>
         <Button onClick={() => { setEditingGroup(null); setFormName(""); setFormDesc(""); setIsGroupDialogOpen(true); }}>
@@ -266,9 +266,9 @@ export default function Groups() {
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Routers ({groupDetails.routers.length})</h4>
+                  <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Devices ({groupDetails.routers.length})</h4>
                   {groupDetails.routers.length === 0 ? (
-                    <p className="text-sm text-muted-foreground italic">No routers attached.</p>
+                    <p className="text-sm text-muted-foreground italic">No devices attached.</p>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {groupDetails.routers.map(router => (
@@ -334,7 +334,7 @@ export default function Groups() {
                 value={memberType} 
                 onChange={(e: any) => { setMemberType(e.target.value); setSelectedMemberIds(new Set()); setMemberSearch(""); }}
               >
-                <option value="router">Routers</option>
+                <option value="router">Devices</option>
                 <option value="group">Sub-Groups</option>
               </select>
             </div>
@@ -342,7 +342,7 @@ export default function Groups() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder={`Search ${memberType === "router" ? "routers" : "groups"}...`}
+                  placeholder={`Search ${memberType === "router" ? "devices" : "groups"}...`}
                   value={memberSearch}
                   onChange={e => setMemberSearch(e.target.value)}
                   className="pl-9 bg-black/40 border-white/5"
@@ -398,7 +398,7 @@ export default function Groups() {
                     <div className="border border-white/5 rounded-lg max-h-60 overflow-y-auto divide-y divide-white/5">
                       {available.length === 0 ? (
                         <div className="p-6 text-center text-sm text-muted-foreground">
-                          {memberSearch ? "No matching items" : `All ${memberType === "router" ? "routers" : "groups"} are already members`}
+                          {memberSearch ? "No matching items" : `All ${memberType === "router" ? "devices" : "groups"} are already members`}
                         </div>
                       ) : (
                         available.map(item => (

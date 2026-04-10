@@ -270,7 +270,7 @@ export default function NewJob() {
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-3">
-              <Label className="text-base">Routers</Label>
+              <Label className="text-base">Devices</Label>
               <div className="h-48 overflow-y-auto border border-white/5 rounded-xl p-2 bg-black/20 space-y-1">
                 {routers.map(r => {
                   const isReachable = reachability[r.id];
@@ -301,7 +301,7 @@ export default function NewJob() {
             </div>
 
             <div className="space-y-3">
-              <Label className="text-base">Router Groups</Label>
+              <Label className="text-base">Device Groups</Label>
               <div className="h-48 overflow-y-auto border border-white/5 rounded-xl p-2 bg-black/20 space-y-1">
                 {groups.map(g => (
                   <label key={g.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer">
@@ -369,7 +369,7 @@ export default function NewJob() {
                         )
                       )}
                       <Badge variant={t.type === "router" ? "outline" : "secondary"} className="text-xs shrink-0">
-                        {t.type === "router" ? "Router" : "Group"}
+                        {t.type === "router" ? "Device" : "Group"}
                       </Badge>
                       <span className="text-sm font-medium flex-1 truncate">{t.label}</span>
                       {t.sublabel && <span className="text-xs text-muted-foreground font-mono shrink-0">{t.sublabel}</span>}

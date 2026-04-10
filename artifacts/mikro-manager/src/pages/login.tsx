@@ -59,7 +59,7 @@ export default function Login() {
               SSH Commander
             </CardTitle>
             <CardDescription className="text-base mt-2">
-              Sign in to manage your network scripts
+              Sign in to manage your SSH devices
             </CardDescription>
           </CardHeader>
           <CardContent>

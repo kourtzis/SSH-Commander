@@ -17,6 +17,7 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 ### Added
 - Version number displayed on login screen and sidebar, with clickable changelog dialog showing release history
 - Changelog file (`CHANGELOG.md`) and versioning schema (SemVer with `-b` pre-release tags)
+- Renamed all "Router" references to "Device" across the UI to reflect support for any SSH-enabled device
 
 ### Improved
 - Added inline comments across all backend source files (routes, libraries, DB schemas, entry points) for improved readability and maintainability
@@ -25,12 +26,12 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ### Optimized
 - **Batched group resolution**: `resolveRouterIds()` now uses iterative BFS with `inArray()` at each depth level instead of recursive N+1 queries — processes all groups at a given depth in 2 parallel queries (router links + subgroup links). Applied in both `jobs.ts` and `scheduler.ts`
-- **Pre-passed task IDs**: `runJobInBackground()` receives pre-inserted task IDs from `.returning()`, avoiding one SELECT per router
-- **Reduced cancellation checks**: Job cancellation status is now checked every 5th router instead of every iteration (80% fewer DB queries)
+- **Pre-passed task IDs**: `runJobInBackground()` receives pre-inserted task IDs from `.returning()`, avoiding one SELECT per device
+- **Reduced cancellation checks**: Job cancellation status is now checked every 5th device instead of every iteration (80% fewer DB queries)
 - **Consolidated UPDATEs**: Combined "set status to running" + "set resolvedScript" into a single UPDATE per task
 - **Parallelized group detail queries**: `GET /groups/:id` runs router links and subgroup links in parallel with `Promise.all()`
 - **SQL-level tag filtering**: Snippet tag filtering uses PostgreSQL's native `@>` array containment operator instead of client-side filtering
-- **Column-selective queries**: Router list endpoint selects only 7 needed columns instead of `SELECT *` (avoids fetching SSH passwords)
+- **Column-selective queries**: Device list endpoint selects only 7 needed columns instead of `SELECT *` (avoids fetching SSH passwords)
 - **New database indexes**: GIN index on `snippets.tags` for fast array containment queries; composite index on `job_tasks(job_id, router_id)` for frequent lookups
 
 ### Fixed
@@ -49,7 +50,7 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 - Added integer validation on `taskIds` arrays
 - Added input length limit (4096 chars) on SSH respond endpoint
 - Added array size limit (500 IDs) and type validation on reachability checks
-- Added import limit (10,000 routers per batch)
+- Added import limit (10,000 devices per batch)
 
 ---
 
@@ -65,11 +66,11 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ### Added
 - Multi-user authentication with admin and operator roles
-- Router management with CRUD operations and bulk import from CSV/Excel (.xlsx)
-- Hierarchical router groups with nested subgroup support
+- Device management with CRUD operations and bulk import from CSV/Excel (.xlsx)
+- Hierarchical device groups with nested subgroup support
 - Modular code snippet library with tag-based categorization
-- Batch SSH job execution across multiple routers
-- Per-router variable injection via Excel/CSV with `{{TAG}}` syntax
+- Batch SSH job execution across multiple devices
+- Per-device variable injection via Excel/CSV with `{{TAG}}` syntax
 - Interactive SSH mode with SSE live streaming and prompt detection
 - Auto-confirm mode for unattended y/n prompt handling
 - Control character injection in scripts (`<<CTRL+C>>`, `<<TAB>>`, etc.)
