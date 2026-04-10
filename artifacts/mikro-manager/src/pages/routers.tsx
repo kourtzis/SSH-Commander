@@ -179,10 +179,10 @@ export default function Routers() {
     try {
       if (editingRouter) {
         await updateRouter.mutateAsync({ id: editingRouter, data });
-        toast({ title: "Router updated successfully" });
+        toast({ title: "Device updated successfully" });
       } else {
         await createRouter.mutateAsync({ data });
-        toast({ title: "Router created successfully" });
+        toast({ title: "Device created successfully" });
       }
       setIsDialogOpen(false);
     } catch (err: any) {
@@ -191,25 +191,25 @@ export default function Routers() {
   };
 
   const handleDelete = async (id: number) => {
-    if (confirm("Are you sure you want to delete this router?")) {
+    if (confirm("Are you sure you want to delete this device?")) {
       try {
         await deleteRouter.mutateAsync({ id });
-        toast({ title: "Router deleted" });
+        toast({ title: "Device deleted" });
       } catch (err: any) {
-        toast({ title: "Error deleting router", description: err.message, variant: "destructive" });
+        toast({ title: "Error deleting device", description: err.message, variant: "destructive" });
       }
     }
   };
 
   const handleBulkDelete = async () => {
-    if (!confirm(`Delete ${selection.count} selected router(s)?`)) return;
+    if (!confirm(`Delete ${selection.count} selected device(s)?`)) return;
     setIsBulkDeleting(true);
     try {
       await Promise.all(selection.ids.map(id => deleteRouter.mutateAsync({ id })));
-      toast({ title: `${selection.count} router(s) deleted` });
+      toast({ title: `${selection.count} device(s) deleted` });
       selection.clear();
     } catch (err: any) {
-      toast({ title: "Error deleting routers", description: err.message, variant: "destructive" });
+      toast({ title: "Error deleting devices", description: err.message, variant: "destructive" });
     } finally {
       setIsBulkDeleting(false);
     }
@@ -282,7 +282,7 @@ export default function Routers() {
       setImportStep("results");
       queryClient.invalidateQueries({ queryKey: ["/api/routers"] });
       if (res.created > 0) {
-        toast({ title: `Imported ${res.created} router(s)` });
+        toast({ title: `Imported ${res.created} device(s)` });
       }
     } catch (err: any) {
       toast({ title: "Import failed", description: err.message, variant: "destructive" });
@@ -296,15 +296,15 @@ export default function Routers() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Routers</h1>
-          <p className="text-muted-foreground mt-1">Manage your Mikrotik devices for batch jobs.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Devices</h1>
+          <p className="text-muted-foreground mt-1">Manage your SSH-enabled devices for batch jobs.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={openImportDialog} className="gap-2">
             <Upload className="w-4 h-4" /> Import
           </Button>
           <Button onClick={() => handleOpenDialog()} className="gap-2">
-            <Plus className="w-4 h-4" /> Add Router
+            <Plus className="w-4 h-4" /> Add Device
           </Button>
         </div>
       </div>
@@ -322,17 +322,17 @@ export default function Routers() {
         onSortChange={setSort}
       />
 
-      <SelectionBar count={selection.count} label="routers" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
+      <SelectionBar count={selection.count} label="devices" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 
       <Card className="glass-panel">
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading routers...</div>
+            <div className="p-8 text-center text-muted-foreground">Loading devices...</div>
           ) : filteredRouters.length === 0 ? (
             <div className="p-12 flex flex-col items-center justify-center text-center">
               <Server className="w-12 h-12 text-muted-foreground/30 mb-4" />
-              <p className="text-lg font-medium text-foreground">No routers found</p>
-              <p className="text-sm text-muted-foreground mt-1">Add a router to get started.</p>
+              <p className="text-lg font-medium text-foreground">No devices found</p>
+              <p className="text-sm text-muted-foreground mt-1">Add a device to get started.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -404,12 +404,12 @@ export default function Routers() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingRouter ? "Edit Router" : "Add Router"}</DialogTitle>
+            <DialogTitle>{editingRouter ? "Edit Device" : "Add Device"}</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Name</Label>
-              <Input {...form.register("name")} placeholder="Core Router 1" />
+              <Input {...form.register("name")} placeholder="Core Switch 1" />
             </div>
             <div className="space-y-2">
               <Label>IP Address</Label>
@@ -436,7 +436,7 @@ export default function Routers() {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={createRouter.isPending || updateRouter.isPending}>
-                Save Router
+                Save Device
               </Button>
             </DialogFooter>
           </form>
@@ -448,7 +448,7 @@ export default function Routers() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileSpreadsheet className="w-5 h-5 text-primary" />
-              Import Routers
+              Import Devices
             </DialogTitle>
           </DialogHeader>
 
@@ -605,7 +605,7 @@ export default function Routers() {
                   disabled={validCount === 0 || importRouters.isPending}
                   className="gap-2"
                 >
-                  {importRouters.isPending ? "Importing..." : `Import ${validCount} Router(s)`}
+                  {importRouters.isPending ? "Importing..." : `Import ${validCount} Device(s)`}
                 </Button>
               </DialogFooter>
             </div>

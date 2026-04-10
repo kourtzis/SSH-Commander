@@ -133,7 +133,7 @@ export default function Snippets() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Code Snippets</h1>
-          <p className="text-muted-foreground mt-1">Reusable RouterOS scripts with parameter tags.</p>
+          <p className="text-muted-foreground mt-1">Reusable SSH scripts with parameter tags.</p>
         </div>
         <Button onClick={() => handleOpenDialog()}>
           <Plus className="w-4 h-4 mr-2" /> New Snippet
