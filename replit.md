@@ -76,9 +76,9 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 - `router_groups` — id, name, description, parent_id, created_at; **indexes**: parent_id
 - `group_routers` — join table (group_id, router_id); **indexes**: group_id, router_id
 - `group_subgroups` — join table (parent_group_id, child_group_id); **indexes**: parent_group_id, child_group_id
-- `snippets` — id, name, tags (text[]), code, description, created_at, updated_at
+- `snippets` — id, name, tags (text[]), code, description, created_at, updated_at; **indexes**: tags (GIN)
 - `batch_jobs` — id, name, script_code, status (pending|running|completed|failed|cancelled|scheduled), target_router_ids[], target_group_ids[], excel_data, auto_confirm, totals, created_by, timestamps; **indexes**: status, created_by, created_at
-- `job_tasks` — id, job_id, router_id, router_name, router_ip, status (pending|running|success|failed|waiting_input), output, error_message, connection_log, resolved_script, prompt_text, timestamps; **indexes**: job_id, router_id, status
+- `job_tasks` — id, job_id, router_id, router_name, router_ip, status (pending|running|success|failed|waiting_input), output, error_message, connection_log, resolved_script, prompt_text, timestamps; **indexes**: job_id, router_id, status, (job_id, router_id) composite
 - `schedules` — id, name, job_id (template), type (once|interval|weekly), scheduled_at, interval_minutes, days_of_week[], time_of_day, next_run_at, last_run_at, enabled, run_count, created_by, created_at; **indexes**: job_id, next_run_at, enabled, created_by
 
 ## SSH Execution

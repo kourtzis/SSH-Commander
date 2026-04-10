@@ -1,4 +1,4 @@
-import { db, schedulesTable, batchJobsTable, jobTasksTable, routersTable } from "@workspace/db";
+import { db, schedulesTable, batchJobsTable, jobTasksTable, routersTable, groupRoutersTable, groupSubgroupsTable } from "@workspace/db";
 import { eq, lte, and, inArray } from "drizzle-orm";
 import { executeSSHCommand, applyTagSubstitution } from "./ssh.js";
 
@@ -6,7 +6,6 @@ async function resolveRouterIds(
   directRouterIds: number[],
   groupIds: number[]
 ): Promise<number[]> {
-  const { groupRoutersTable, groupSubgroupsTable } = await import("@workspace/db");
   const seen = new Set<number>();
   const ordered: number[] = [];
   function addUnique(id: number) {
@@ -15,17 +14,20 @@ async function resolveRouterIds(
   for (const id of directRouterIds) addUnique(id);
 
   const visited = new Set<number>();
-  async function resolveGroups(gids: number[]) {
-    for (const gid of gids) {
-      if (visited.has(gid)) continue;
-      visited.add(gid);
-      const links = await db.select().from(groupRoutersTable).where(eq(groupRoutersTable.groupId, gid));
-      for (const l of links) addUnique(l.routerId);
-      const subs = await db.select().from(groupSubgroupsTable).where(eq(groupSubgroupsTable.parentGroupId, gid));
-      if (subs.length > 0) await resolveGroups(subs.map(s => s.childGroupId));
-    }
+  let pending = groupIds.filter((id) => !visited.has(id));
+
+  while (pending.length > 0) {
+    for (const id of pending) visited.add(id);
+
+    const [routerLinks, subgroupLinks] = await Promise.all([
+      db.select({ routerId: groupRoutersTable.routerId }).from(groupRoutersTable).where(inArray(groupRoutersTable.groupId, pending)),
+      db.select({ childGroupId: groupSubgroupsTable.childGroupId }).from(groupSubgroupsTable).where(inArray(groupSubgroupsTable.parentGroupId, pending)),
+    ]);
+
+    for (const l of routerLinks) addUnique(l.routerId);
+    pending = subgroupLinks.map(s => s.childGroupId).filter(id => !visited.has(id));
   }
-  await resolveGroups(groupIds);
+
   return ordered;
 }
 
@@ -104,11 +106,10 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
       .limit(1);
     if (!task) continue;
 
-    await db.update(jobTasksTable).set({ status: "running", startedAt: new Date() }).where(eq(jobTasksTable.id, task.id));
-
     const row = findExcelRow(r, excelLookup, i, excelData);
     const finalScript = applyTagSubstitution(templateJob.scriptCode, row);
-    await db.update(jobTasksTable).set({ resolvedScript: finalScript }).where(eq(jobTasksTable.id, task.id));
+
+    await db.update(jobTasksTable).set({ status: "running", startedAt: new Date(), resolvedScript: finalScript }).where(eq(jobTasksTable.id, task.id));
 
     if (!r.sshPassword) {
       failedCount++;
@@ -238,16 +239,15 @@ async function tick() {
 
           for (let i = 0; i < routers.length; i++) {
             const r = routers[i];
-            const [task] = await db.select().from(jobTasksTable)
+            const [task] = await db.select({ id: jobTasksTable.id }).from(jobTasksTable)
               .where(and(eq(jobTasksTable.jobId, templateJob.id), eq(jobTasksTable.routerId, r.id)))
               .limit(1);
             if (!task) continue;
 
-            await db.update(jobTasksTable).set({ status: "running", startedAt: new Date() }).where(eq(jobTasksTable.id, task.id));
-
             const row = findExcelRow(r, excelLookup, i, excelData);
             const finalScript = applyTagSubstitution(templateJob.scriptCode, row);
-            await db.update(jobTasksTable).set({ resolvedScript: finalScript }).where(eq(jobTasksTable.id, task.id));
+
+            await db.update(jobTasksTable).set({ status: "running", startedAt: new Date(), resolvedScript: finalScript }).where(eq(jobTasksTable.id, task.id));
 
             if (!r.sshPassword) {
               failedCount++;

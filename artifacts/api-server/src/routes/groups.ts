@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, routerGroupsTable, groupRoutersTable, groupSubgroupsTable, routersTable } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import {
   CreateGroupBody,
   UpdateGroupBody,
@@ -44,42 +44,39 @@ router.get("/groups/:id", async (req, res) => {
     return;
   }
 
-  const groupRouterLinks = await db
-    .select()
-    .from(groupRoutersTable)
-    .where(eq(groupRoutersTable.groupId, id));
+  const [groupRouterLinks, subgroupLinks] = await Promise.all([
+    db
+      .select({ routerId: groupRoutersTable.routerId })
+      .from(groupRoutersTable)
+      .where(eq(groupRoutersTable.groupId, id)),
+    db
+      .select({ childGroupId: groupSubgroupsTable.childGroupId })
+      .from(groupSubgroupsTable)
+      .where(eq(groupSubgroupsTable.parentGroupId, id)),
+  ]);
 
-  const subgroupLinks = await db
-    .select()
-    .from(groupSubgroupsTable)
-    .where(eq(groupSubgroupsTable.parentGroupId, id));
-
-  let routers: any[] = [];
-  if (groupRouterLinks.length > 0) {
-    const routerIds = groupRouterLinks.map((r) => r.routerId);
-    routers = await db
-      .select()
-      .from(routersTable)
-      .where(inArray(routersTable.id, routerIds));
-    routers = routers.map((r) => ({
-      id: r.id,
-      name: r.name,
-      ipAddress: r.ipAddress,
-      sshPort: r.sshPort,
-      sshUsername: r.sshUsername,
-      description: r.description,
-      createdAt: r.createdAt,
-    }));
-  }
-
-  let subGroups: any[] = [];
-  if (subgroupLinks.length > 0) {
-    const subGroupIds = subgroupLinks.map((s) => s.childGroupId);
-    subGroups = await db
-      .select()
-      .from(routerGroupsTable)
-      .where(inArray(routerGroupsTable.id, subGroupIds));
-  }
+  const [routers, subGroups] = await Promise.all([
+    groupRouterLinks.length > 0
+      ? db
+          .select({
+            id: routersTable.id,
+            name: routersTable.name,
+            ipAddress: routersTable.ipAddress,
+            sshPort: routersTable.sshPort,
+            sshUsername: routersTable.sshUsername,
+            description: routersTable.description,
+            createdAt: routersTable.createdAt,
+          })
+          .from(routersTable)
+          .where(inArray(routersTable.id, groupRouterLinks.map((r) => r.routerId)))
+      : Promise.resolve([]),
+    subgroupLinks.length > 0
+      ? db
+          .select()
+          .from(routerGroupsTable)
+          .where(inArray(routerGroupsTable.id, subgroupLinks.map((s) => s.childGroupId)))
+      : Promise.resolve([]),
+  ]);
 
   res.json({ ...group, routers, subGroups });
 });
@@ -158,11 +155,11 @@ router.delete("/groups/:id/members", async (req, res) => {
   if (type === "router") {
     await db
       .delete(groupRoutersTable)
-      .where(eq(groupRoutersTable.groupId, groupId));
+      .where(and(eq(groupRoutersTable.groupId, groupId), eq(groupRoutersTable.routerId, memberId)));
   } else {
     await db
       .delete(groupSubgroupsTable)
-      .where(eq(groupSubgroupsTable.parentGroupId, groupId));
+      .where(and(eq(groupSubgroupsTable.parentGroupId, groupId), eq(groupSubgroupsTable.childGroupId, memberId)));
   }
   res.json({ message: "Member removed" });
 });

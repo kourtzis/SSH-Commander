@@ -8,7 +8,7 @@ import {
   groupRoutersTable,
   groupSubgroupsTable,
 } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { CreateJobBody } from "@workspace/api-zod";
 import { getCurrentUser, requireAuth } from "../lib/auth.js";
 import { executeSSHCommand, applyTagSubstitution } from "../lib/ssh.js";
@@ -18,8 +18,7 @@ const router: IRouter = Router();
 
 async function resolveRouterIds(
   directRouterIds: number[],
-  groupIds: number[],
-  visited = new Set<number>()
+  groupIds: number[]
 ): Promise<number[]> {
   const seen = new Set<number>();
   const ordered: number[] = [];
@@ -35,27 +34,30 @@ async function resolveRouterIds(
     addUnique(id);
   }
 
-  for (const groupId of groupIds) {
-    if (visited.has(groupId)) continue;
-    visited.add(groupId);
+  const visited = new Set<number>();
+  let pending = groupIds.filter((id) => !visited.has(id));
 
-    const routerLinks = await db
-      .select()
-      .from(groupRoutersTable)
-      .where(eq(groupRoutersTable.groupId, groupId));
+  while (pending.length > 0) {
+    for (const id of pending) visited.add(id);
+
+    const [routerLinks, subgroupLinks] = await Promise.all([
+      db
+        .select({ routerId: groupRoutersTable.routerId })
+        .from(groupRoutersTable)
+        .where(inArray(groupRoutersTable.groupId, pending)),
+      db
+        .select({ childGroupId: groupSubgroupsTable.childGroupId })
+        .from(groupSubgroupsTable)
+        .where(inArray(groupSubgroupsTable.parentGroupId, pending)),
+    ]);
+
     for (const link of routerLinks) {
       addUnique(link.routerId);
     }
 
-    const subgroupLinks = await db
-      .select()
-      .from(groupSubgroupsTable)
-      .where(eq(groupSubgroupsTable.parentGroupId, groupId));
-    if (subgroupLinks.length > 0) {
-      const subGroupIds = subgroupLinks.map((s) => s.childGroupId);
-      const subIds = await resolveRouterIds([], subGroupIds, visited);
-      for (const id of subIds) addUnique(id);
-    }
+    pending = subgroupLinks
+      .map((s) => s.childGroupId)
+      .filter((id) => !visited.has(id));
   }
 
   return ordered;
@@ -183,7 +185,7 @@ router.post("/jobs", async (req, res) => {
       insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
     );
   } else {
-    runJobInBackground(job.id, routers, scriptCode, excelData as Record<string, string>[] | undefined, autoConfirm ?? true)
+    runJobInBackground(job.id, routers, scriptCode, excelData as Record<string, string>[] | undefined, autoConfirm ?? true, insertedTasks.map(t => t.id))
       .catch((err) => {
         console.error(`[Job ${job.id}] Background execution failed:`, err);
         db.update(batchJobsTable)
@@ -238,45 +240,51 @@ async function runJobInBackground(
   routers: (typeof routersTable.$inferSelect)[],
   scriptCode: string,
   excelData?: Record<string, string>[],
-  autoConfirm: boolean = true
+  autoConfirm: boolean = true,
+  taskIds?: number[]
 ) {
   let completedCount = 0;
   let failedCount = 0;
 
   const excelLookup = buildExcelLookup(excelData);
 
+  const taskIdByRouterId = new Map<number, number>();
+  if (taskIds) {
+    for (let i = 0; i < routers.length && i < taskIds.length; i++) {
+      taskIdByRouterId.set(routers[i].id, taskIds[i]);
+    }
+  }
+
   for (let i = 0; i < routers.length; i++) {
     const r = routers[i];
 
-    const [task] = await db
-      .select()
-      .from(jobTasksTable)
-      .where(and(eq(jobTasksTable.jobId, jobId), eq(jobTasksTable.routerId, r.id)))
-      .limit(1);
+    let taskId = taskIdByRouterId.get(r.id);
+    if (!taskId) {
+      const [task] = await db
+        .select({ id: jobTasksTable.id })
+        .from(jobTasksTable)
+        .where(and(eq(jobTasksTable.jobId, jobId), eq(jobTasksTable.routerId, r.id)))
+        .limit(1);
+      if (!task) continue;
+      taskId = task.id;
+    }
 
-    if (!task) continue;
-
-    const [currentJob] = await db
-      .select()
-      .from(batchJobsTable)
-      .where(eq(batchJobsTable.id, jobId))
-      .limit(1);
-
-    if (currentJob?.status === "cancelled") break;
-
-    await db
-      .update(jobTasksTable)
-      .set({ status: "running", startedAt: new Date() })
-      .where(eq(jobTasksTable.id, task.id));
+    if (i % 5 === 0) {
+      const [currentJob] = await db
+        .select({ status: batchJobsTable.status })
+        .from(batchJobsTable)
+        .where(eq(batchJobsTable.id, jobId))
+        .limit(1);
+      if (currentJob?.status === "cancelled") break;
+    }
 
     const row = findExcelRow(r, excelLookup, i, excelData);
-
     const finalScript = applyTagSubstitution(scriptCode, row);
 
     await db
       .update(jobTasksTable)
-      .set({ resolvedScript: finalScript })
-      .where(eq(jobTasksTable.id, task.id));
+      .set({ status: "running", startedAt: new Date(), resolvedScript: finalScript })
+      .where(eq(jobTasksTable.id, taskId));
 
     if (!r.sshPassword) {
       const noPassLog = [
@@ -293,7 +301,7 @@ async function runJobInBackground(
           connectionLog: noPassLog,
           completedAt: new Date(),
         })
-        .where(eq(jobTasksTable.id, task.id));
+        .where(eq(jobTasksTable.id, taskId));
       failedCount++;
     } else {
       const result = await executeSSHCommand(
@@ -315,7 +323,7 @@ async function runJobInBackground(
           connectionLog: result.connectionLog,
           completedAt: new Date(),
         })
-        .where(eq(jobTasksTable.id, task.id));
+        .where(eq(jobTasksTable.id, taskId));
 
       if (result.success) {
         completedCount++;
@@ -439,10 +447,19 @@ router.get("/jobs/:id/live", async (req, res) => {
 router.post("/jobs/:id/respond", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid job ID" });
+    return;
+  }
   const { taskIds, input } = req.body ?? {};
 
-  if (!Array.isArray(taskIds) || typeof input !== "string") {
-    res.status(400).json({ error: "taskIds (array) and input (string) are required" });
+  if (!Array.isArray(taskIds) || !taskIds.every((t: any) => Number.isInteger(t)) || typeof input !== "string") {
+    res.status(400).json({ error: "taskIds (array of integers) and input (string) are required" });
+    return;
+  }
+
+  if (input.length > 4096) {
+    res.status(400).json({ error: "Input too long (max 4096 characters)" });
     return;
   }
 
@@ -582,7 +599,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
       insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
     );
   } else {
-    runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined, sourceJob.autoConfirm)
+    runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined, sourceJob.autoConfirm, insertedTasks.map(t => t.id))
       .catch((err) => {
         console.error(`[Job ${newJob.id}] Background execution failed:`, err);
         db.update(batchJobsTable)

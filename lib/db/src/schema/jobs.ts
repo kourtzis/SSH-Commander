@@ -68,6 +68,7 @@ export const jobTasksTable = pgTable("job_tasks", {
   index("idx_job_tasks_job_id").on(table.jobId),
   index("idx_job_tasks_router_id").on(table.routerId),
   index("idx_job_tasks_status").on(table.status),
+  index("idx_job_tasks_job_router").on(table.jobId, table.routerId),
 ]);
 
 export const insertJobSchema = createInsertSchema(batchJobsTable).omit({

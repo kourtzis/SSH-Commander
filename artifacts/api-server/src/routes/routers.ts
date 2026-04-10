@@ -21,8 +21,19 @@ function sanitizeRouter(r: typeof routersTable.$inferSelect) {
 
 router.get("/routers", async (req, res) => {
   requireAuth(req);
-  const routers = await db.select().from(routersTable).orderBy(routersTable.name);
-  res.json(routers.map(sanitizeRouter));
+  const routers = await db
+    .select({
+      id: routersTable.id,
+      name: routersTable.name,
+      ipAddress: routersTable.ipAddress,
+      sshPort: routersTable.sshPort,
+      sshUsername: routersTable.sshUsername,
+      description: routersTable.description,
+      createdAt: routersTable.createdAt,
+    })
+    .from(routersTable)
+    .orderBy(routersTable.name);
+  res.json(routers);
 });
 
 router.post("/routers", async (req, res) => {
@@ -97,6 +108,10 @@ router.post("/routers/import", async (req, res) => {
     res.status(400).json({ error: "No routers provided" });
     return;
   }
+  if (items.length > 10000) {
+    res.status(400).json({ error: "Too many routers (max 10,000 per import)" });
+    return;
+  }
 
   const results: { index: number; name: string; status: "created" | "error"; error?: string }[] = [];
   let created = 0;
@@ -169,6 +184,11 @@ router.post("/routers/check-reachability", async (req, res) => {
   const { routerIds } = req.body as { routerIds: number[] };
   if (!Array.isArray(routerIds) || routerIds.length === 0) {
     res.json({});
+    return;
+  }
+
+  if (routerIds.length > 500 || !routerIds.every((id) => Number.isInteger(id) && id > 0)) {
+    res.status(400).json({ error: "Invalid routerIds (max 500 integer IDs)" });
     return;
   }
 

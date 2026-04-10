@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, snippetsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { CreateSnippetBody, UpdateSnippetBody } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth.js";
 
@@ -8,12 +8,15 @@ const router: IRouter = Router();
 
 router.get("/snippets", async (req, res) => {
   requireAuth(req);
-  const snippets = await db.select().from(snippetsTable).orderBy(snippetsTable.name);
   const tag = req.query.tag as string | undefined;
+  let query = db.select().from(snippetsTable).orderBy(snippetsTable.name);
   if (tag) {
-    res.json(snippets.filter((s) => s.tags.includes(tag)));
+    const filtered = await db.select().from(snippetsTable)
+      .where(sql`${snippetsTable.tags} @> ARRAY[${tag}]::text[]`)
+      .orderBy(snippetsTable.name);
+    res.json(filtered);
   } else {
-    res.json(snippets);
+    res.json(await query);
   }
 });
 
