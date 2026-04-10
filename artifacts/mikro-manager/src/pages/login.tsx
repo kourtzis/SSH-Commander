@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { APP_VERSION } from "@/lib/version";
+import { ChangelogDialog } from "@/components/changelog-dialog";
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -59,6 +61,11 @@ export default function Login() {
             <CardDescription className="text-base mt-2">
               Sign in to manage your network scripts
             </CardDescription>
+            <ChangelogDialog>
+              <button className="mt-2 text-xs text-muted-foreground/60 hover:text-primary transition-colors cursor-pointer">
+                v{APP_VERSION}
+              </button>
+            </ChangelogDialog>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">

@@ -14,6 +14,8 @@ import {
   X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { APP_VERSION } from "@/lib/version";
+import { ChangelogDialog } from "@/components/changelog-dialog";
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -54,9 +56,16 @@ export function AppSidebar() {
           <div className="bg-primary/10 p-1.5 rounded-xl border border-primary/30 shadow-[0_0_15px_rgba(45,212,191,0.2)] overflow-hidden">
             <img src={`${import.meta.env.BASE_URL}logo.png`} alt="SSH Commander" className="w-7 h-7 object-contain" />
           </div>
-          <span className="font-display font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
-            SSH Commander
-          </span>
+          <div className="flex flex-col">
+            <span className="font-display font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
+              SSH Commander
+            </span>
+            <ChangelogDialog>
+              <button className="text-[10px] text-muted-foreground/50 hover:text-primary transition-colors text-left cursor-pointer">
+                v{APP_VERSION}
+              </button>
+            </ChangelogDialog>
+          </div>
         </div>
         <button
           onClick={() => setMobileOpen(false)}
