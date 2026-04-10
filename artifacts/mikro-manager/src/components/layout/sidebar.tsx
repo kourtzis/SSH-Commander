@@ -110,7 +110,7 @@ export function AppSidebar() {
         </div>
         <button 
           onClick={() => logout()}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive/80 hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors cursor-pointer"
+          className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
         >
           <LogOut className="w-4 h-4" />
           Sign Out

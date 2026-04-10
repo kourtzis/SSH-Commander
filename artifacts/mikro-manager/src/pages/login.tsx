@@ -61,11 +61,6 @@ export default function Login() {
             <CardDescription className="text-base mt-2">
               Sign in to manage your network scripts
             </CardDescription>
-            <ChangelogDialog>
-              <button className="mt-2 text-xs text-muted-foreground/60 hover:text-primary transition-colors cursor-pointer">
-                v{APP_VERSION}
-              </button>
-            </ChangelogDialog>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -94,6 +89,13 @@ export default function Login() {
               <Button type="submit" className="w-full h-12 text-base" disabled={isLoggingIn}>
                 {isLoggingIn ? <Loader2 className="w-5 h-5 animate-spin" /> : "Sign In"}
               </Button>
+              <div className="flex justify-center mt-4">
+                <ChangelogDialog>
+                  <button className="text-xs text-muted-foreground/60 hover:text-primary transition-colors cursor-pointer">
+                    v{APP_VERSION}
+                  </button>
+                </ChangelogDialog>
+              </div>
             </form>
           </CardContent>
         </Card>
