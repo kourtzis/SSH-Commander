@@ -21,6 +21,7 @@ export const CHANGELOG: ChangelogEntry[] = [
         title: "Added",
         items: [
           "Move Group feature: relocate any group (with its subgroups and devices) to a different parent or to root level via a dedicated Move dialog",
+          "Drag-and-drop group rearrangement: grab the 6-dot handle on any group row and drop it onto another group to reparent, or onto the root drop zone to make it top-level",
           "Circular reference protection prevents moving a group under itself or any of its descendants",
         ],
       },

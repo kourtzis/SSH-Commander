@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useListGroups, useListRouters, useGetGroup, getListGroupsQueryKey, getGetGroupQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGroupsMutations } from "@/hooks/use-mutations";
@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Network, Folder, Server, ChevronRight, ChevronDown, Trash2, Edit2, Link as LinkIcon, Unlink, Search, MoveRight } from "lucide-react";
+import { Plus, Network, Folder, Server, ChevronRight, ChevronDown, Trash2, Edit2, Link as LinkIcon, Unlink, Search, MoveRight, GripVertical } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +35,8 @@ export default function Groups() {
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false);
   const [moveTargetParentId, setMoveTargetParentId] = useState<number | null>(null);
   const [isMoving, setIsMoving] = useState(false);
+  const [dragGroupId, setDragGroupId] = useState<number | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<number | null | "root">(null);
   
   const [memberType, setMemberType] = useState<"router"|"group">("router");
   const [memberId, setMemberId] = useState<string>("");
@@ -150,6 +152,39 @@ export default function Groups() {
     }
   };
 
+  const handleDragDrop = async (draggedId: number, targetParentId: number | null) => {
+    const draggedGroup = groups.find(g => g.id === draggedId);
+    if (!draggedGroup) return;
+    if ((draggedGroup.parentId ?? null) === targetParentId) return;
+    if (targetParentId === draggedId) return;
+    const descendants = getDescendantIds(draggedId);
+    if (targetParentId !== null && descendants.has(targetParentId)) return;
+
+    setIsMoving(true);
+    try {
+      const baseUrl = import.meta.env.BASE_URL || "/";
+      const res = await fetch(`${baseUrl}api/groups/${draggedId}/move`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ newParentId: targetParentId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Move failed");
+      }
+      toast({ title: "Group moved successfully" });
+      queryClient.invalidateQueries({ queryKey: getListGroupsQueryKey() });
+      if (selectedGroup) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
+    } catch (e: any) {
+      toast({ title: "Error moving group", description: e.message, variant: "destructive" });
+    } finally {
+      setIsMoving(false);
+      setDragGroupId(null);
+      setDropTargetId(null);
+    }
+  };
+
   const handleBulkDelete = async () => {
     if (!confirm(`Delete ${selection.count} selected group(s)?`)) return;
     setIsBulkDeleting(true);
@@ -182,6 +217,19 @@ export default function Groups() {
     return ids;
   }, [groups, groupSearch]);
 
+  const isValidDropTarget = (targetId: number | null): boolean => {
+    if (dragGroupId === null) return false;
+    if (targetId === dragGroupId) return false;
+    const draggedGroup = groups.find(g => g.id === dragGroupId);
+    if (!draggedGroup) return false;
+    if ((draggedGroup.parentId ?? null) === targetId) return false;
+    if (targetId !== null) {
+      const descendants = getDescendantIds(dragGroupId);
+      if (descendants.has(targetId)) return false;
+    }
+    return true;
+  };
+
   const renderTree = (parentId: number | null, depth = 0) => {
     let children = groups.filter(g => g.parentId === parentId);
     if (matchingGroupIds) children = children.filter(g => matchingGroupIds.has(g.id));
@@ -192,17 +240,55 @@ export default function Groups() {
         {children.map(group => {
           const isExpanded = expandedGroups.has(group.id);
           const isSelected = selectedGroup === group.id;
+          const isDragging = dragGroupId === group.id;
+          const isDropTarget = dropTargetId === group.id && isValidDropTarget(group.id);
           return (
             <div key={group.id}>
               <div 
                 onClick={() => toggleGroup(group.id)}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (dragGroupId !== null && isValidDropTarget(group.id)) {
+                    setDropTargetId(group.id);
+                  }
+                }}
+                onDragLeave={(e) => {
+                  if (dropTargetId === group.id) setDropTargetId(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (dragGroupId !== null && isValidDropTarget(group.id)) {
+                    handleDragDrop(dragGroupId, group.id);
+                  }
+                  setDropTargetId(null);
+                }}
                 className={cn(
                   "flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors border",
                   isSelected ? "bg-primary/10 border-primary/30" : "bg-transparent border-transparent hover:bg-white/5",
+                  isDragging && "opacity-40",
+                  isDropTarget && "border-primary bg-primary/10 ring-1 ring-primary/40",
                 )}
                 style={{ marginLeft: `${depth * 1.5}rem` }}
               >
                 <div className="flex items-center gap-2">
+                  <div
+                    draggable
+                    onDragStart={(e) => {
+                      e.stopPropagation();
+                      setDragGroupId(group.id);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    onDragEnd={() => {
+                      setDragGroupId(null);
+                      setDropTargetId(null);
+                    }}
+                    className="cursor-grab active:cursor-grabbing touch-none"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <GripVertical className="w-4 h-4 text-muted-foreground/50 hover:text-muted-foreground" />
+                  </div>
                   <div onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={selection.selected.has(group.id)}
@@ -264,6 +350,26 @@ export default function Groups() {
             )}
           </div>
           <CardContent className="p-4 flex-1 overflow-y-auto">
+            {dragGroupId !== null && isValidDropTarget(null) && (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDropTargetId("root"); }}
+                onDragLeave={() => { if (dropTargetId === "root") setDropTargetId(null); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragGroupId !== null) handleDragDrop(dragGroupId, null);
+                  setDropTargetId(null);
+                }}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-2 mb-2 rounded-lg border border-dashed transition-colors",
+                  dropTargetId === "root"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-muted-foreground/30 text-muted-foreground"
+                )}
+              >
+                <Network className="w-4 h-4" />
+                <span className="text-xs font-medium">Drop here to move to root level</span>
+              </div>
+            )}
             {isLoading ? <p className="text-muted-foreground text-sm">Loading...</p> : renderTree(null)}
             {!isLoading && groups.length === 0 && <p className="text-muted-foreground text-sm text-center py-8">No groups created yet.</p>}
           </CardContent>
