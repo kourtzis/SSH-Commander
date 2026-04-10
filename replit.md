@@ -128,6 +128,17 @@ Implementation: `writeCommandWithControlChars()` in `ssh.ts` splits the command 
 - Push schema: `pnpm --filter @workspace/db run push`
 - Codegen: `pnpm --filter @workspace/api-spec run codegen`
 
+## Versioning
+
+- Current version: `1.0.2` (set in root `package.json`, `api-server/package.json`, and `mikro-manager/package.json`)
+- Follows Semantic Versioning: MAJOR.MINOR.PATCH
+  - PATCH (x.y.Z): minor fixes and optimizations
+  - MINOR (x.Y.0): substantial fixes and minor new features
+  - MAJOR (X.0.0): major feature additions or breaking changes
+  - Pre-release: tagged as `-b1`, `-b2`, etc. (e.g., `1.1.0-b1`)
+- Higher increments reset lower numbers to zero (e.g., `1.0.5` → `1.1.0`)
+- All changes documented in `CHANGELOG.md`
+
 ## Code Style
 
 - All backend source files (routes, libs, DB schemas) have inline comments explaining purpose, logic, and non-obvious design decisions

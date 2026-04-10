@@ -320,6 +320,18 @@ docker compose down -v
 docker compose up -d --build
 ```
 
+## Versioning & Changelog
+
+- Version is stored in three `package.json` files: root, `artifacts/api-server`, and `artifacts/mikro-manager`. All three must be updated together.
+- Follows Semantic Versioning: `MAJOR.MINOR.PATCH`
+  - **PATCH** (x.y.Z): minor fixes and optimizations
+  - **MINOR** (x.Y.0): substantial fixes and minor new features
+  - **MAJOR** (X.0.0): major feature additions or breaking changes
+  - **Pre-release**: tagged as `-b1`, `-b2`, etc. (e.g., `1.1.0-b1`) — not `-beta`
+- Higher increments reset lower numbers to zero (e.g., `1.0.5` → `1.1.0`, `1.3.2` → `2.0.0`).
+- All changes must be documented in `CHANGELOG.md` at the project root.
+- After every substantial change, update both the version and the changelog.
+
 ## Pre-Deployment Checklist
 
 ### Build Configuration
