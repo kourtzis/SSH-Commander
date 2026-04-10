@@ -11,6 +11,7 @@ on:
 #     - '.github/workflows/**'
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   IMAGE_NAME: kourtzis/ssh-commander
   REGISTRY: docker.io   # or docker.io for Docker Hub
 
