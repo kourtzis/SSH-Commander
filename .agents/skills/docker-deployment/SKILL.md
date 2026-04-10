@@ -43,6 +43,17 @@ export const jobTasksTable = pgTable("job_tasks", {
 ]);
 ```
 - Critical indexes: all FK columns, `status`/enum columns used in `WHERE`, timestamp columns used in `ORDER BY` or scheduler polling (`next_run_at`).
+- Use **composite indexes** for frequently combined lookups: `index("idx_job_tasks_job_router").on(table.jobId, table.routerId)`.
+- Use **GIN indexes** on PostgreSQL array columns for `@>` containment queries: `index("idx_snippets_tags").using("gin", table.tags)`.
+
+#### Query Optimization Patterns
+- **Batch group resolution**: When walking hierarchical groups, use iterative BFS with `inArray()` at each depth level instead of recursive N+1 queries. Process all groups at a given depth in 2 parallel queries (router links + subgroup links).
+- **Pre-pass task IDs**: When inserting tasks and immediately needing their IDs, use `.returning()` and pass the IDs forward instead of re-querying.
+- **Reduce cancellation checks**: In loops processing many items, check for cancellation every Nth iteration (e.g., every 5th) instead of every iteration.
+- **Consolidate UPDATEs**: Combine multiple sequential UPDATEs on the same row into a single call (e.g., setting status + resolvedScript in one update).
+- **Parallelize independent queries**: Use `Promise.all()` for independent DB queries that don't depend on each other's results.
+- **Column-selective queries**: Use `.select({ col1, col2 })` instead of `.select()` (SELECT *) when you only need specific columns — avoids fetching sensitive data like passwords.
+- **SQL-level filtering**: Use PostgreSQL operators like `@>` for array containment instead of fetching all rows and filtering in JavaScript.
 
 #### Schema Push Safety
 - Never change primary key ID column types (e.g., `serial` to `varchar`) — generates destructive `ALTER TABLE`.
@@ -72,6 +83,14 @@ export const jobTasksTable = pgTable("job_tasks", {
 ---
 
 ### Backend Reliability
+
+#### Input Validation & Security
+- **Route param validation**: Always check `isNaN()` on parsed route params (`parseInt(req.params.id)`) before using them in queries.
+- **Array input validation**: Validate array elements with `.every()` — e.g., `taskIds.every(t => Number.isInteger(t))`.
+- **Input length limits**: Cap user-supplied text inputs to reasonable lengths (e.g., 4096 chars for SSH responses).
+- **Array size limits**: Cap array inputs to prevent abuse (e.g., max 500 router IDs for reachability checks, max 10K rows for import).
+- **Dependency auditing**: Run `npm audit` / `pnpm audit` regularly. Track remaining vulnerabilities and document why they're accepted risk (e.g., `xlsx` client-side-only usage).
+- **Credential sanitization**: Always strip sensitive fields (passwords, hashes) from API responses using a `sanitize*()` helper function.
 
 #### Background Job Error Handling
 - `async` functions called without `await` (fire-and-forget) **must** have `.catch()` handlers.

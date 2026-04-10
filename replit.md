@@ -128,6 +128,11 @@ Implementation: `writeCommandWithControlChars()` in `ssh.ts` splits the command 
 - Push schema: `pnpm --filter @workspace/db run push`
 - Codegen: `pnpm --filter @workspace/api-spec run codegen`
 
+## Code Style
+
+- All backend source files (routes, libs, DB schemas) have inline comments explaining purpose, logic, and non-obvious design decisions
+- Skill file (`.agents/skills/docker-deployment/SKILL.md`) captures project-wide lessons: Docker pitfalls, DB optimization patterns, input validation, frontend performance, logo generation
+
 ## Docker
 
 - `Dockerfile` — Multi-stage build (deps → build → production)
