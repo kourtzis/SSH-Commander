@@ -120,6 +120,75 @@ router.put("/groups/:id", async (req, res) => {
   res.json(updated);
 });
 
+// PUT /groups/:id/move — Move a group to a new parent (or to root).
+// Updates both the parentId column and the group_subgroups join table.
+// Prevents circular references by walking descendants before moving.
+router.put("/groups/:id/move", async (req, res) => {
+  requireAuth(req);
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid group ID" }); return; }
+
+  const { newParentId } = req.body as { newParentId: number | null };
+  if (newParentId !== null && typeof newParentId !== "number") {
+    res.status(400).json({ error: "newParentId must be a number or null" });
+    return;
+  }
+
+  if (newParentId === id) {
+    res.status(400).json({ error: "Cannot move a group under itself" });
+    return;
+  }
+
+  const [group] = await db.select().from(routerGroupsTable).where(eq(routerGroupsTable.id, id)).limit(1);
+  if (!group) { res.status(404).json({ error: "Group not found" }); return; }
+
+  if (newParentId !== null) {
+    const [targetParent] = await db.select().from(routerGroupsTable).where(eq(routerGroupsTable.id, newParentId)).limit(1);
+    if (!targetParent) { res.status(404).json({ error: "Target parent group not found" }); return; }
+
+    // Walk descendants of the group being moved to prevent circular references
+    const descendants = new Set<number>();
+    let frontier = [id];
+    while (frontier.length > 0) {
+      const children = await db
+        .select({ childGroupId: groupSubgroupsTable.childGroupId })
+        .from(groupSubgroupsTable)
+        .where(inArray(groupSubgroupsTable.parentGroupId, frontier));
+      frontier = [];
+      for (const c of children) {
+        if (!descendants.has(c.childGroupId)) {
+          descendants.add(c.childGroupId);
+          frontier.push(c.childGroupId);
+        }
+      }
+    }
+    if (descendants.has(newParentId)) {
+      res.status(400).json({ error: "Cannot move a group under one of its own descendants" });
+      return;
+    }
+  }
+
+  // Wrap all mutations in a transaction for atomicity
+  const [updated] = await db.transaction(async (tx) => {
+    // Remove old parent link from group_subgroups
+    await tx.delete(groupSubgroupsTable).where(eq(groupSubgroupsTable.childGroupId, id));
+
+    // Add new parent link (if not moving to root)
+    if (newParentId !== null) {
+      await tx.insert(groupSubgroupsTable).values({ parentGroupId: newParentId, childGroupId: id }).onConflictDoNothing();
+    }
+
+    // Update parentId column
+    return tx
+      .update(routerGroupsTable)
+      .set({ parentId: newParentId })
+      .where(eq(routerGroupsTable.id, id))
+      .returning();
+  });
+
+  res.json(updated);
+});
+
 // DELETE /groups/:id — Delete a group and clean up all its membership links.
 // Removes: router members, parent subgroup links, child subgroup links, then the group itself.
 router.delete("/groups/:id", async (req, res) => {

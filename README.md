@@ -26,6 +26,7 @@ Maintain a centralized inventory of all your network devices:
 Organize routers into a flexible tree structure:
 - Create nested groups and sub-groups to mirror your network topology (sites, regions, racks, VLANs, etc.)
 - Add routers to groups with **multi-select** — pick one, several, or all available routers at once with checkboxes, search filtering, and "Select All / Deselect All"
+- **Move groups** — relocate any group (with all its subgroups and devices) to a different parent or to root level; circular reference protection prevents invalid moves
 - A single router can belong to multiple groups
 - Target entire groups (and their sub-groups) when creating batch jobs — all member routers are automatically resolved and deduplicated
 

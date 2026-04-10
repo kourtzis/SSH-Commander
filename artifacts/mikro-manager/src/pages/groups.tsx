@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { useListGroups, useListRouters, useGetGroup } from "@workspace/api-client-react";
+import { useListGroups, useListRouters, useGetGroup, getListGroupsQueryKey, getGetGroupQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useGroupsMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
@@ -10,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Network, Folder, Server, ChevronRight, ChevronDown, Trash2, Edit2, Link as LinkIcon, Unlink, Search } from "lucide-react";
+import { Plus, Network, Folder, Server, ChevronRight, ChevronDown, Trash2, Edit2, Link as LinkIcon, Unlink, Search, MoveRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ export default function Groups() {
   const { data: groups = [], isLoading } = useListGroups();
   const { data: routers = [] } = useListRouters();
   const { createGroup, updateGroup, deleteGroup, addMember, removeMember } = useGroupsMutations();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
@@ -30,6 +32,9 @@ export default function Groups() {
 
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
+  const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false);
+  const [moveTargetParentId, setMoveTargetParentId] = useState<number | null>(null);
+  const [isMoving, setIsMoving] = useState(false);
   
   const [memberType, setMemberType] = useState<"router"|"group">("router");
   const [memberId, setMemberId] = useState<string>("");
@@ -107,6 +112,44 @@ export default function Groups() {
     }
   };
 
+  const getDescendantIds = (groupId: number): Set<number> => {
+    const descendants = new Set<number>();
+    const walk = (parentId: number) => {
+      groups.filter(g => g.parentId === parentId).forEach(g => {
+        descendants.add(g.id);
+        walk(g.id);
+      });
+    };
+    walk(groupId);
+    return descendants;
+  };
+
+  const handleMoveGroup = async () => {
+    if (!selectedGroup) return;
+    setIsMoving(true);
+    try {
+      const baseUrl = import.meta.env.BASE_URL || "/";
+      const res = await fetch(`${baseUrl}api/groups/${selectedGroup}/move`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ newParentId: moveTargetParentId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Move failed");
+      }
+      toast({ title: "Group moved successfully" });
+      setIsMoveDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: getListGroupsQueryKey() });
+      if (selectedGroup) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
+    } catch (e: any) {
+      toast({ title: "Error moving group", description: e.message, variant: "destructive" });
+    } finally {
+      setIsMoving(false);
+    }
+  };
+
   const handleBulkDelete = async () => {
     if (!confirm(`Delete ${selection.count} selected group(s)?`)) return;
     setIsBulkDeleting(true);
@@ -128,12 +171,12 @@ export default function Groups() {
     const addAncestors = (gId: number | null) => {
       if (gId === null) return;
       const g = groups.find(x => x.id === gId);
-      if (g) { ids.add(g.id); addAncestors(g.parentId); }
+      if (g) { ids.add(g.id); addAncestors(g.parentId ?? null); }
     };
     groups.forEach(g => {
       if (g.name.toLowerCase().includes(groupSearch.toLowerCase())) {
         ids.add(g.id);
-        addAncestors(g.parentId);
+        addAncestors(g.parentId ?? null);
       }
     });
     return ids;
@@ -237,6 +280,9 @@ export default function Groups() {
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => { setEditingGroup(groupDetails); setFormName(groupDetails.name); setFormDesc(groupDetails.description||""); setIsGroupDialogOpen(true); }}>
                     <Edit2 className="w-4 h-4 mr-1" /> Edit
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => { setMoveTargetParentId(groupDetails.parentId ?? null); setIsMoveDialogOpen(true); }}>
+                    <MoveRight className="w-4 h-4 mr-1" /> Move
                   </Button>
                   <Button size="sm" onClick={() => { setSelectedMemberIds(new Set()); setMemberSearch(""); setMemberType("router"); setIsMemberDialogOpen(true); }}>
                     <LinkIcon className="w-4 h-4 mr-1" /> Add
@@ -437,6 +483,64 @@ export default function Groups() {
             <Button variant="outline" onClick={() => setIsMemberDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleAddMember} disabled={selectedMemberIds.size === 0 || addMember.isPending}>
               {addMember.isPending ? "Adding..." : `Add ${selectedMemberIds.size || ""} Member${selectedMemberIds.size !== 1 ? "s" : ""}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MoveRight className="w-5 h-5 text-primary" />
+              Move "{groupDetails?.name}"
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label>Select new parent</Label>
+            <div className="border border-white/5 rounded-lg max-h-60 overflow-y-auto divide-y divide-white/5">
+              <label
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors",
+                  moveTargetParentId === null && "bg-primary/10"
+                )}
+                onClick={() => setMoveTargetParentId(null)}
+              >
+                <input type="radio" checked={moveTargetParentId === null} onChange={() => setMoveTargetParentId(null)} className="accent-primary" />
+                <Network className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Root (no parent)</span>
+              </label>
+              {(() => {
+                const disabledIds = selectedGroup ? getDescendantIds(selectedGroup) : new Set<number>();
+                disabledIds.add(selectedGroup!);
+                return groups
+                  .filter(g => !disabledIds.has(g.id))
+                  .map(g => (
+                    <label
+                      key={g.id}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors",
+                        moveTargetParentId === g.id && "bg-primary/10"
+                      )}
+                      onClick={() => setMoveTargetParentId(g.id)}
+                    >
+                      <input type="radio" checked={moveTargetParentId === g.id} onChange={() => setMoveTargetParentId(g.id)} className="accent-primary" />
+                      <Folder className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">{g.name}</span>
+                      {g.parentId !== null && (
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          in {groups.find(p => p.id === g.parentId)?.name || "..."}
+                        </span>
+                      )}
+                    </label>
+                  ));
+              })()}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsMoveDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleMoveGroup} disabled={isMoving || moveTargetParentId === (groupDetails?.parentId ?? null)}>
+              {isMoving ? "Moving..." : "Move Group"}
             </Button>
           </DialogFooter>
         </DialogContent>

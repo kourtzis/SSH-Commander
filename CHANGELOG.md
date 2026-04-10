@@ -12,6 +12,16 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.1.0] - 2025-04-10
+
+### Added
+- **Move Group feature**: relocate any group (with its subgroups and devices) to a different parent or to root level via a dedicated Move dialog with parent picker
+- **Circular reference protection**: backend prevents moving a group under itself or any of its descendants (BFS descendant walk)
+- Move button added to group detail panel (between Edit and Add buttons)
+- Move dialog shows all valid target parents, filtering out the group itself and its descendants
+
+---
+
 ## [1.0.2] - 2025-04-10
 
 ### Added
