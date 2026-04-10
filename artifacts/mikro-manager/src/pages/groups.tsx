@@ -49,12 +49,16 @@ export default function Groups() {
 
   const selection = useSelection(groups.map(g => g.id));
 
-  const toggleGroup = (id: number) => {
+  const selectGroup = (id: number) => {
+    setSelectedGroup(id);
+  };
+
+  const toggleExpand = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
     const next = new Set(expandedGroups);
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setExpandedGroups(next);
-    setSelectedGroup(id);
   };
 
   const navigateToGroup = (groupId: number) => {
@@ -262,7 +266,7 @@ export default function Groups() {
           return (
             <div key={group.id}>
               <div 
-                onClick={() => toggleGroup(group.id)}
+                onClick={() => selectGroup(group.id)}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -314,7 +318,9 @@ export default function Groups() {
                     />
                   </div>
                   {groups.some(g => g.parentId === group.id) ? (
-                    isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    <button type="button" onClick={(e) => toggleExpand(group.id, e)} className="cursor-pointer hover:text-primary hover:bg-white/10 p-1 -m-1 rounded flex items-center justify-center" aria-label={isExpanded ? "Collapse group" : "Expand group"}>
+                      {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                    </button>
                   ) : <div className="w-4" />}
                   <Folder className={cn("w-4 h-4", isSelected ? "text-primary" : "text-muted-foreground")} />
                   <span className={cn("text-sm font-medium", isSelected && "text-primary")}>{group.name}</span>
