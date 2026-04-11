@@ -55,6 +55,18 @@ export const jobTasksTable = pgTable("job_tasks", {
 - **Column-selective queries**: Use `.select({ col1, col2 })` instead of `.select()` (SELECT *) when you only need specific columns — avoids fetching sensitive data like passwords.
 - **SQL-level filtering**: Use PostgreSQL operators like `@>` for array containment instead of fetching all rows and filtering in JavaScript.
 
+#### Dual-Table Hierarchy Sync (Group Management)
+- The group hierarchy uses **two sources of truth**: `parentId` column on `router_groups` AND `group_subgroups` join table. Both must always be kept in sync.
+- **All mutation endpoints** (add member, remove member, move group) must update both tables atomically in a transaction.
+- **GET endpoints** should query both sources and union the results (deduplicated via `Set`) to be resilient against sync drift.
+- **Circular reference protection** (BFS descendant walk) must be applied on both the Move Group endpoint AND the Add Member endpoint — not just one.
+- **Unlink behavior**: removing a sub-group should move it one level up to its grandparent (not to root), preserving hierarchy context. Only moves to root when the parent is already top-level.
+
+#### React Query Cache Invalidation
+- When an operation affects multiple groups (e.g., moving a sub-group from parent A to parent B), invalidate the caches of **all affected groups**: the old parent, the new parent, and the currently selected group.
+- For operations where the full set of affected groups is hard to determine (e.g., unlink moves to grandparent), use a query key predicate to invalidate all group detail queries: `qc.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string).startsWith("/api/groups/") })`.
+- Orval-generated query keys follow the pattern `["/api/groups/${id}"]` — use string prefix matching for broad invalidation.
+
 #### Schema Push Safety
 - Never change primary key ID column types (e.g., `serial` to `varchar`) — generates destructive `ALTER TABLE`.
 - When adding columns, use `.default()` or `.notNull().default()` to avoid breaking existing rows.

@@ -12,6 +12,14 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.2.2] - 2025-04-11
+
+### Fixed
+- **Sub-group detail pane**: selecting a second-level (or deeper) group now correctly shows its sub-groups in the right pane — the GET endpoint now finds children from both `parentId` and the `group_subgroups` join table (union), so even if one source is out of sync the children still appear
+- **Stale right pane after operations**: move, unlink, and drag-and-drop operations now invalidate the caches of all affected groups (old parent, new parent, selected group), so the right pane updates immediately without a page refresh
+
+---
+
 ## [1.2.1] - 2025-04-11
 
 ### Improved

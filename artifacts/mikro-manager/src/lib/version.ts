@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.2.1";
+export const APP_VERSION = "1.2.2";
 export const APP_VERSION_DATE = "2025-04-11";
 
 export interface ChangelogSection {
@@ -13,6 +13,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.2.2",
+    date: "2025-04-11",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Group detail pane now shows sub-groups correctly for all nesting levels (dual-source lookup from both parentId and join table)",
+          "Move, unlink, and drag-and-drop operations now immediately update the right pane without requiring a page refresh (fixed cache invalidation for all affected groups)",
+        ],
+      },
+    ],
+  },
   {
     version: "1.2.1",
     date: "2025-04-11",
