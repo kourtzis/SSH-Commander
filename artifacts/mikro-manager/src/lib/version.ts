@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.3.1";
+export const APP_VERSION = "1.3.2";
 export const APP_VERSION_DATE = "2025-04-11";
 
 export interface ChangelogSection {
@@ -13,6 +13,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.3.2",
+    date: "2025-04-11",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Bulk device removal in Groups — checkboxes on each device card, Select All / Deselect All toggle, and a 'Remove N' button to unlink multiple devices at once with a single confirmation",
+        ],
+      },
+    ],
+  },
   {
     version: "1.3.1",
     date: "2025-04-11",

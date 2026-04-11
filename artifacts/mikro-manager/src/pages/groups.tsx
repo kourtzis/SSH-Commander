@@ -37,6 +37,10 @@ export default function Groups() {
   const [editingGroup, setEditingGroup] = useState<any>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [groupSearch, setGroupSearch] = useState("");
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<number>>(new Set());
+  const [isBulkRemoving, setIsBulkRemoving] = useState(false);
+
+  useEffect(() => { setSelectedDeviceIds(new Set()); }, [selectedGroup]);
 
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
@@ -168,6 +172,31 @@ export default function Groups() {
         toast({ title: "Error", description: e.message, variant: "destructive" });
       }
     }
+  };
+
+  const handleBulkRemoveDevices = async () => {
+    if (!selectedGroup || selectedDeviceIds.size === 0) return;
+    if (!confirm(`Remove ${selectedDeviceIds.size} device${selectedDeviceIds.size !== 1 ? "s" : ""} from this group?`)) return;
+    setIsBulkRemoving(true);
+    try {
+      for (const deviceId of selectedDeviceIds) {
+        await removeMember.mutateAsync({ id: selectedGroup, data: { type: "router", memberId: deviceId } });
+      }
+      toast({ title: `${selectedDeviceIds.size} device${selectedDeviceIds.size !== 1 ? "s" : ""} removed` });
+      setSelectedDeviceIds(new Set());
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setIsBulkRemoving(false);
+    }
+  };
+
+  const toggleDeviceSelection = (id: number) => {
+    setSelectedDeviceIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   };
 
   const handleDeleteGroup = async (id: number, e: React.MouseEvent) => {
@@ -572,7 +601,41 @@ export default function Groups() {
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Devices ({groupDetails.routers.length})</h4>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Devices ({groupDetails.routers.length})</h4>
+                    {groupDetails.routers.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <Checkbox
+                            checked={groupDetails.routers.length > 0 && selectedDeviceIds.size === groupDetails.routers.length}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedDeviceIds(new Set(groupDetails.routers.map(r => r.id)));
+                              } else {
+                                setSelectedDeviceIds(new Set());
+                              }
+                            }}
+                            {...(selectedDeviceIds.size > 0 && selectedDeviceIds.size < groupDetails.routers.length ? { "data-state": "indeterminate" as any } : {})}
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {selectedDeviceIds.size === groupDetails.routers.length ? "Deselect all" : "Select all"}
+                          </span>
+                        </label>
+                        {selectedDeviceIds.size > 0 && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-7 text-xs"
+                            disabled={isBulkRemoving}
+                            onClick={handleBulkRemoveDevices}
+                          >
+                            <Unlink className="w-3.5 h-3.5 mr-1" />
+                            {isBulkRemoving ? "Removing..." : `Remove ${selectedDeviceIds.size}`}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   {groupDetails.routers.length === 0 ? (
                     <p className="text-sm text-muted-foreground italic">No devices attached.</p>
                   ) : (
@@ -582,11 +645,17 @@ export default function Groups() {
                           key={`r-${router.id}`}
                           className={cn(
                             "flex items-center justify-between p-3 rounded-xl bg-background border border-border/50 hover:border-blue-400/30 hover:bg-blue-400/5 transition-colors cursor-pointer group/item",
-                            dragItem?.type === "device" && dragItem.id === router.id && "opacity-40"
+                            dragItem?.type === "device" && dragItem.id === router.id && "opacity-40",
+                            selectedDeviceIds.has(router.id) && "border-destructive/40 bg-destructive/5"
                           )}
                           onClick={() => navigate("/routers")}
                         >
                           <div className="flex items-center gap-3">
+                            <Checkbox
+                              checked={selectedDeviceIds.has(router.id)}
+                              onCheckedChange={() => toggleDeviceSelection(router.id)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
                             <div
                               draggable
                               onDragStart={(e) => {

@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.3.2] - 2025-04-11
+
+### Added
+- **Bulk device removal in Groups**: each device card now has a checkbox; a "Select All / Deselect All" toggle and a "Remove N" button appear in the Devices header — select multiple devices and remove them all with a single confirmation instead of one-by-one
+
+---
+
 ## [1.3.1] - 2025-04-11
 
 ### Added
