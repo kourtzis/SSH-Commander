@@ -2,6 +2,7 @@
 set -e
 
 echo "Adding new enum values (if needed)..."
+cd /app/lib/db
 node -e "
 const { Client } = require('pg');
 (async () => {
@@ -15,7 +16,6 @@ const { Client } = require('pg');
 " 2>&1
 
 echo "Running database migrations..."
-cd /app/lib/db
 pnpm exec drizzle-kit push --force 2>&1 || echo "Migration warning (may be OK if schema is up to date)"
 
 echo "Seeding default admin user..."
