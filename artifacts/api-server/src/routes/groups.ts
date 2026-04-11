@@ -218,9 +218,27 @@ router.post("/groups/:id/members", async (req, res) => {
       .values({ groupId, routerId: memberId })
       .onConflictDoNothing();
   } else {
-    // Prevent circular reference: a group cannot be a subgroup of itself
     if (memberId === groupId) {
       res.status(400).json({ error: "Cannot add group to itself" });
+      return;
+    }
+    const descendants = new Set<number>();
+    let frontier = [memberId];
+    while (frontier.length > 0) {
+      const children = await db
+        .select({ childGroupId: groupSubgroupsTable.childGroupId })
+        .from(groupSubgroupsTable)
+        .where(inArray(groupSubgroupsTable.parentGroupId, frontier));
+      frontier = [];
+      for (const c of children) {
+        if (!descendants.has(c.childGroupId)) {
+          descendants.add(c.childGroupId);
+          frontier.push(c.childGroupId);
+        }
+      }
+    }
+    if (descendants.has(groupId)) {
+      res.status(400).json({ error: "Cannot add an ancestor group as a sub-group — this would create a circular reference" });
       return;
     }
     await db.transaction(async (tx) => {
