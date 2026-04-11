@@ -2,6 +2,7 @@ import { useState, useRef, useMemo } from "react";
 import { useListRouters, useImportRouters } from "@workspace/api-client-react";
 import { useRoutersMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
+import { useConfirm } from "@/components/confirm-dialog";
 import { SelectionBar } from "@/components/selection-bar";
 import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Server, Edit2, Trash2, Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -17,7 +19,6 @@ import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDate } from "@/lib/utils";
-import ExcelJS from "exceljs";
 
 const routerSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -124,6 +125,7 @@ export default function Routers() {
   const importRouters = useImportRouters();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const confirm = useConfirm();
   
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<ActiveSort>({ key: "name", dir: "asc" });
@@ -191,18 +193,19 @@ export default function Routers() {
   };
 
   const handleDelete = async (id: number) => {
-    if (confirm("Are you sure you want to delete this device?")) {
-      try {
-        await deleteRouter.mutateAsync({ id });
-        toast({ title: "Device deleted" });
-      } catch (err: any) {
-        toast({ title: "Error deleting device", description: err.message, variant: "destructive" });
-      }
+    const ok = await confirm({ title: "Delete Device", description: "Are you sure you want to delete this device? This action cannot be undone.", confirmLabel: "Delete", variant: "destructive" });
+    if (!ok) return;
+    try {
+      await deleteRouter.mutateAsync({ id });
+      toast({ title: "Device deleted" });
+    } catch (err: any) {
+      toast({ title: "Error deleting device", description: err.message, variant: "destructive" });
     }
   };
 
   const handleBulkDelete = async () => {
-    if (!confirm(`Delete ${selection.count} selected device(s)?`)) return;
+    const ok = await confirm({ title: "Delete Devices", description: `Delete ${selection.count} selected device(s)? This action cannot be undone.`, confirmLabel: "Delete All", variant: "destructive" });
+    if (!ok) return;
     setIsBulkDeleting(true);
     try {
       await Promise.all(selection.ids.map(id => deleteRouter.mutateAsync({ id })));
@@ -230,6 +233,7 @@ export default function Routers() {
     setFileName(file.name);
 
     try {
+      const ExcelJS = (await import("exceljs")).default;
       const isCSV = file.name.toLowerCase().endsWith(".csv");
       const wb = new ExcelJS.Workbook();
 
@@ -340,7 +344,20 @@ export default function Routers() {
       <Card className="glass-panel">
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading devices...</div>
+            <div className="p-4 space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-6 py-3">
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <Skeleton className="h-8 w-8 rounded-lg" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+              ))}
+            </div>
           ) : filteredRouters.length === 0 ? (
             <div className="p-12 flex flex-col items-center justify-center text-center">
               <Server className="w-12 h-12 text-muted-foreground/30 mb-4" />
@@ -369,7 +386,7 @@ export default function Routers() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {filteredRouters.map((router) => (
-                    <tr key={router.id} className={`hover:bg-white/5 transition-colors ${selection.selected.has(router.id) ? "bg-primary/5" : ""}`}>
+                    <tr key={router.id} className={`hover:bg-white/5 transition-colors ${selection.selected.has(router.id) ? "bg-primary/10" : ""}`}>
                       <td className="px-4 py-4">
                         <Checkbox
                           checked={selection.selected.has(router.id)}
@@ -531,135 +548,113 @@ export default function Routers() {
 
           {importStep === "preview" && (
             <div className="space-y-4 py-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <FileSpreadsheet className="w-5 h-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">{fileName}</p>
-                    <p className="text-xs text-muted-foreground">{parsedRows.length} row(s) found</p>
+              <div className="flex items-center gap-4">
+                <FileSpreadsheet className="w-5 h-5 text-muted-foreground" />
+                <span className="text-sm font-medium">{fileName}</span>
+              </div>
+
+              <div className="flex gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>{validCount} valid</span>
+                </div>
+                {invalidCount > 0 && (
+                  <div className="flex items-center gap-2 text-destructive">
+                    <XCircle className="w-4 h-4" />
+                    <span>{invalidCount} invalid</span>
                   </div>
-                </div>
-                <div className="flex items-center gap-3 text-sm">
-                  {validCount > 0 && (
-                    <span className="flex items-center gap-1 text-emerald-400">
-                      <CheckCircle2 className="w-4 h-4" /> {validCount} valid
-                    </span>
-                  )}
-                  {invalidCount > 0 && (
-                    <span className="flex items-center gap-1 text-red-400">
-                      <XCircle className="w-4 h-4" /> {invalidCount} invalid
-                    </span>
-                  )}
-                </div>
+                )}
               </div>
 
               {Object.keys(columnMap).length > 0 && (
-                <div className="p-3 bg-black/20 rounded-lg border border-white/5">
-                  <p className="text-xs font-medium mb-2 text-muted-foreground">Column mapping:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(columnMap).map(([from, to]) => (
-                      <span key={from} className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">
-                        {from} → {to}
-                      </span>
-                    ))}
-                  </div>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium">Column mapping:</p>
+                  {Object.entries(columnMap).map(([from, to]) => (
+                    <span key={from} className="inline-block mr-3">
+                      <code className="text-muted-foreground">{from}</code> → <code className="text-primary">{to}</code>
+                    </span>
+                  ))}
                 </div>
               )}
 
-              {Object.keys(columnMap).length === 0 && (
-                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3">
-                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
-                  <p className="text-sm text-red-300">No matching columns found. Make sure your file has columns like "name", "ip" or "ipAddress".</p>
-                </div>
-              )}
-
-              <div className="overflow-x-auto border border-white/5 rounded-lg">
-                <table className="w-full text-xs">
-                  <thead className="bg-black/40 text-muted-foreground uppercase">
+              <div className="overflow-x-auto rounded-xl border border-white/5 max-h-[300px]">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-black/40 text-muted-foreground sticky top-0">
                     <tr>
-                      <th className="px-3 py-2 text-left w-8">#</th>
-                      <th className="px-3 py-2 text-left">Status</th>
-                      <th className="px-3 py-2 text-left">Name</th>
-                      <th className="px-3 py-2 text-left">IP Address</th>
-                      <th className="px-3 py-2 text-left">Username</th>
-                      <th className="px-3 py-2 text-left">Port</th>
-                      <th className="px-3 py-2 text-left">Description</th>
+                      <th className="px-3 py-2 w-8">#</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Name</th>
+                      <th className="px-3 py-2">IP</th>
+                      <th className="px-3 py-2">Username</th>
+                      <th className="px-3 py-2">Port</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {parsedRows.slice(0, 100).map((row, i) => (
-                      <tr key={i} className={row.valid ? "" : "bg-red-500/5"}>
+                  <tbody className="divide-y divide-border/50">
+                    {parsedRows.map((row, i) => (
+                      <tr key={i} className={row.valid ? "" : "bg-destructive/5"}>
                         <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
                         <td className="px-3 py-2">
                           {row.valid ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                           ) : (
-                            <span className="text-red-400 text-xs">{row.error}</span>
+                            <span className="flex items-center gap-1 text-destructive">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              <span>{row.error}</span>
+                            </span>
                           )}
                         </td>
-                        <td className="px-3 py-2 font-medium">{row.name || "—"}</td>
-                        <td className="px-3 py-2 font-mono">{row.ipAddress || "—"}</td>
+                        <td className="px-3 py-2 font-medium">{row.name || "-"}</td>
+                        <td className="px-3 py-2 font-mono">{row.ipAddress || "-"}</td>
                         <td className="px-3 py-2">{row.sshUsername || "admin"}</td>
                         <td className="px-3 py-2">{row.sshPort || 22}</td>
-                        <td className="px-3 py-2 text-muted-foreground truncate max-w-[150px]">{row.description || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {parsedRows.length > 100 && (
-                  <p className="text-xs text-muted-foreground text-center py-2">Showing first 100 of {parsedRows.length} rows</p>
-                )}
               </div>
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setImportStep("upload")}>Back</Button>
-                <Button
-                  onClick={handleImport}
-                  disabled={validCount === 0 || importRouters.isPending}
-                  className="gap-2"
-                >
-                  {importRouters.isPending ? "Importing..." : `Import ${validCount} Device(s)`}
+                <Button onClick={handleImport} disabled={validCount === 0 || importRouters.isPending}>
+                  Import {validCount} Device{validCount !== 1 ? "s" : ""}
                 </Button>
               </DialogFooter>
             </div>
           )}
 
           {importStep === "results" && importResults && (
-            <div className="space-y-4 py-2">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-center">
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
                   <p className="text-2xl font-bold text-emerald-400">{importResults.created}</p>
                   <p className="text-xs text-muted-foreground mt-1">Created</p>
                 </div>
-                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-red-400">{importResults.failed}</p>
+                <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20">
+                  <p className="text-2xl font-bold text-destructive">{importResults.failed}</p>
                   <p className="text-xs text-muted-foreground mt-1">Failed</p>
                 </div>
-                <div className="p-4 bg-white/5 border border-white/10 rounded-lg text-center">
+                <div className="p-4 rounded-xl bg-black/20 border border-white/5">
                   <p className="text-2xl font-bold">{importResults.total}</p>
                   <p className="text-xs text-muted-foreground mt-1">Total</p>
                 </div>
               </div>
 
-              {importResults.results.some((r: any) => r.status === "error") && (
-                <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {importResults.results
-                    .filter((r: any) => r.status === "error")
-                    .map((r: any, i: number) => (
-                      <div key={i} className="flex items-center gap-2 text-xs p-2 bg-red-500/5 rounded">
-                        <XCircle className="w-3 h-3 text-red-400 shrink-0" />
-                        <span className="font-medium">{r.name}</span>
-                        <span className="text-muted-foreground">— {r.error}</span>
+              {importResults.results.some((r: any) => r.error) && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-destructive">Errors:</p>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {importResults.results.filter((r: any) => r.error).map((r: any, i: number) => (
+                      <div key={i} className="text-xs flex items-center gap-2 text-destructive/80">
+                        <XCircle className="w-3 h-3 shrink-0" />
+                        <span>{r.name}: {r.error}</span>
                       </div>
                     ))}
+                  </div>
                 </div>
               )}
 
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsImportOpen(false)}>Close</Button>
-                <Button onClick={openImportDialog} className="gap-2">
-                  <Upload className="w-4 h-4" /> Import More
-                </Button>
+                <Button onClick={() => setIsImportOpen(false)}>Done</Button>
               </DialogFooter>
             </div>
           )}

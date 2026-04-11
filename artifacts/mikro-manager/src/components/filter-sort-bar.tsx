@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,22 @@ export function FilterSortBar({
   onSortChange,
 }: FilterSortBarProps) {
   const [showFilters, setShowFilters] = useState(false);
+  const [localSearch, setLocalSearch] = useState(searchValue);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    setLocalSearch(searchValue);
+  }, [searchValue]);
+
+  const handleSearchChange = (value: string) => {
+    setLocalSearch(value);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onSearchChange(value), 200);
+  };
+
+  useEffect(() => {
+    return () => clearTimeout(debounceRef.current);
+  }, []);
 
   const hasActiveFilters = Object.values(activeFilters).some(v =>
     Array.isArray(v) ? v.length > 0 : v !== ""
@@ -79,8 +95,8 @@ export function FilterSortBar({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder={searchPlaceholder}
-            value={searchValue}
-            onChange={(e) => onSearchChange(e.target.value)}
+            value={localSearch}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-9 bg-card border-border/50 shadow-sm"
           />
         </div>

@@ -21,63 +21,10 @@ import { CreateJobBody } from "@workspace/api-zod";
 import { getCurrentUser, requireAuth } from "../lib/auth.js";
 import { executeSSHCommand, applyTagSubstitution } from "../lib/ssh.js";
 import { interactiveSessions, type LiveEvent } from "../lib/interactive-session.js";
+import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "../lib/resolve-routers.js";
 
 const router: IRouter = Router();
 
-// ─── Group Resolution ───────────────────────────────────────────────
-// Iterative BFS that walks the group hierarchy and collects all router IDs.
-// Each depth level is processed in 2 parallel queries (router links + subgroup links).
-// Returns de-duplicated IDs preserving insertion order (direct routers first).
-async function resolveRouterIds(
-  directRouterIds: number[],
-  groupIds: number[]
-): Promise<number[]> {
-  const seen = new Set<number>();
-  const ordered: number[] = [];
-
-  function addUnique(id: number) {
-    if (!seen.has(id)) {
-      seen.add(id);
-      ordered.push(id);
-    }
-  }
-
-  // Add directly-selected routers first
-  for (const id of directRouterIds) {
-    addUnique(id);
-  }
-
-  // BFS through group tree — `pending` = groups at the current depth level
-  const visited = new Set<number>();
-  let pending = groupIds.filter((id) => !visited.has(id));
-
-  while (pending.length > 0) {
-    for (const id of pending) visited.add(id);
-
-    // Fetch router members and child subgroups in parallel
-    const [routerLinks, subgroupLinks] = await Promise.all([
-      db
-        .select({ routerId: groupRoutersTable.routerId })
-        .from(groupRoutersTable)
-        .where(inArray(groupRoutersTable.groupId, pending)),
-      db
-        .select({ childGroupId: groupSubgroupsTable.childGroupId })
-        .from(groupSubgroupsTable)
-        .where(inArray(groupSubgroupsTable.parentGroupId, pending)),
-    ]);
-
-    for (const link of routerLinks) {
-      addUnique(link.routerId);
-    }
-
-    // Move to next depth level, skipping already-visited groups (prevents cycles)
-    pending = subgroupLinks
-      .map((s) => s.childGroupId)
-      .filter((id) => !visited.has(id));
-  }
-
-  return ordered;
-}
 
 // POST /jobs/resolve-count — Preview how many routers a job would target
 // (used by the UI to show "X routers will be affected" before creating the job)
@@ -233,45 +180,8 @@ router.post("/jobs", async (req, res) => {
   });
 });
 
-// ─── Excel Variable Substitution Helpers ────────────────────────────
-
-// Build a fast lookup map from Excel data keyed by "ip:<address>" and "name:<lowercase>"
-function buildExcelLookup(
-  excelData: Record<string, string>[] | undefined
-): Map<string, Record<string, string>> | null {
-  if (!excelData || excelData.length === 0) return null;
-
-  const lookup = new Map<string, Record<string, string>>();
-  for (const row of excelData) {
-    const ip = row["ROUTER_IP"]?.trim();
-    const name = row["ROUTER_NAME"]?.trim();
-    if (ip) lookup.set(`ip:${ip}`, row);
-    if (name) lookup.set(`name:${name.toLowerCase()}`, row);
-  }
-  return lookup;
-}
-
-// Match a router to its Excel row: tries IP → name → positional index → last row
-function findExcelRow(
-  router: { name: string; ipAddress: string },
-  lookup: Map<string, Record<string, string>> | null,
-  index: number,
-  excelData?: Record<string, string>[]
-): Record<string, string> {
-  if (lookup) {
-    const byIp = lookup.get(`ip:${router.ipAddress}`);
-    if (byIp) return byIp;
-    const byName = lookup.get(`name:${router.name.toLowerCase()}`);
-    if (byName) return byName;
-  }
-  if (excelData && excelData.length > 0) {
-    return excelData[index] ?? excelData[excelData.length - 1];
-  }
-  return {};
-}
-
 // ─── Background Job Runner ──────────────────────────────────────────
-// Executes SSH commands sequentially across all routers in a job.
+// Executes SSH commands concurrently (up to 10 at a time) across all routers.
 // Updates task status and job counters after each router completes.
 async function runJobInBackground(
   jobId: number,
@@ -283,10 +193,10 @@ async function runJobInBackground(
 ) {
   let completedCount = 0;
   let failedCount = 0;
+  let cancelled = false;
 
   const excelLookup = buildExcelLookup(excelData);
 
-  // Build a task ID lookup from the pre-inserted task IDs (avoids re-querying DB)
   const taskIdByRouterId = new Map<number, number>();
   if (taskIds) {
     for (let i = 0; i < routers.length && i < taskIds.length; i++) {
@@ -294,10 +204,9 @@ async function runJobInBackground(
     }
   }
 
-  for (let i = 0; i < routers.length; i++) {
-    const r = routers[i];
+  await runConcurrent(routers, async (r, i) => {
+    if (cancelled) return;
 
-    // Use pre-mapped task ID; fallback to DB lookup only if missing
     let taskId = taskIdByRouterId.get(r.id);
     if (!taskId) {
       const [task] = await db
@@ -305,32 +214,31 @@ async function runJobInBackground(
         .from(jobTasksTable)
         .where(and(eq(jobTasksTable.jobId, jobId), eq(jobTasksTable.routerId, r.id)))
         .limit(1);
-      if (!task) continue;
+      if (!task) return;
       taskId = task.id;
     }
 
-    // Check for cancellation every 5 routers (reduces DB queries by 80%)
-    if (i % 5 === 0) {
+    if (i % 20 === 0) {
       const [currentJob] = await db
         .select({ status: batchJobsTable.status })
         .from(batchJobsTable)
         .where(eq(batchJobsTable.id, jobId))
         .limit(1);
-      if (currentJob?.status === "cancelled") break;
+      if (currentJob?.status === "cancelled") {
+        cancelled = true;
+        return;
+      }
     }
 
-    // Substitute {{TAG}} placeholders with matching Excel row values
     const row = findExcelRow(r, excelLookup, i, excelData);
     const finalScript = applyTagSubstitution(scriptCode, row);
 
-    // Mark task as running and store the resolved script (combined into one UPDATE)
     await db
       .update(jobTasksTable)
       .set({ status: "running", startedAt: new Date(), resolvedScript: finalScript })
       .where(eq(jobTasksTable.id, taskId));
 
     if (!r.sshPassword) {
-      // No password configured — fail immediately with a clear log
       const noPassLog = [
         `[${new Date().toISOString()}] SSH session initiated`,
         `[${new Date().toISOString()}] Target: ${r.sshUsername}@${r.ipAddress}:${r.sshPort}`,
@@ -348,7 +256,6 @@ async function runJobInBackground(
         .where(eq(jobTasksTable.id, taskId));
       failedCount++;
     } else {
-      // Execute the SSH command against this router
       const result = await executeSSHCommand(
         r.ipAddress,
         r.sshPort,
@@ -377,17 +284,12 @@ async function runJobInBackground(
       }
     }
 
-    // Update running counters on the parent job
     await db
       .update(batchJobsTable)
-      .set({
-        completedTasks: completedCount,
-        failedTasks: failedCount,
-      })
+      .set({ completedTasks: completedCount, failedTasks: failedCount })
       .where(eq(batchJobsTable.id, jobId));
-  }
+  }, 10);
 
-  // Determine final status: "failed" only if every task failed
   const finalStatus =
     failedCount === routers.length
       ? "failed"

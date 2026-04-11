@@ -3,6 +3,7 @@ import { useListUsers } from "@workspace/api-client-react";
 import { useUsersMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
+import { useConfirm } from "@/components/confirm-dialog";
 import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Users as UsersIcon, ShieldAlert, Trash2, Edit2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils";
@@ -20,6 +22,7 @@ export default function Users() {
   const { data: users = [], isLoading } = useListUsers({ query: { enabled: user?.role === 'admin' } });
   const { createUser, updateUser, deleteUser } = useUsersMutations();
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
@@ -87,18 +90,19 @@ export default function Users() {
       toast({ title: "Cannot delete yourself", variant: "destructive" });
       return;
     }
-    if (confirm("Delete this user?")) {
-      try {
-        await deleteUser.mutateAsync({ id });
-        toast({ title: "User deleted" });
-      } catch (err: any) {
-        toast({ title: "Error", description: err.message, variant: "destructive" });
-      }
+    const ok = await confirm({ title: "Delete User", description: "Are you sure you want to delete this user?", confirmLabel: "Delete", variant: "destructive" });
+    if (!ok) return;
+    try {
+      await deleteUser.mutateAsync({ id });
+      toast({ title: "User deleted" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   };
 
   const handleBulkDelete = async () => {
-    if (!confirm(`Delete ${selection.count} selected user(s)?`)) return;
+    const ok = await confirm({ title: "Delete Users", description: `Delete ${selection.count} selected user(s)?`, confirmLabel: "Delete All", variant: "destructive" });
+    if (!ok) return;
     setIsBulkDeleting(true);
     try {
       await Promise.all(selection.ids.map(id => deleteUser.mutateAsync({ id })));
@@ -128,7 +132,20 @@ export default function Users() {
       <Card className="glass-panel overflow-hidden">
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading users...</div>
+            <div className="p-4 space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-6 py-3">
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
@@ -150,7 +167,7 @@ export default function Users() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {users.map(u => (
-                    <tr key={u.id} className={`hover:bg-white/5 transition-colors ${selection.selected.has(u.id) ? "bg-primary/5" : ""}`}>
+                    <tr key={u.id} className={`hover:bg-white/5 transition-colors ${selection.selected.has(u.id) ? "bg-primary/10" : ""}`}>
                       <td className="px-4 py-4">
                         {u.id !== user.id ? (
                           <Checkbox

@@ -3,79 +3,10 @@
 // When a schedule fires, it clones the template job and runs SSH commands
 // against all resolved routers (same execution logic as manual job runs).
 
-import { db, schedulesTable, batchJobsTable, jobTasksTable, routersTable, groupRoutersTable, groupSubgroupsTable } from "@workspace/db";
+import { db, schedulesTable, batchJobsTable, jobTasksTable, routersTable } from "@workspace/db";
 import { eq, lte, and, inArray } from "drizzle-orm";
 import { executeSSHCommand, applyTagSubstitution } from "./ssh.js";
-
-// ─── Group Resolution ───────────────────────────────────────────────
-// Iterative BFS that walks the group hierarchy and collects all router IDs.
-// Processes each depth level in 2 parallel queries (router links + subgroup links).
-// Returns IDs in order: direct routers first, then by group depth, de-duplicated.
-async function resolveRouterIds(
-  directRouterIds: number[],
-  groupIds: number[]
-): Promise<number[]> {
-  const seen = new Set<number>();
-  const ordered: number[] = [];
-  function addUnique(id: number) {
-    if (!seen.has(id)) { seen.add(id); ordered.push(id); }
-  }
-
-  // Add directly-selected routers first
-  for (const id of directRouterIds) addUnique(id);
-
-  // BFS through group hierarchy — `pending` holds groups at the current depth
-  const visited = new Set<number>();
-  let pending = groupIds.filter((id) => !visited.has(id));
-
-  while (pending.length > 0) {
-    for (const id of pending) visited.add(id);
-
-    // Fetch router members and child subgroups for all groups at this depth in parallel
-    const [routerLinks, subgroupLinks] = await Promise.all([
-      db.select({ routerId: groupRoutersTable.routerId }).from(groupRoutersTable).where(inArray(groupRoutersTable.groupId, pending)),
-      db.select({ childGroupId: groupSubgroupsTable.childGroupId }).from(groupSubgroupsTable).where(inArray(groupSubgroupsTable.parentGroupId, pending)),
-    ]);
-
-    for (const l of routerLinks) addUnique(l.routerId);
-    // Move to the next depth level — skip already-visited groups to prevent cycles
-    pending = subgroupLinks.map(s => s.childGroupId).filter(id => !visited.has(id));
-  }
-
-  return ordered;
-}
-
-// ─── Excel Lookup ───────────────────────────────────────────────────
-// Builds a fast lookup map from Excel/CSV data keyed by "ip:<address>" and "name:<lowercase>".
-// Used to match variable rows to routers for {{TAG}} substitution.
-function buildExcelLookup(excelData: Record<string, string>[] | undefined): Map<string, Record<string, string>> | null {
-  if (!excelData || excelData.length === 0) return null;
-  const lookup = new Map<string, Record<string, string>>();
-  for (const row of excelData) {
-    const ip = row["ROUTER_IP"]?.trim();
-    const name = row["ROUTER_NAME"]?.trim();
-    if (ip) lookup.set(`ip:${ip}`, row);
-    if (name) lookup.set(`name:${name.toLowerCase()}`, row);
-  }
-  return lookup;
-}
-
-// Find the Excel row matching a router — tries IP match first, then name, then falls back to positional index
-function findExcelRow(
-  router: { name: string; ipAddress: string },
-  lookup: Map<string, Record<string, string>> | null,
-  index: number,
-  excelData?: Record<string, string>[]
-): Record<string, string> {
-  if (lookup) {
-    const byIp = lookup.get(`ip:${router.ipAddress}`);
-    if (byIp) return byIp;
-    const byName = lookup.get(`name:${router.name.toLowerCase()}`);
-    if (byName) return byName;
-  }
-  if (excelData && excelData.length > 0) return excelData[index] ?? excelData[excelData.length - 1];
-  return {};
-}
+import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "./resolve-routers.js";
 
 // ─── Template Job Execution ─────────────────────────────────────────
 // Clones a template job (status="scheduled") into a new running job,
@@ -120,25 +51,23 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
   }));
   await db.insert(jobTasksTable).values(tasks);
 
-  // Execute SSH commands sequentially, one router at a time
+  const insertedTasks = await db.select().from(jobTasksTable)
+    .where(eq(jobTasksTable.jobId, newJob.id));
+  const taskByRouterId = new Map(insertedTasks.map(t => [t.routerId, t.id]));
+
   const excelData = templateJob.excelData as Record<string, string>[] | undefined;
   const excelLookup = buildExcelLookup(excelData);
   let completedCount = 0;
   let failedCount = 0;
 
-  for (let i = 0; i < routers.length; i++) {
-    const r = routers[i];
-    const [task] = await db.select().from(jobTasksTable)
-      .where(and(eq(jobTasksTable.jobId, newJob.id), eq(jobTasksTable.routerId, r.id)))
-      .limit(1);
-    if (!task) continue;
+  await runConcurrent(routers, async (r, i) => {
+    const taskId = taskByRouterId.get(r.id);
+    if (!taskId) return;
 
-    // Substitute {{TAG}} placeholders with the matching Excel row values
     const row = findExcelRow(r, excelLookup, i, excelData);
     const finalScript = applyTagSubstitution(templateJob.scriptCode, row);
 
-    // Mark task as running and store the resolved script
-    await db.update(jobTasksTable).set({ status: "running", startedAt: new Date(), resolvedScript: finalScript }).where(eq(jobTasksTable.id, task.id));
+    await db.update(jobTasksTable).set({ status: "running", startedAt: new Date(), resolvedScript: finalScript }).where(eq(jobTasksTable.id, taskId));
 
     if (!r.sshPassword) {
       failedCount++;
@@ -146,37 +75,34 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
         status: "failed",
         errorMessage: "No SSH password configured",
         completedAt: new Date(),
-      }).where(eq(jobTasksTable.id, task.id));
-      await db.update(batchJobsTable).set({ failedTasks: failedCount }).where(eq(batchJobsTable.id, newJob.id));
-      continue;
-    }
-
-    try {
-      const result = await executeSSHCommand(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, 30000, templateJob.autoConfirm);
-      if (result.success) {
-        completedCount++;
-        await db.update(jobTasksTable).set({
-          status: "success", output: result.output, connectionLog: result.connectionLog, completedAt: new Date(),
-        }).where(eq(jobTasksTable.id, task.id));
-      } else {
+      }).where(eq(jobTasksTable.id, taskId));
+    } else {
+      try {
+        const result = await executeSSHCommand(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, 30000, templateJob.autoConfirm);
+        if (result.success) {
+          completedCount++;
+          await db.update(jobTasksTable).set({
+            status: "success", output: result.output, connectionLog: result.connectionLog, completedAt: new Date(),
+          }).where(eq(jobTasksTable.id, taskId));
+        } else {
+          failedCount++;
+          await db.update(jobTasksTable).set({
+            status: "failed", output: result.output, errorMessage: result.errorMessage, connectionLog: result.connectionLog, completedAt: new Date(),
+          }).where(eq(jobTasksTable.id, taskId));
+        }
+      } catch (err: any) {
         failedCount++;
         await db.update(jobTasksTable).set({
-          status: "failed", output: result.output, errorMessage: result.errorMessage, connectionLog: result.connectionLog, completedAt: new Date(),
-        }).where(eq(jobTasksTable.id, task.id));
+          status: "failed", errorMessage: err.message, completedAt: new Date(),
+        }).where(eq(jobTasksTable.id, taskId));
       }
-    } catch (err: any) {
-      failedCount++;
-      await db.update(jobTasksTable).set({
-        status: "failed", errorMessage: err.message, completedAt: new Date(),
-      }).where(eq(jobTasksTable.id, task.id));
     }
 
-    // Update running totals on the parent job
     await db.update(batchJobsTable).set({
       completedTasks: completedCount,
       failedTasks: failedCount,
     }).where(eq(batchJobsTable.id, newJob.id));
-  }
+  }, 10);
 
   // Finalize the job — "failed" only if every single task failed
   await db.update(batchJobsTable).set({

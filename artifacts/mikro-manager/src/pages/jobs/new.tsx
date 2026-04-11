@@ -13,7 +13,7 @@ import { ScriptBuilder, ScriptBlock, buildCombinedScript } from "@/components/sc
 import { useDragReorder } from "@/hooks/use-drag-reorder";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 
 function useResolvedDeviceCount(routerIds: number[], groupIds: number[]) {
   return useQuery({
@@ -162,7 +162,8 @@ export default function NewJob() {
     if (!file) return;
     try {
       const isCSV = file.name.toLowerCase().endsWith(".csv");
-      const wb = new ExcelJS.Workbook();
+      const ExcelJSModule = (await import("exceljs")).default;
+      const wb = new ExcelJSModule.Workbook();
 
       if (isCSV) {
         const text = await file.text();

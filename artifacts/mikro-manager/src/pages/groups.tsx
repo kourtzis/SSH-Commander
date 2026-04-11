@@ -3,12 +3,14 @@ import { useListGroups, useListRouters, useGetGroup, useGetGroupsCounts, getList
 import { useQueryClient } from "@tanstack/react-query";
 import { useGroupsMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
+import { useConfirm } from "@/components/confirm-dialog";
 import { SelectionBar } from "@/components/selection-bar";
 import { FilterSortBar, ActiveSort } from "@/components/filter-sort-bar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +31,7 @@ export default function Groups() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const confirmDialog = useConfirm();
 
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
   const [selectedGroup, setSelectedGroup] = useState<number | null>(null);
@@ -164,19 +167,20 @@ export default function Groups() {
 
   const handleRemoveMember = async (type: "router"|"group", id: number) => {
     if (!selectedGroup) return;
-    if (confirm("Remove this member?")) {
-      try {
-        await removeMember.mutateAsync({ id: selectedGroup, data: { type, memberId: id } });
-        toast({ title: "Member removed" });
-      } catch (e: any) {
-        toast({ title: "Error", description: e.message, variant: "destructive" });
-      }
+    const ok = await confirmDialog({ title: "Remove Member", description: "Remove this member from the group?", confirmLabel: "Remove", variant: "destructive" });
+    if (!ok) return;
+    try {
+      await removeMember.mutateAsync({ id: selectedGroup, data: { type, memberId: id } });
+      toast({ title: "Member removed" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
 
   const handleBulkRemoveDevices = async () => {
     if (!selectedGroup || selectedDeviceIds.size === 0) return;
-    if (!confirm(`Remove ${selectedDeviceIds.size} device${selectedDeviceIds.size !== 1 ? "s" : ""} from this group?`)) return;
+    const ok = await confirmDialog({ title: "Remove Devices", description: `Remove ${selectedDeviceIds.size} device${selectedDeviceIds.size !== 1 ? "s" : ""} from this group?`, confirmLabel: "Remove All", variant: "destructive" });
+    if (!ok) return;
     setIsBulkRemoving(true);
     try {
       for (const deviceId of selectedDeviceIds) {
@@ -201,14 +205,14 @@ export default function Groups() {
 
   const handleDeleteGroup = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Delete this group?")) {
-      try {
-        await deleteGroup.mutateAsync({ id });
-        if (selectedGroup === id) setSelectedGroup(null);
-        toast({ title: "Group deleted" });
-      } catch (e: any) {
-        toast({ title: "Error", description: e.message, variant: "destructive" });
-      }
+    const ok = await confirmDialog({ title: "Delete Group", description: "Are you sure you want to delete this group? This action cannot be undone.", confirmLabel: "Delete", variant: "destructive" });
+    if (!ok) return;
+    try {
+      await deleteGroup.mutateAsync({ id });
+      if (selectedGroup === id) setSelectedGroup(null);
+      toast({ title: "Group deleted" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
 
@@ -305,7 +309,8 @@ export default function Groups() {
   };
 
   const handleBulkDelete = async () => {
-    if (!confirm(`Delete ${selection.count} selected group(s)?`)) return;
+    const ok = await confirmDialog({ title: "Delete Groups", description: `Delete ${selection.count} selected group(s)? This action cannot be undone.`, confirmLabel: "Delete All", variant: "destructive" });
+    if (!ok) return;
     setIsBulkDeleting(true);
     try {
       await Promise.all(selection.ids.map(id => deleteGroup.mutateAsync({ id })));
@@ -515,8 +520,23 @@ export default function Groups() {
               <Network className="w-4 h-4" />
               <span className="text-xs font-medium">Root level — drag a group here to make it top-level</span>
             </div>
-            {isLoading ? <p className="text-muted-foreground text-sm">Loading...</p> : renderTree(null)}
-            {!isLoading && groups.length === 0 && <p className="text-muted-foreground text-sm text-center py-8">No groups created yet.</p>}
+            {isLoading ? (
+              <div className="space-y-2 py-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-2">
+                    <Skeleton className="h-4 w-4 rounded" />
+                    <Skeleton className="h-5 w-5 rounded" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                ))}
+              </div>
+            ) : renderTree(null)}
+            {!isLoading && groups.length === 0 && (
+              <div className="text-center py-12">
+                <Network className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground text-sm">No groups created yet.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

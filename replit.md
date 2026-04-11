@@ -30,15 +30,18 @@ artifacts-monorepo/
 ├── artifacts/
 │   ├── api-server/         # Express API server
 │   │   └── src/
-│   │       ├── lib/auth.ts         # Session auth helpers
-│   │       ├── lib/ssh.ts          # SSH execution + tag substitution
-│   │       ├── lib/scheduler.ts     # Scheduler tick engine (30s interval)
-│   │       └── routes/             # auth, users, routers, groups, snippets, jobs, schedules
+│   │       ├── lib/auth.ts              # Session auth helpers
+│   │       ├── lib/ssh.ts               # SSH execution + tag substitution
+│   │       ├── lib/scheduler.ts          # Scheduler tick engine (30s interval)
+│   │       ├── lib/resolve-routers.ts    # Shared BFS group resolution + Excel helpers + concurrency limiter
+│   │       └── routes/                   # auth, users, routers, groups, snippets, jobs, schedules
 │   └── mikro-manager/      # React + Vite frontend
 │       └── src/
 │           ├── contexts/           # auth-context.tsx (AuthProvider + useAuth)
 │           ├── components/layout/  # sidebar, app-layout
-│           ├── components/ui/      # shadcn UI components
+│           ├── components/confirm-dialog.tsx  # Reusable confirm dialog (ConfirmProvider + useConfirm hook)
+│           ├── components/error-boundary.tsx  # React ErrorBoundary with graceful fallback
+│           ├── components/ui/      # shadcn UI components (includes alert-dialog)
 │           └── pages/              # dashboard, routers, groups, snippets, jobs, scheduler, users, login
 ├── lib/
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
@@ -130,7 +133,7 @@ Implementation: `writeCommandWithControlChars()` in `ssh.ts` splits the command 
 
 ## Versioning
 
-- Current version: `1.3.2` (set in root `package.json`, `api-server/package.json`, and `mikro-manager/package.json`)
+- Current version: `1.4.0` (set in root `package.json`, `api-server/package.json`, `mikro-manager/package.json`, `VERSION`, `version.ts`)
 - Follows Semantic Versioning: MAJOR.MINOR.PATCH
   - PATCH (x.y.Z): minor fixes and optimizations
   - MINOR (x.Y.0): substantial fixes and minor new features

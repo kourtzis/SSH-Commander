@@ -1,11 +1,13 @@
 import { useState, useMemo } from "react";
 import { useListSchedules, useListJobs } from "@workspace/api-client-react";
 import { useSchedulesMutations } from "@/hooks/use-mutations";
+import { useConfirm } from "@/components/confirm-dialog";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Clock, Calendar, Repeat, Trash2, CalendarClock, CalendarDays } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
@@ -61,6 +63,7 @@ export default function SchedulerList() {
   const { data: jobs = [] } = useListJobs();
   const { updateSchedule, deleteSchedule } = useSchedulesMutations();
   const { toast } = useToast();
+  const confirmDialog = useConfirm();
 
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("");
@@ -94,7 +97,8 @@ export default function SchedulerList() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Delete this schedule?")) return;
+    const ok = await confirmDialog({ title: "Delete Schedule", description: "Are you sure you want to delete this schedule? This action cannot be undone.", confirmLabel: "Delete", variant: "destructive" });
+    if (!ok) return;
     try {
       await deleteSchedule.mutateAsync({ id });
       toast({ title: "Schedule deleted" });
@@ -104,7 +108,7 @@ export default function SchedulerList() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Scheduler</h1>
@@ -159,7 +163,23 @@ export default function SchedulerList() {
       />
 
       {isLoading ? (
-        <div className="text-center text-muted-foreground py-12">Loading...</div>
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="glass-panel">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-4">
+                  <Skeleton className="h-5 w-5 rounded" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-3 w-64" />
+                  </div>
+                  <Skeleton className="h-5 w-14 rounded-full" />
+                  <Skeleton className="h-5 w-10 rounded-full" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : filteredSchedules.length === 0 ? (
         <Card className="glass-panel">
           <CardContent className="py-16 text-center text-muted-foreground">

@@ -2,11 +2,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
 import { useGetJob } from "@workspace/api-client-react";
 import { useJobsMutations } from "@/hooks/use-mutations";
+import { useConfirm } from "@/components/confirm-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Ban, CheckCircle2, XCircle, PlayCircle, Terminal, Clock,
   ChevronDown, ChevronRight, ScrollText, Code, ShieldCheck,
@@ -46,6 +48,7 @@ export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const jobId = parseInt(id);
   const { toast } = useToast();
+  const confirmDialog = useConfirm();
   const { cancelJob } = useJobsMutations();
   const [expandedTask, setExpandedTask] = useState<number | null>(null);
   const [waitingDevices, setWaitingDevices] = useState<WaitingDevice[]>([]);
@@ -139,13 +142,19 @@ export default function JobDetail() {
   }, [job?.status, job?.autoConfirm, jobId]);
 
   const handleCancel = async () => {
-    if (confirm(job!.status === "running" ? "Are you sure you want to stop this running job?" : "Are you sure you want to cancel this scheduled job?")) {
-      try {
-        await cancelJob.mutateAsync({ id: jobId });
-        toast({ title: "Cancel requested" });
-      } catch (e: any) {
-        toast({ title: "Failed to cancel", description: e.message, variant: "destructive" });
-      }
+    const isRunning = job!.status === "running";
+    const ok = await confirmDialog({
+      title: isRunning ? "Stop Job" : "Cancel Job",
+      description: isRunning ? "Are you sure you want to stop this running job?" : "Are you sure you want to cancel this scheduled job?",
+      confirmLabel: isRunning ? "Stop" : "Cancel Job",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    try {
+      await cancelJob.mutateAsync({ id: jobId });
+      toast({ title: "Cancel requested" });
+    } catch (e: any) {
+      toast({ title: "Failed to cancel", description: e.message, variant: "destructive" });
     }
   };
 
@@ -396,7 +405,10 @@ export default function JobDetail() {
                 placeholder="Type your response..."
                 value={responseText}
                 onChange={e => setResponseText(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendToAll(); } }}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendToAll(); }
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSendToAll(); }
+                }}
                 className="flex-1 bg-black/30 border-amber-500/20 focus-visible:ring-amber-500/50"
               />
               <Button

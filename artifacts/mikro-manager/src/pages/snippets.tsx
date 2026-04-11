@@ -3,6 +3,7 @@ import { useListSnippets } from "@workspace/api-client-react";
 import { useSnippetsMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
+import { useConfirm } from "@/components/confirm-dialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Code2, Trash2, Edit2 } from "lucide-react";
 import { SnippetViewer } from "@/components/snippet-viewer";
 import { ScriptBuilder, ScriptBlock, buildCombinedScript } from "@/components/script-builder";
@@ -22,6 +24,7 @@ export default function Snippets() {
   const { data: snippets = [], isLoading } = useListSnippets();
   const { createSnippet, updateSnippet, deleteSnippet } = useSnippetsMutations();
   const { toast } = useToast();
+  const confirmDialog = useConfirm();
 
   const [search, setSearch] = useState("");
   const [filterTags, setFilterTags] = useState<string[]>([]);
@@ -102,18 +105,19 @@ export default function Snippets() {
   };
 
   const handleDelete = async (id: number) => {
-    if (confirm("Delete this snippet?")) {
-      try {
-        await deleteSnippet.mutateAsync({ id });
-        toast({ title: "Snippet deleted" });
-      } catch (err: any) {
-        toast({ title: "Error", description: err.message, variant: "destructive" });
-      }
+    const ok = await confirmDialog({ title: "Delete Snippet", description: "Are you sure you want to delete this snippet?", confirmLabel: "Delete", variant: "destructive" });
+    if (!ok) return;
+    try {
+      await deleteSnippet.mutateAsync({ id });
+      toast({ title: "Snippet deleted" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   };
 
   const handleBulkDelete = async () => {
-    if (!confirm(`Delete ${selection.count} selected snippet(s)?`)) return;
+    const ok = await confirmDialog({ title: "Delete Snippets", description: `Delete ${selection.count} selected snippet(s)?`, confirmLabel: "Delete All", variant: "destructive" });
+    if (!ok) return;
     setIsBulkDeleting(true);
     try {
       await Promise.all(selection.ids.map(id => deleteSnippet.mutateAsync({ id })));
@@ -163,7 +167,22 @@ export default function Snippets() {
       <SelectionBar count={selection.count} label="snippets" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 
       {isLoading ? (
-        <div className="text-muted-foreground">Loading snippets...</div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="glass-panel">
+              <CardHeader>
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="h-3 w-56" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-24 w-full rounded-xl" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
         <Card className="glass-panel text-center p-12">
           <Code2 className="w-12 h-12 mx-auto text-muted-foreground/30 mb-4" />
@@ -186,7 +205,7 @@ export default function Snippets() {
           </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {filtered.map((snippet) => (
-            <Card key={snippet.id} className={`glass-panel flex flex-col ${selection.selected.has(snippet.id) ? "ring-1 ring-primary/50" : ""}`}>
+            <Card key={snippet.id} className={`glass-panel flex flex-col ${selection.selected.has(snippet.id) ? "ring-1 ring-primary/50 bg-primary/5" : ""}`}>
               <CardHeader className="flex flex-row items-start justify-between pb-4">
                 <div className="flex items-start gap-3">
                   <div className="pt-0.5">

@@ -1,5 +1,5 @@
-export const APP_VERSION = "1.3.2";
-export const APP_VERSION_DATE = "2025-04-11";
+export const APP_VERSION = "1.4.0";
+export const APP_VERSION_DATE = "2026-04-11";
 
 export interface ChangelogSection {
   title: string;
@@ -13,6 +13,41 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.4.0",
+    date: "2026-04-11",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Styled confirmation dialogs replace all native browser confirm() popups — consistent dark-theme AlertDialog with destructive variant styling",
+          "Loading skeleton placeholders on all list pages (Dashboard, Devices, Groups, Jobs, Snippets, Scheduler, Users) for smoother perceived performance",
+          "Ctrl+Enter / Cmd+Enter keyboard shortcut to send responses in interactive SSH job mode",
+          "Debounced search input across all FilterSortBar instances — reduces re-renders during fast typing",
+          "Route-level code splitting with React.lazy + Suspense — smaller initial bundle, faster first load",
+          "React ErrorBoundary wraps entire app with graceful fallback and retry button",
+          "Empty state illustrations with contextual messages on all list pages",
+        ],
+      },
+      {
+        title: "Improved",
+        items: [
+          "Selection highlight uses bg-primary/10 for better contrast on dark backgrounds",
+          "Consistent page widths — removed max-w constraint on scheduler page",
+          "refetchOnWindowFocus re-enabled for automatic data freshness when switching tabs",
+        ],
+      },
+      {
+        title: "Optimized",
+        items: [
+          "Concurrent SSH execution (up to 10 sessions in parallel) replaces sequential per-device execution — dramatically faster batch jobs on large device sets",
+          "Shared group resolution utility (resolveRouterIds) extracted from duplicated BFS in jobs route and scheduler",
+          "ExcelJS loaded dynamically via import() instead of static import — reduces initial page bundle size",
+          "Shared Excel lookup helpers (buildExcelLookup, findExcelRow) consolidated into resolve-routers module",
+        ],
+      },
+    ],
+  },
   {
     version: "1.3.2",
     date: "2025-04-11",

@@ -5,9 +5,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, PlaySquare, CheckCircle2, XCircle, PlayCircle, Ban, Play, Copy, Pencil, Clock, Square, Timer } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useJobsMutations } from "@/hooks/use-mutations";
+import { useConfirm } from "@/components/confirm-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
@@ -35,6 +37,7 @@ export default function JobsList() {
   const [, setLocation] = useLocation();
   const { rerunJob, cancelJob, deleteJob } = useJobsMutations();
   const { toast } = useToast();
+  const confirmDialog = useConfirm();
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -103,7 +106,8 @@ export default function JobsList() {
     e.preventDefault();
     e.stopPropagation();
     const message = status === "running" ? "stop this running job" : "cancel this scheduled job";
-    if (!confirm(`Are you sure you want to ${message}?`)) return;
+    const ok = await confirmDialog({ title: status === "running" ? "Stop Job" : "Cancel Job", description: `Are you sure you want to ${message}?`, confirmLabel: status === "running" ? "Stop" : "Cancel Job", variant: "destructive" });
+    if (!ok) return;
     try {
       await cancelJob.mutateAsync({ id: jobId });
       toast({ title: status === "running" ? "Job stopped" : "Job cancelled" });
@@ -113,7 +117,8 @@ export default function JobsList() {
   };
 
   const handleBulkDelete = async () => {
-    if (!confirm(`Delete ${selection.count} selected job(s)?`)) return;
+    const ok = await confirmDialog({ title: "Delete Jobs", description: `Delete ${selection.count} selected job(s)? This action cannot be undone.`, confirmLabel: "Delete All", variant: "destructive" });
+    if (!ok) return;
     setIsBulkDeleting(true);
     try {
       await Promise.all(selection.ids.map(id => deleteJob.mutateAsync({ id })));
@@ -176,7 +181,22 @@ export default function JobsList() {
       <Card className="glass-panel">
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading jobs...</div>
+            <div className="divide-y divide-border/50">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-start gap-3 p-6">
+                  <Skeleton className="h-4 w-4 mt-1 rounded" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-5 w-48" />
+                    <Skeleton className="h-3 w-64" />
+                    <Skeleton className="h-3 w-36" />
+                  </div>
+                  <div className="space-y-2 text-right">
+                    <Skeleton className="h-6 w-24 rounded-full" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : sortedJobs.length === 0 ? (
             <div className="p-12 text-center">
               <PlaySquare className="w-12 h-12 mx-auto text-muted-foreground/30 mb-4" />
@@ -196,7 +216,9 @@ export default function JobsList() {
                 />
                 <span className="text-xs text-muted-foreground">Select all</span>
               </div>
-              {sortedJobs.map(job => (
+              {sortedJobs.map(job => {
+                const displayStatus = getDisplayStatus(job);
+                return (
                 <div key={job.id} className="flex items-start gap-3 hover:bg-white/5 transition-colors">
                   <div className="pl-4 pt-6 shrink-0" onClick={(e) => e.stopPropagation()}>
                     <Checkbox
@@ -206,12 +228,9 @@ export default function JobsList() {
                   </div>
                   <Link href={`/jobs/${job.id}`} className="block flex-1 min-w-0">
                     <div className="p-6 pl-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="space-y-1 min-w-0 flex-1">
+                    <div className="space-y-1.5 min-w-0 flex-1">
                       <h4 className="font-semibold text-lg text-primary">{job.name}</h4>
-                      <p className="text-sm text-muted-foreground font-mono truncate max-w-md">
-                        {job.scriptCode.split('\n')[0]}...
-                      </p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                         <span>Start: {formatDate(job.createdAt)}</span>
                         {job.completedAt ? (
                           <span>End: {formatDate(job.completedAt)}</span>
@@ -229,9 +248,9 @@ export default function JobsList() {
                     </div>
                     
                     <div className="flex flex-col items-start md:items-end gap-2 shrink-0">
-                      <Badge variant={getDisplayStatus(job).variant as any} className="text-sm py-1 px-3">
-                        {getDisplayStatus(job).icon}
-                        {getDisplayStatus(job).label}
+                      <Badge variant={displayStatus.variant as any} className="text-sm py-1 px-3">
+                        {displayStatus.icon}
+                        {displayStatus.label}
                       </Badge>
                       <div className="flex flex-col items-start md:items-end">
                         <div className="flex gap-2 text-sm mb-1">
@@ -296,7 +315,8 @@ export default function JobsList() {
                   </div>
                   </Link>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

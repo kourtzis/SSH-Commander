@@ -1,5 +1,6 @@
 import { useListRouters, useListGroups, useListSnippets, useListJobs } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Server, Network, Code2, Activity, PlayCircle, XCircle, CheckCircle2, Clock, Ban } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link } from "wouter";
@@ -7,10 +8,12 @@ import { formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 export default function Dashboard() {
-  const { data: routers = [] } = useListRouters();
-  const { data: groups = [] } = useListGroups();
-  const { data: snippets = [] } = useListSnippets();
-  const { data: jobs = [] } = useListJobs();
+  const { data: routers = [], isLoading: loadingRouters } = useListRouters();
+  const { data: groups = [], isLoading: loadingGroups } = useListGroups();
+  const { data: snippets = [], isLoading: loadingSnippets } = useListSnippets();
+  const { data: jobs = [], isLoading: loadingJobs } = useListJobs();
+
+  const isLoading = loadingRouters || loadingGroups || loadingSnippets || loadingJobs;
 
   const recentJobs = [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
 
@@ -41,7 +44,11 @@ export default function Dashboard() {
                 <CardContent className="p-6 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-1">{stat.label}</p>
-                    <p className="text-3xl font-display font-bold">{stat.value}</p>
+                    {isLoading ? (
+                      <Skeleton className="h-9 w-12 mt-1" />
+                    ) : (
+                      <p className="text-3xl font-display font-bold">{stat.value}</p>
+                    )}
                   </div>
                   <div className={`p-4 rounded-2xl ${stat.bg} ${stat.border} border`}>
                     <stat.icon className={`w-8 h-8 ${stat.color}`} />
@@ -63,7 +70,19 @@ export default function Dashboard() {
             <Link href="/jobs" className="text-sm text-primary hover:underline">View all</Link>
           </CardHeader>
           <CardContent>
-            {recentJobs.length === 0 ? (
+            {loadingJobs ? (
+              <div className="space-y-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-white/5 bg-black/20">
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-48" />
+                      <Skeleton className="h-3 w-32" />
+                    </div>
+                    <Skeleton className="h-6 w-24 rounded-full" />
+                  </div>
+                ))}
+              </div>
+            ) : recentJobs.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">No recent jobs found.</div>
             ) : (
               <div className="space-y-4">

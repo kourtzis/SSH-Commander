@@ -12,6 +12,30 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.4.0] - 2026-04-11
+
+### Added
+- **Styled confirmation dialogs**: all native `confirm()` popups replaced with themed AlertDialog — consistent dark-theme styling with destructive variant for delete actions
+- **Loading skeleton placeholders**: all list pages (Dashboard, Devices, Groups, Jobs, Snippets, Scheduler, Users) show animated skeletons while data loads
+- **Empty state illustrations**: contextual icons and messages when no data exists on every list page
+- **Ctrl+Enter / Cmd+Enter shortcut**: send responses in interactive SSH job mode without clicking the button
+- **Search debouncing**: 200ms debounce on all FilterSortBar search inputs to reduce re-renders during fast typing
+- **Route-level code splitting**: React.lazy + Suspense for all page routes — smaller initial bundle, faster first load
+- **React ErrorBoundary**: graceful fallback UI with retry button wrapping the entire app
+
+### Improved
+- **Selection highlight**: uses `bg-primary/10` for better contrast on dark backgrounds
+- **Consistent page widths**: removed max-w constraint on scheduler page
+- **refetchOnWindowFocus**: re-enabled for automatic data freshness when switching tabs
+
+### Optimized
+- **Concurrent SSH execution**: up to 10 parallel sessions (was sequential) — dramatically faster batch jobs on large device sets
+- **Shared group resolution**: extracted `resolveRouterIds` BFS from both jobs route and scheduler into a single shared module
+- **Dynamic ExcelJS import**: loaded via `import()` instead of static import — reduces initial page bundle size
+- **Shared Excel helpers**: `buildExcelLookup` and `findExcelRow` consolidated into `resolve-routers` module
+
+---
+
 ## [1.3.2] - 2025-04-11
 
 ### Added

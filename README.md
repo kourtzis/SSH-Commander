@@ -45,6 +45,7 @@ Build and maintain a reusable library of RouterOS scripts:
 
 ### Batch SSH Job Execution
 The core of SSH Commander — run scripts across dozens or hundreds of routers in a single operation:
+- **Concurrent execution** — up to 10 SSH sessions run in parallel for dramatically faster batch jobs on large device sets
 - **Target selection** — pick individual routers and/or entire groups; drag to reorder the execution sequence
 - **Modular script composition** — assemble the job's script from an arbitrary number of building blocks (snippet references and/or custom code); blocks can be inserted at any position, removed, and reordered via drag-and-drop with a visible dot-grid drag handle on each block
 - **Final script preview** — a collapsible "Final Script Preview" panel lets you review the fully combined script before executing
@@ -73,10 +74,12 @@ Full lifecycle control over your batch jobs:
 
 ### Job Scheduler
 Automate recurring network tasks with flexible scheduling:
-- **Filter & sort bar** — search by name, filter by type (once/interval/weekly) and status (active/paused), sort by name, type, or next run
+- **Filter & sort bar** — search by name, filter by type (once/interval/daily/weekly/monthly) and status (active/paused), sort by name, type, or next run
 - **One-time** — schedule a job to run at a specific date and time
 - **Interval-based** — repeat every N minutes (e.g., every 30 minutes, every 2 hours)
+- **Daily** — run at a specific time each day
 - **Weekly** — run on selected days of the week at a specific time
+- **Monthly** — run on a specific day of the month, or on the Nth weekday (e.g., 2nd Tuesday) at a specific time
 - The scheduler engine checks for due jobs every 30 seconds
 - One-time schedules execute the template job directly; recurring schedules clone it as new batch jobs
 - Enable/disable schedules on the fly, track run counts, and view last/next execution times
@@ -87,6 +90,15 @@ Scripts and snippets support inline control character tags using `<<NAME>>` synt
 - Both the snippet editor and job form include a convenient **Ctrl Char** dropdown button for one-click insertion
 - Characters are sent as actual raw bytes to the SSH stream at the exact position where the tag appears in the script
 - Useful for sending interrupt signals, navigating menus, or automating interactive CLI workflows
+
+### UI Polish
+- **Styled confirmation dialogs** — all destructive actions use a themed AlertDialog instead of native browser popups
+- **Loading skeletons** — all list pages show animated skeleton placeholders while data loads
+- **Empty state illustrations** — contextual icons and messages when no data exists
+- **Route-level code splitting** — React.lazy + Suspense for smaller initial bundle and faster first load
+- **Error boundary** — graceful fallback UI with retry button wrapping the entire app
+- **Keyboard shortcuts** — Ctrl+Enter / Cmd+Enter to send responses in interactive SSH mode
+- **Debounced search** — 200ms debounce on all search inputs to reduce re-renders
 
 ### Mobile Responsive
 The entire interface is fully responsive and usable on tablets and phones:
@@ -125,6 +137,7 @@ ssh-commander/
 │   │       │   ├── auth.ts              # Session authentication & middleware
 │   │       │   ├── ssh.ts               # SSH execution engine + control chars
 │   │       │   ├── interactive-session.ts # Parallel interactive SSH session manager
+│   │       │   ├── resolve-routers.ts   # Shared BFS group resolution + Excel helpers + concurrency limiter
 │   │       │   └── scheduler.ts         # Recurring job scheduler engine
 │   │       └── routes/                  # REST API route handlers
 │   │           ├── auth.ts              # Login/logout/session
@@ -469,7 +482,7 @@ The application uses PostgreSQL with [Drizzle ORM](https://orm.drizzle.team/). K
 - **snippets** — Reusable script library with categories
 - **batch_jobs** — Job definitions with status tracking, target lists, and execution totals
 - **job_tasks** — Per-router execution results with output, errors, and connection logs
-- **schedules** — Job scheduling with one-time, interval, and weekly recurrence types
+- **schedules** — Job scheduling with one-time, interval, daily, weekly, and monthly recurrence types
 
 ---
 
