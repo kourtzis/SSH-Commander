@@ -3,7 +3,7 @@
 // GET /users/:id require the admin role. Passwords are hashed with bcrypt.
 
 import { Router, type IRouter } from "express";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { CreateUserBody, UpdateUserBody } from "@workspace/api-zod";

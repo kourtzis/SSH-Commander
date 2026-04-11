@@ -23,7 +23,6 @@ RUN pnpm -r --filter @workspace/db --if-present run build && \
     pnpm --filter @workspace/api-server run build
 
 FROM base AS production
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
 COPY lib/db/package.json lib/db/tsconfig.json ./lib/db/
 COPY lib/api-spec/package.json lib/api-spec/

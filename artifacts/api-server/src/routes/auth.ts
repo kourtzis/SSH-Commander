@@ -4,7 +4,7 @@
 // is sent back to the client for subsequent requests.
 
 import { Router, type IRouter } from "express";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { LoginBody } from "@workspace/api-zod";

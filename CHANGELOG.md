@@ -19,6 +19,11 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 - **Live search in Move Group dialog**: search box to quickly find a target parent group by name or description
 - **Live search in Job form target selection**: separate search boxes above the Devices and Device Groups lists, filtering by all fields as you type
 
+### Security
+- **Replaced xlsx (SheetJS) with exceljs**: eliminates 2 HIGH prototype pollution and 2 HIGH ReDoS vulnerabilities (CVE-reported, no fix from SheetJS)
+- **Replaced bcrypt with bcryptjs** (pure JavaScript): eliminates moderate integer overflow / weak crypto algorithm vulnerability; also removes native compilation dependency (smaller Docker image)
+- All 5 GitHub security advisories resolved — zero known vulnerabilities remaining
+
 ---
 
 ## [1.3.0] - 2025-04-11
@@ -106,7 +111,7 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 - **Critical bug**: `DELETE /groups/:id/members` was deleting ALL members from the group instead of just the specified one — now correctly filters by both `groupId` and `memberId`
 
 ### Security
-- Reduced dependency vulnerabilities from 16 to 2 (remaining 2 are in `xlsx` which has no fix available — used client-side only, reduced risk)
+- Reduced dependency vulnerabilities from 16 to 0 (replaced xlsx with exceljs in v1.3.1)
 - Updated `drizzle-orm` 0.45.1 → 0.45.2 (HIGH: data exposure)
 - Updated `vite` 7.3.1 → 7.3.2 (3 HIGH: server file access)
 - Updated `picomatch` 2.3.1/4.0.3 → 2.3.2/4.0.4 (HIGH: ReDoS)

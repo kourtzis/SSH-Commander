@@ -17,7 +17,7 @@ import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDate } from "@/lib/utils";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 const routerSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -224,38 +224,51 @@ export default function Routers() {
     setIsImportOpen(true);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
 
-    const reader = new FileReader();
-    const isCSV = file.name.toLowerCase().endsWith(".csv");
+    try {
+      const isCSV = file.name.toLowerCase().endsWith(".csv");
+      const wb = new ExcelJS.Workbook();
 
-    if (isCSV) {
-      reader.onload = (evt) => {
-        const text = evt.target?.result as string;
-        const wb = XLSX.read(text, { type: "string" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rawRows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "" });
-        const { rows, columnMap: cm } = parseFileData(rawRows);
-        setParsedRows(rows);
-        setColumnMap(cm);
-        setImportStep("preview");
-      };
-      reader.readAsText(file);
-    } else {
-      reader.onload = (evt) => {
-        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rawRows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "" });
-        const { rows, columnMap: cm } = parseFileData(rawRows);
-        setParsedRows(rows);
-        setColumnMap(cm);
-        setImportStep("preview");
-      };
-      reader.readAsArrayBuffer(file);
+      if (isCSV) {
+        const text = await file.text();
+        const buffer = new TextEncoder().encode(text);
+        await wb.csv.read(new Blob([buffer]).stream() as any);
+      } else {
+        const arrayBuffer = await file.arrayBuffer();
+        await wb.xlsx.load(arrayBuffer);
+      }
+
+      const ws = wb.worksheets[0];
+      if (!ws) return;
+
+      const headers: string[] = [];
+      ws.getRow(1).eachCell((cell, colNumber) => {
+        headers[colNumber - 1] = String(cell.value ?? "").trim();
+      });
+
+      const rawRows: Record<string, string>[] = [];
+      for (let i = 2; i <= ws.rowCount; i++) {
+        const row = ws.getRow(i);
+        const obj: Record<string, string> = {};
+        let hasValue = false;
+        headers.forEach((h, idx) => {
+          const val = String(row.getCell(idx + 1).value ?? "").trim();
+          obj[h] = val;
+          if (val) hasValue = true;
+        });
+        if (hasValue) rawRows.push(obj);
+      }
+
+      const { rows, columnMap: cm } = parseFileData(rawRows);
+      setParsedRows(rows);
+      setColumnMap(cm);
+      setImportStep("preview");
+    } catch {
+      toast({ title: "Error parsing file", variant: "destructive" });
     }
 
     if (fileInputRef.current) fileInputRef.current.value = "";

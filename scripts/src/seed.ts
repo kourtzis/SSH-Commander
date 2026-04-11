@@ -1,6 +1,6 @@
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 async function seed() {
   const existing = await db

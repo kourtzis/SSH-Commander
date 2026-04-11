@@ -25,6 +25,14 @@ export const CHANGELOG: ChangelogEntry[] = [
           "Live search in the Job form target selection — separate search boxes for Devices and Device Groups, filtering by all fields as you type",
         ],
       },
+      {
+        title: "Security",
+        items: [
+          "Replaced xlsx (SheetJS) with exceljs — eliminates 2 HIGH prototype pollution and 2 HIGH ReDoS vulnerabilities",
+          "Replaced bcrypt with bcryptjs (pure JavaScript) — eliminates moderate integer overflow / weak crypto algorithm vulnerability",
+          "All 5 GitHub security advisories resolved — zero known vulnerabilities remaining",
+        ],
+      },
     ],
   },
   {

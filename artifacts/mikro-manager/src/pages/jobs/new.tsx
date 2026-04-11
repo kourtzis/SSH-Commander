@@ -13,7 +13,7 @@ import { ScriptBuilder, ScriptBlock, buildCombinedScript } from "@/components/sc
 import { useDragReorder } from "@/hooks/use-drag-reorder";
 import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 function useResolvedDeviceCount(routerIds: number[], groupIds: number[]) {
   return useQuery({
@@ -157,28 +157,48 @@ export default function NewJob() {
   const isTargetSelected = (type: "router" | "group", id: number) =>
     targets.some(t => t.type === type && t.id === id);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: "binary" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws);
-        const formattedData = data.map((row: any) => {
-          const newRow: any = {};
-          Object.keys(row).forEach(k => { newRow[k] = String(row[k]); });
-          return newRow;
-        });
-        setExcelData(formattedData);
-        toast({ title: "Data loaded", description: `Loaded ${formattedData.length} rows from file.` });
-      } catch {
-        toast({ title: "Error parsing file", variant: "destructive" });
+    try {
+      const isCSV = file.name.toLowerCase().endsWith(".csv");
+      const wb = new ExcelJS.Workbook();
+
+      if (isCSV) {
+        const text = await file.text();
+        const buffer = new TextEncoder().encode(text);
+        await wb.csv.read(new Blob([buffer]).stream() as any);
+      } else {
+        const arrayBuffer = await file.arrayBuffer();
+        await wb.xlsx.load(arrayBuffer);
       }
-    };
-    reader.readAsBinaryString(file);
+
+      const ws = wb.worksheets[0];
+      if (!ws) return;
+
+      const headers: string[] = [];
+      ws.getRow(1).eachCell((cell, colNumber) => {
+        headers[colNumber - 1] = String(cell.value ?? "").trim();
+      });
+
+      const formattedData: Record<string, string>[] = [];
+      for (let i = 2; i <= ws.rowCount; i++) {
+        const row = ws.getRow(i);
+        const obj: Record<string, string> = {};
+        let hasValue = false;
+        headers.forEach((h, idx) => {
+          const val = String(row.getCell(idx + 1).value ?? "").trim();
+          obj[h] = val;
+          if (val) hasValue = true;
+        });
+        if (hasValue) formattedData.push(obj);
+      }
+
+      setExcelData(formattedData);
+      toast({ title: "Data loaded", description: `Loaded ${formattedData.length} rows from file.` });
+    } catch {
+      toast({ title: "Error parsing file", variant: "destructive" });
+    }
   };
 
   const handleSubmit = async (mode: "run" | "schedule") => {
