@@ -223,10 +223,16 @@ router.post("/groups/:id/members", async (req, res) => {
       res.status(400).json({ error: "Cannot add group to itself" });
       return;
     }
-    await db
-      .insert(groupSubgroupsTable)
-      .values({ parentGroupId: groupId, childGroupId: memberId })
-      .onConflictDoNothing();
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(groupSubgroupsTable)
+        .values({ parentGroupId: groupId, childGroupId: memberId })
+        .onConflictDoNothing();
+      await tx
+        .update(routerGroupsTable)
+        .set({ parentId: groupId })
+        .where(eq(routerGroupsTable.id, memberId));
+    });
   }
   res.json({ message: "Member added" });
 });
@@ -247,14 +253,30 @@ router.delete("/groups/:id/members", async (req, res) => {
       .delete(groupRoutersTable)
       .where(and(eq(groupRoutersTable.groupId, groupId), eq(groupRoutersTable.routerId, memberId)));
   } else {
+    const membership = await db.select({ parentGroupId: groupSubgroupsTable.parentGroupId }).from(groupSubgroupsTable).where(and(eq(groupSubgroupsTable.parentGroupId, groupId), eq(groupSubgroupsTable.childGroupId, memberId))).limit(1);
+    if (!membership.length) {
+      res.status(404).json({ error: "Sub-group is not a child of this group" });
+      return;
+    }
+
+    const parentGroup = await db.select({ parentId: routerGroupsTable.parentId }).from(routerGroupsTable).where(eq(routerGroupsTable.id, groupId)).limit(1);
+    const grandparentId = parentGroup[0]?.parentId ?? null;
+
     await db.transaction(async (tx) => {
       await tx
         .delete(groupSubgroupsTable)
         .where(and(eq(groupSubgroupsTable.parentGroupId, groupId), eq(groupSubgroupsTable.childGroupId, memberId)));
       await tx
         .update(routerGroupsTable)
-        .set({ parentId: null })
-        .where(and(eq(routerGroupsTable.id, memberId), eq(routerGroupsTable.parentId, groupId)));
+        .set({ parentId: grandparentId })
+        .where(eq(routerGroupsTable.id, memberId));
+
+      if (grandparentId !== null) {
+        const exists = await tx.select({ parentGroupId: groupSubgroupsTable.parentGroupId }).from(groupSubgroupsTable).where(and(eq(groupSubgroupsTable.parentGroupId, grandparentId), eq(groupSubgroupsTable.childGroupId, memberId))).limit(1);
+        if (exists.length === 0) {
+          await tx.insert(groupSubgroupsTable).values({ parentGroupId: grandparentId, childGroupId: memberId });
+        }
+      }
     });
   }
   res.json({ message: "Member removed" });

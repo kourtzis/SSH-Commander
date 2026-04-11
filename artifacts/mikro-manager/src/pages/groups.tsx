@@ -6,6 +6,7 @@ import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
 import { FilterSortBar, ActiveSort } from "@/components/filter-sort-bar";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -527,9 +528,16 @@ export default function Groups() {
                           </div>
                           <div className="flex items-center gap-1">
                             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/0 group-hover/item:text-muted-foreground/60 transition-colors" />
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); handleRemoveMember("group", sub.id); }}>
-                              <Unlink className="w-4 h-4" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); handleRemoveMember("group", sub.id); }}>
+                                  <Unlink className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                {groupDetails.parentId ? `Detach from this group — moves up to "${groups.find(g => g.id === groupDetails.parentId)?.name ?? "parent"}"` : "Detach from this group — moves to root level"}
+                              </TooltipContent>
+                            </Tooltip>
                           </div>
                         </div>
                       ))}
@@ -574,9 +582,14 @@ export default function Groups() {
                           </div>
                           <div className="flex items-center gap-1">
                             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/0 group-hover/item:text-muted-foreground/60 transition-colors" />
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); handleRemoveMember("router", router.id); }}>
-                              <Unlink className="w-4 h-4" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); handleRemoveMember("router", router.id); }}>
+                                  <Unlink className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Remove device from this group</TooltipContent>
+                            </Tooltip>
                           </div>
                         </div>
                       ))}
