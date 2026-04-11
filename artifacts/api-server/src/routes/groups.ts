@@ -55,8 +55,8 @@ router.get("/groups/:id", async (req, res) => {
     return;
   }
 
-  // Round 1: get the join table entries for this group
-  const [groupRouterLinks, subgroupLinks] = await Promise.all([
+  // Round 1: get the join table entries AND parentId-based children for this group
+  const [groupRouterLinks, subgroupLinks, parentIdChildren] = await Promise.all([
     db
       .select({ routerId: groupRoutersTable.routerId })
       .from(groupRoutersTable)
@@ -65,6 +65,15 @@ router.get("/groups/:id", async (req, res) => {
       .select({ childGroupId: groupSubgroupsTable.childGroupId })
       .from(groupSubgroupsTable)
       .where(eq(groupSubgroupsTable.parentGroupId, id)),
+    db
+      .select({ id: routerGroupsTable.id })
+      .from(routerGroupsTable)
+      .where(eq(routerGroupsTable.parentId, id)),
+  ]);
+
+  const childIds = new Set([
+    ...subgroupLinks.map(s => s.childGroupId),
+    ...parentIdChildren.map(c => c.id),
   ]);
 
   // Round 2: fetch the actual router and subgroup records (skipped if empty)
@@ -83,11 +92,11 @@ router.get("/groups/:id", async (req, res) => {
           .from(routersTable)
           .where(inArray(routersTable.id, groupRouterLinks.map((r) => r.routerId)))
       : Promise.resolve([]),
-    subgroupLinks.length > 0
+    childIds.size > 0
       ? db
           .select()
           .from(routerGroupsTable)
-          .where(inArray(routerGroupsTable.id, subgroupLinks.map((s) => s.childGroupId)))
+          .where(inArray(routerGroupsTable.id, [...childIds]))
       : Promise.resolve([]),
   ]);
 
