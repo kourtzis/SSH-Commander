@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useListGroups, useListRouters, useGetGroup, getListGroupsQueryKey, getGetGroupQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGroupsMutations } from "@/hooks/use-mutations";
@@ -13,14 +13,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Network, Folder, Server, ChevronRight, ChevronDown, Trash2, Edit2, Link as LinkIcon, Unlink, Search, MoveRight, GripVertical, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
+
+type DragItem = { type: "group"; id: number } | { type: "device"; id: number; name: string } | null;
 
 export default function Groups() {
   const { data: groups = [], isLoading } = useListGroups();
   const { data: routers = [] } = useListRouters();
   const { createGroup, updateGroup, deleteGroup, addMember, removeMember } = useGroupsMutations();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
@@ -39,6 +43,47 @@ export default function Groups() {
   const [isMoving, setIsMoving] = useState(false);
   const [dragGroupId, setDragGroupId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null | "root">(null);
+  const [dragItem, setDragItem] = useState<DragItem>(null);
+
+  const storageKey = `groups-panel-width-${user?.id ?? "default"}`;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isResizing = useRef(false);
+  const [leftPanelPct, setLeftPanelPct] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) { const n = parseFloat(saved); if (n >= 15 && n <= 70) return n; }
+    } catch {}
+    return 33;
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, String(leftPanelPct)); } catch {}
+  }, [leftPanelPct, storageKey]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isResizing.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setLeftPanelPct(Math.max(15, Math.min(70, pct)));
+    };
+
+    const onMouseUp = () => {
+      isResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, []);
   
   const [memberType, setMemberType] = useState<"router"|"group">("router");
   const [memberId, setMemberId] = useState<string>("");
@@ -206,6 +251,17 @@ export default function Groups() {
     }
   };
 
+  const handleDropDeviceOnGroup = async (deviceId: number, targetGroupId: number) => {
+    try {
+      await addMember.mutateAsync({ id: targetGroupId, data: { type: "router", memberId: deviceId } });
+      toast({ title: "Device added to group" });
+      queryClient.invalidateQueries({ queryKey: getListGroupsQueryKey() });
+      if (selectedGroup) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
+    } catch (e: any) {
+      toast({ title: "Error adding device", description: e.message, variant: "destructive" });
+    }
+  };
+
   const handleBulkDelete = async () => {
     if (!confirm(`Delete ${selection.count} selected group(s)?`)) return;
     setIsBulkDeleting(true);
@@ -261,8 +317,8 @@ export default function Groups() {
         {children.map(group => {
           const isExpanded = expandedGroups.has(group.id);
           const isSelected = selectedGroup === group.id;
-          const isDragging = dragGroupId === group.id;
-          const isDropTarget = dropTargetId === group.id && isValidDropTarget(group.id);
+          const isDragging = dragGroupId === group.id || (dragItem?.type === "group" && dragItem.id === group.id);
+          const isDropTarget = dropTargetId === group.id && (isValidDropTarget(group.id) || dragItem !== null);
           return (
             <div key={group.id}>
               <div 
@@ -271,6 +327,8 @@ export default function Groups() {
                   e.preventDefault();
                   e.stopPropagation();
                   if (dragGroupId !== null && isValidDropTarget(group.id)) {
+                    setDropTargetId(group.id);
+                  } else if (dragItem !== null) {
                     setDropTargetId(group.id);
                   }
                 }}
@@ -282,8 +340,13 @@ export default function Groups() {
                   e.stopPropagation();
                   if (dragGroupId !== null && isValidDropTarget(group.id)) {
                     handleDragDrop(dragGroupId, group.id);
+                  } else if (dragItem?.type === "group" && dragItem.id !== group.id) {
+                    handleDragDrop(dragItem.id, group.id);
+                  } else if (dragItem?.type === "device") {
+                    handleDropDeviceOnGroup(dragItem.id, group.id);
                   }
                   setDropTargetId(null);
+                  setDragItem(null);
                 }}
                 className={cn(
                   "flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors border",
@@ -357,8 +420,8 @@ export default function Groups() {
 
       <SelectionBar count={selection.count} label="groups" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="glass-panel md:col-span-1 h-[400px] md:h-[600px] flex flex-col">
+      <div ref={containerRef} className="flex flex-col md:flex-row gap-0 h-[400px] md:h-[600px]">
+        <Card className="glass-panel flex flex-col overflow-hidden h-full md:h-auto" style={{ width: `${leftPanelPct}%`, minWidth: "150px" }}>
           <div className="p-4 border-b border-border/50 bg-black/20 font-medium flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Network className="w-4 h-4 text-primary" /> Directory
@@ -377,11 +440,13 @@ export default function Groups() {
               onDragOver={(e) => {
                 e.preventDefault();
                 if (dragGroupId !== null && isValidDropTarget(null)) setDropTargetId("root");
+                else if (dragItem?.type === "group") setDropTargetId("root");
               }}
               onDragLeave={() => { if (dropTargetId === "root") setDropTargetId(null); }}
               onDrop={(e) => {
                 e.preventDefault();
                 if (dragGroupId !== null && isValidDropTarget(null)) handleDragDrop(dragGroupId, null);
+                else if (dragItem?.type === "group") { handleDragDrop(dragItem.id, null); setDragItem(null); }
                 setDropTargetId(null);
               }}
               className={cn(
@@ -399,7 +464,15 @@ export default function Groups() {
           </CardContent>
         </Card>
 
-        <Card className="glass-panel md:col-span-2 h-[400px] md:h-[600px] flex flex-col">
+        <div
+          onMouseDown={handleMouseDown}
+          className="hidden md:flex items-center justify-center w-2 cursor-col-resize group/resizer hover:bg-primary/10 transition-colors flex-shrink-0"
+          aria-label="Resize panels"
+        >
+          <div className="w-0.5 h-12 rounded-full bg-border group-hover/resizer:bg-primary transition-colors" />
+        </div>
+
+        <Card className="glass-panel flex-1 flex flex-col overflow-hidden h-full md:h-auto" style={{ minWidth: "200px" }}>
           {selectedGroup && groupDetails ? (
             <>
               <div className="p-4 md:p-6 border-b border-border/50 bg-black/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -427,8 +500,28 @@ export default function Groups() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {groupDetails.subGroups.map(sub => (
-                        <div key={`g-${sub.id}`} className="flex items-center justify-between p-3 rounded-xl bg-background border border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer group/item" onClick={() => navigateToGroup(sub.id)}>
+                        <div
+                          key={`g-${sub.id}`}
+                          className={cn(
+                            "flex items-center justify-between p-3 rounded-xl bg-background border border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer group/item",
+                            dragItem?.type === "group" && dragItem.id === sub.id && "opacity-40"
+                          )}
+                          onClick={() => navigateToGroup(sub.id)}
+                        >
                           <div className="flex items-center gap-3">
+                            <div
+                              draggable
+                              onDragStart={(e) => {
+                                e.stopPropagation();
+                                setDragItem({ type: "group", id: sub.id });
+                                e.dataTransfer.effectAllowed = "move";
+                              }}
+                              onDragEnd={() => { setDragItem(null); setDropTargetId(null); }}
+                              className="cursor-grab active:cursor-grabbing touch-none"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <GripVertical className="w-4 h-4 text-muted-foreground/50 hover:text-muted-foreground" />
+                            </div>
                             <Folder className="w-5 h-5 text-purple-400" />
                             <span className="text-sm font-medium group-hover/item:text-primary transition-colors">{sub.name}</span>
                           </div>
@@ -451,8 +544,28 @@ export default function Groups() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {groupDetails.routers.map(router => (
-                        <div key={`r-${router.id}`} className="flex items-center justify-between p-3 rounded-xl bg-background border border-border/50 hover:border-blue-400/30 hover:bg-blue-400/5 transition-colors cursor-pointer group/item" onClick={() => navigate("/routers")}>
+                        <div
+                          key={`r-${router.id}`}
+                          className={cn(
+                            "flex items-center justify-between p-3 rounded-xl bg-background border border-border/50 hover:border-blue-400/30 hover:bg-blue-400/5 transition-colors cursor-pointer group/item",
+                            dragItem?.type === "device" && dragItem.id === router.id && "opacity-40"
+                          )}
+                          onClick={() => navigate("/routers")}
+                        >
                           <div className="flex items-center gap-3">
+                            <div
+                              draggable
+                              onDragStart={(e) => {
+                                e.stopPropagation();
+                                setDragItem({ type: "device", id: router.id, name: router.name });
+                                e.dataTransfer.effectAllowed = "copy";
+                              }}
+                              onDragEnd={() => { setDragItem(null); setDropTargetId(null); }}
+                              className="cursor-grab active:cursor-grabbing touch-none"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <GripVertical className="w-4 h-4 text-muted-foreground/50 hover:text-muted-foreground" />
+                            </div>
                             <Server className="w-5 h-5 text-blue-400" />
                             <div className="flex flex-col">
                               <span className="text-sm font-medium leading-none group-hover/item:text-blue-400 transition-colors">{router.name}</span>

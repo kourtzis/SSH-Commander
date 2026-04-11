@@ -247,9 +247,15 @@ router.delete("/groups/:id/members", async (req, res) => {
       .delete(groupRoutersTable)
       .where(and(eq(groupRoutersTable.groupId, groupId), eq(groupRoutersTable.routerId, memberId)));
   } else {
-    await db
-      .delete(groupSubgroupsTable)
-      .where(and(eq(groupSubgroupsTable.parentGroupId, groupId), eq(groupSubgroupsTable.childGroupId, memberId)));
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(groupSubgroupsTable)
+        .where(and(eq(groupSubgroupsTable.parentGroupId, groupId), eq(groupSubgroupsTable.childGroupId, memberId)));
+      await tx
+        .update(routerGroupsTable)
+        .set({ parentId: null })
+        .where(and(eq(routerGroupsTable.id, memberId), eq(routerGroupsTable.parentId, groupId)));
+    });
   }
   res.json({ message: "Member removed" });
 });

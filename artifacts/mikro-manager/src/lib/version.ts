@@ -1,5 +1,5 @@
-export const APP_VERSION = "1.1.0";
-export const APP_VERSION_DATE = "2025-04-10";
+export const APP_VERSION = "1.2.0";
+export const APP_VERSION_DATE = "2025-04-11";
 
 export interface ChangelogSection {
   title: string;
@@ -13,6 +13,26 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.2.0",
+    date: "2025-04-11",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Resizable divider between the directory tree and group detail panels — drag to resize, position saved per user between sessions",
+          "Sub-groups and devices in the detail pane now have drag handles — drag them onto any group in the left tree or onto the root drop zone to move/add",
+          "Dragging a device from the detail pane onto a group in the tree adds it to that group",
+        ],
+      },
+      {
+        title: "Fixed",
+        items: [
+          "Removing a sub-group member via the unlink button now correctly updates the left tree hierarchy (previously only the join table was updated, leaving the parentId stale)",
+        ],
+      },
+    ],
+  },
   {
     version: "1.1.0",
     date: "2025-04-10",

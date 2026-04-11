@@ -12,6 +12,18 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.2.0] - 2025-04-11
+
+### Added
+- **Resizable panel divider**: the border between the directory tree and group detail panels is now draggable to resize both panels; position is saved per user between sessions via localStorage
+- **Right-pane drag-and-drop**: sub-groups and devices in the detail pane now have drag handles — drag them onto any group in the left tree to reparent (sub-groups) or add membership (devices), or drop sub-groups on the root zone to make them top-level
+- Clicking a sub-group in the detail pane navigates to that group; clicking a device navigates to the Devices page
+
+### Fixed
+- **Unlink bug**: removing a sub-group member via the unlink button now correctly updates the left tree hierarchy (previously only the `group_subgroups` join table was updated, leaving the `parentId` column stale so the tree didn't reflect the change)
+
+---
+
 ## [1.1.0] - 2025-04-10
 
 ### Added
@@ -20,6 +32,7 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 - **Circular reference protection**: backend prevents moving a group under itself or any of its descendants (BFS descendant walk)
 - Move button added to group detail panel (between Edit and Add buttons)
 - Move dialog shows all valid target parents, filtering out the group itself and its descendants
+- Separated group selection from expand/collapse — clicking a group name only selects it, the chevron arrow handles expand/contract
 
 ---
 
