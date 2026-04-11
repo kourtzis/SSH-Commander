@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.3.0";
+export const APP_VERSION = "1.3.1";
 export const APP_VERSION_DATE = "2025-04-11";
 
 export interface ChangelogSection {
@@ -13,6 +13,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.3.1",
+    date: "2025-04-11",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Live search in the Add Members dialog — filters devices by name, IP, and description; filters groups by name and description",
+          "Live search in the Move Group dialog — quickly find a target parent group by name or description",
+          "Live search in the Job form target selection — separate search boxes for Devices and Device Groups, filtering by all fields as you type",
+        ],
+      },
+    ],
+  },
   {
     version: "1.3.0",
     date: "2025-04-11",

@@ -12,6 +12,15 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.3.1] - 2025-04-11
+
+### Added
+- **Live search in Add Members dialog**: search box now filters devices by name, IP address, and description; groups filter by name and description — list updates as you type
+- **Live search in Move Group dialog**: search box to quickly find a target parent group by name or description
+- **Live search in Job form target selection**: separate search boxes above the Devices and Device Groups lists, filtering by all fields as you type
+
+---
+
 ## [1.3.0] - 2025-04-11
 
 ### Added

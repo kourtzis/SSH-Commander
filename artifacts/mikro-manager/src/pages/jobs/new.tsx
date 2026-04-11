@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Wifi, WifiOff, Clock, ShieldCheck } from "lucide-react";
+import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Wifi, WifiOff, Clock, ShieldCheck, Search } from "lucide-react";
 import { ScriptBuilder, ScriptBlock, buildCombinedScript } from "@/components/script-builder";
 import { useDragReorder } from "@/hooks/use-drag-reorder";
 import { useToast } from "@/hooks/use-toast";
@@ -86,6 +86,8 @@ export default function NewJob() {
   const [excelData, setExcelData] = useState<any[]>([]);
   const [autoConfirm, setAutoConfirm] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deviceSearch, setDeviceSearch] = useState("");
+  const [groupSearch, setGroupSearch] = useState("");
   const [jobMode, setJobMode] = useState<"run" | "schedule">("run");
   const [populated, setPopulated] = useState(false);
 
@@ -271,50 +273,92 @@ export default function NewJob() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-3">
               <Label className="text-base">Devices</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search devices..."
+                  value={deviceSearch}
+                  onChange={e => setDeviceSearch(e.target.value)}
+                  className="pl-9 bg-black/40 border-white/5 h-9 text-sm"
+                />
+              </div>
               <div className="h-48 overflow-y-auto border border-white/5 rounded-xl p-2 bg-black/20 space-y-1">
-                {routers.map(r => {
-                  const isReachable = reachability[r.id];
-                  const hasStatus = r.id in reachability;
-                  return (
-                    <label key={r.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 rounded border-white/20 bg-black/50 text-primary accent-primary"
-                        checked={isTargetSelected("router", r.id)}
-                        onChange={() => toggleTarget("router", r.id, r.name, r.ipAddress)}
-                      />
-                      {hasStatus ? (
-                        isReachable ? (
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" title="Reachable" />
-                        ) : (
-                          <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" title="Unreachable" />
-                        )
-                      ) : (
-                        <span className="w-2 h-2 rounded-full bg-muted-foreground/30 shrink-0 animate-pulse" title="Checking..." />
-                      )}
-                      <span className="text-sm font-medium">{r.name} <span className="text-muted-foreground font-mono text-xs ml-1">({r.ipAddress})</span></span>
-                    </label>
+                {(() => {
+                  const filtered = routers.filter(r => {
+                    if (!deviceSearch) return true;
+                    const s = deviceSearch.toLowerCase();
+                    return r.name.toLowerCase().includes(s) || r.ipAddress.toLowerCase().includes(s) || (r.description ?? "").toLowerCase().includes(s);
+                  });
+                  return filtered.length === 0 ? (
+                    <p className="text-xs text-muted-foreground p-2 italic">
+                      {routers.length === 0 ? "No devices configured yet." : "No matching devices"}
+                    </p>
+                  ) : (
+                    filtered.map(r => {
+                      const isReachable = reachability[r.id];
+                      const hasStatus = r.id in reachability;
+                      return (
+                        <label key={r.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 rounded border-white/20 bg-black/50 text-primary accent-primary"
+                            checked={isTargetSelected("router", r.id)}
+                            onChange={() => toggleTarget("router", r.id, r.name, r.ipAddress)}
+                          />
+                          {hasStatus ? (
+                            isReachable ? (
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" title="Reachable" />
+                            ) : (
+                              <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" title="Unreachable" />
+                            )
+                          ) : (
+                            <span className="w-2 h-2 rounded-full bg-muted-foreground/30 shrink-0 animate-pulse" title="Checking..." />
+                          )}
+                          <span className="text-sm font-medium">{r.name} <span className="text-muted-foreground font-mono text-xs ml-1">({r.ipAddress})</span></span>
+                        </label>
+                      );
+                    })
                   );
-                })}
-                {routers.length === 0 && <p className="text-xs text-muted-foreground p-2 italic">No routers configured yet.</p>}
+                })()}
               </div>
             </div>
 
             <div className="space-y-3">
               <Label className="text-base">Device Groups</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search groups..."
+                  value={groupSearch}
+                  onChange={e => setGroupSearch(e.target.value)}
+                  className="pl-9 bg-black/40 border-white/5 h-9 text-sm"
+                />
+              </div>
               <div className="h-48 overflow-y-auto border border-white/5 rounded-xl p-2 bg-black/20 space-y-1">
-                {groups.map(g => (
-                  <label key={g.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 rounded border-white/20 bg-black/50 text-primary accent-primary"
-                      checked={isTargetSelected("group", g.id)}
-                      onChange={() => toggleTarget("group", g.id, g.name)}
-                    />
-                    <span className="text-sm font-medium">{g.name}</span>
-                  </label>
-                ))}
-                {groups.length === 0 && <p className="text-xs text-muted-foreground p-2 italic">No groups configured yet.</p>}
+                {(() => {
+                  const filtered = groups.filter(g => {
+                    if (!groupSearch) return true;
+                    const s = groupSearch.toLowerCase();
+                    return g.name.toLowerCase().includes(s) || (g.description ?? "").toLowerCase().includes(s);
+                  });
+                  return filtered.length === 0 ? (
+                    <p className="text-xs text-muted-foreground p-2 italic">
+                      {groups.length === 0 ? "No groups configured yet." : "No matching groups"}
+                    </p>
+                  ) : (
+                    filtered.map(g => (
+                      <label key={g.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded border-white/20 bg-black/50 text-primary accent-primary"
+                          checked={isTargetSelected("group", g.id)}
+                          onChange={() => toggleTarget("group", g.id, g.name)}
+                        />
+                        <span className="text-sm font-medium">{g.name}</span>
+                      </label>
+                    ))
+                  );
+                })()}
               </div>
             </div>
           </div>

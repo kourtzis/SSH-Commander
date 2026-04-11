@@ -130,7 +130,7 @@ Implementation: `writeCommandWithControlChars()` in `ssh.ts` splits the command 
 
 ## Versioning
 
-- Current version: `1.3.0` (set in root `package.json`, `api-server/package.json`, and `mikro-manager/package.json`)
+- Current version: `1.3.1` (set in root `package.json`, `api-server/package.json`, and `mikro-manager/package.json`)
 - Follows Semantic Versioning: MAJOR.MINOR.PATCH
   - PATCH (x.y.Z): minor fixes and optimizations
   - MINOR (x.Y.0): substantial fixes and minor new features

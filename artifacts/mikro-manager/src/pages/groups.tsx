@@ -42,6 +42,7 @@ export default function Groups() {
   const [formDesc, setFormDesc] = useState("");
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false);
   const [moveTargetParentId, setMoveTargetParentId] = useState<number | null>(null);
+  const [moveSearch, setMoveSearch] = useState("");
   const [isMoving, setIsMoving] = useState(false);
   const [dragGroupId, setDragGroupId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null | "root">(null);
@@ -510,7 +511,7 @@ export default function Groups() {
                   <Button variant="outline" size="sm" onClick={() => { setEditingGroup(groupDetails); setFormName(groupDetails.name); setFormDesc(groupDetails.description||""); setIsGroupDialogOpen(true); }}>
                     <Edit2 className="w-4 h-4 mr-1" /> Edit
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => { setMoveTargetParentId(groupDetails.parentId ?? null); setIsMoveDialogOpen(true); }}>
+                  <Button variant="outline" size="sm" onClick={() => { setMoveTargetParentId(groupDetails.parentId ?? null); setMoveSearch(""); setIsMoveDialogOpen(true); }}>
                     <MoveRight className="w-4 h-4 mr-1" /> Move
                   </Button>
                   <Button size="sm" onClick={() => { setSelectedMemberIds(new Set()); setMemberSearch(""); setMemberType("router"); setIsMemberDialogOpen(true); }}>
@@ -685,10 +686,18 @@ export default function Groups() {
                 const available = memberType === "router"
                   ? routers
                       .filter(r => !groupDetails?.routers.find(gr => gr.id === r.id))
-                      .filter(r => !memberSearch || r.name.toLowerCase().includes(memberSearch.toLowerCase()) || r.ipAddress.includes(memberSearch))
+                      .filter(r => {
+                        if (!memberSearch) return true;
+                        const s = memberSearch.toLowerCase();
+                        return r.name.toLowerCase().includes(s) || r.ipAddress.toLowerCase().includes(s) || (r.description ?? "").toLowerCase().includes(s);
+                      })
                   : groups
                       .filter(g => g.id !== selectedGroup && !groupDetails?.subGroups.find(sg => sg.id === g.id))
-                      .filter(g => !memberSearch || g.name.toLowerCase().includes(memberSearch.toLowerCase()));
+                      .filter(g => {
+                        if (!memberSearch) return true;
+                        const s = memberSearch.toLowerCase();
+                        return g.name.toLowerCase().includes(s) || (g.description ?? "").toLowerCase().includes(s);
+                      });
 
                 const allSelected = available.length > 0 && available.every(item => selectedMemberIds.has(item.id));
                 const someSelected = available.some(item => selectedMemberIds.has(item.id));
@@ -785,24 +794,43 @@ export default function Groups() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             <Label>Select new parent</Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search groups..."
+                value={moveSearch}
+                onChange={e => setMoveSearch(e.target.value)}
+                className="pl-9 bg-black/40 border-white/5"
+              />
+            </div>
             <div className="border border-white/5 rounded-lg max-h-60 overflow-y-auto divide-y divide-white/5">
-              <label
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors",
-                  moveTargetParentId === null && "bg-primary/10"
-                )}
-                onClick={() => setMoveTargetParentId(null)}
-              >
-                <input type="radio" checked={moveTargetParentId === null} onChange={() => setMoveTargetParentId(null)} className="accent-primary" />
-                <Network className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Root (no parent)</span>
-              </label>
+              {!moveSearch && (
+                <label
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors",
+                    moveTargetParentId === null && "bg-primary/10"
+                  )}
+                  onClick={() => setMoveTargetParentId(null)}
+                >
+                  <input type="radio" checked={moveTargetParentId === null} onChange={() => setMoveTargetParentId(null)} className="accent-primary" />
+                  <Network className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Root (no parent)</span>
+                </label>
+              )}
               {(() => {
                 const disabledIds = selectedGroup ? getDescendantIds(selectedGroup) : new Set<number>();
                 disabledIds.add(selectedGroup!);
-                return groups
+                const filtered = groups
                   .filter(g => !disabledIds.has(g.id))
-                  .map(g => (
+                  .filter(g => {
+                    if (!moveSearch) return true;
+                    const s = moveSearch.toLowerCase();
+                    return g.name.toLowerCase().includes(s) || (g.description ?? "").toLowerCase().includes(s);
+                  });
+                return filtered.length === 0 && moveSearch ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">No matching groups</div>
+                ) : (
+                  filtered.map(g => (
                     <label
                       key={g.id}
                       className={cn(
@@ -820,7 +848,8 @@ export default function Groups() {
                         </span>
                       )}
                     </label>
-                  ));
+                  ))
+                );
               })()}
             </div>
           </div>
