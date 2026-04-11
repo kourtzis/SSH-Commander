@@ -28,6 +28,7 @@ import type {
   CreateSnippetRequest,
   CreateUserRequest,
   ErrorResponse,
+  GetGroupsCounts200,
   HealthStatus,
   ImportRoutersRequest,
   ImportRoutersResponse,
@@ -1422,6 +1423,81 @@ export const useCreateGroup = <
 > => {
   return useMutation(getCreateGroupMutationOptions(options));
 };
+
+/**
+ * @summary Get sub-group and device counts for all groups
+ */
+export const getGetGroupsCountsUrl = () => {
+  return `/api/groups-counts`;
+};
+
+export const getGroupsCounts = async (
+  options?: RequestInit,
+): Promise<GetGroupsCounts200> => {
+  return customFetch<GetGroupsCounts200>(getGetGroupsCountsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetGroupsCountsQueryKey = () => {
+  return [`/api/groups-counts`] as const;
+};
+
+export const getGetGroupsCountsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGroupsCounts>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGroupsCounts>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGroupsCountsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getGroupsCounts>>> = ({
+    signal,
+  }) => getGroupsCounts({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGroupsCounts>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGroupsCountsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGroupsCounts>>
+>;
+export type GetGroupsCountsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get sub-group and device counts for all groups
+ */
+
+export function useGetGroupsCounts<
+  TData = Awaited<ReturnType<typeof getGroupsCounts>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGroupsCounts>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGroupsCountsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get group by ID with members

@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { 
   useCreateRouter, useUpdateRouter, useDeleteRouter, getListRoutersQueryKey, getGetRouterQueryKey,
-  useCreateGroup, useUpdateGroup, useDeleteGroup, getListGroupsQueryKey, getGetGroupQueryKey, useAddGroupMember, useRemoveGroupMember,
+  useCreateGroup, useUpdateGroup, useDeleteGroup, getListGroupsQueryKey, getGetGroupQueryKey, useAddGroupMember, useRemoveGroupMember, getGetGroupsCountsQueryKey,
   useCreateSnippet, useUpdateSnippet, useDeleteSnippet, getListSnippetsQueryKey, getGetSnippetQueryKey,
   useCreateJob, useUpdateJob, useCancelJob, useRerunJob, useDeleteJob, getListJobsQueryKey, getGetJobQueryKey,
   useCreateUser, useUpdateUser, useDeleteUser, getListUsersQueryKey,
@@ -36,8 +36,10 @@ export function useRoutersMutations() {
 export function useGroupsMutations() {
   const qc = useQueryClient();
   
+  const invalidateCounts = () => qc.invalidateQueries({ queryKey: getGetGroupsCountsQueryKey() });
+
   const createGroup = useCreateGroup({
-    mutation: { onSuccess: () => qc.invalidateQueries({ queryKey: getListGroupsQueryKey() }) }
+    mutation: { onSuccess: () => { qc.invalidateQueries({ queryKey: getListGroupsQueryKey() }); invalidateCounts(); } }
   });
   
   const updateGroup = useUpdateGroup({
@@ -45,12 +47,13 @@ export function useGroupsMutations() {
       onSuccess: (_, vars) => {
         qc.invalidateQueries({ queryKey: getListGroupsQueryKey() });
         qc.invalidateQueries({ queryKey: getGetGroupQueryKey(vars.id) });
+        invalidateCounts();
       }
     }
   });
 
   const deleteGroup = useDeleteGroup({
-    mutation: { onSuccess: () => qc.invalidateQueries({ queryKey: getListGroupsQueryKey() }) }
+    mutation: { onSuccess: () => { qc.invalidateQueries({ queryKey: getListGroupsQueryKey() }); invalidateCounts(); } }
   });
 
   const addMember = useAddGroupMember({
@@ -58,6 +61,7 @@ export function useGroupsMutations() {
       onSuccess: (_, vars) => {
         qc.invalidateQueries({ queryKey: getListGroupsQueryKey() });
         qc.invalidateQueries({ queryKey: getGetGroupQueryKey(vars.id) });
+        invalidateCounts();
       }
     }
   });
@@ -67,6 +71,7 @@ export function useGroupsMutations() {
       onSuccess: () => {
         qc.invalidateQueries({ queryKey: getListGroupsQueryKey() });
         qc.invalidateQueries({ predicate: (query) => typeof query.queryKey[0] === "string" && (query.queryKey[0] as string).startsWith("/api/groups/") });
+        invalidateCounts();
       }
     }
   });

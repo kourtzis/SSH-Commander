@@ -333,6 +333,8 @@ export const ScheduleType = {
   once: "once",
   interval: "interval",
   weekly: "weekly",
+  daily: "daily",
+  monthly: "monthly",
 } as const;
 
 export interface Schedule {
@@ -344,6 +346,10 @@ export interface Schedule {
   intervalMinutes?: number | null;
   daysOfWeek?: number[] | null;
   timeOfDay?: string | null;
+  dayOfMonth?: number | null;
+  monthlyMode?: string | null;
+  nthWeek?: number | null;
+  nthWeekday?: number | null;
   nextRunAt?: string | null;
   lastRunAt?: string | null;
   enabled: boolean;
@@ -359,6 +365,8 @@ export const CreateScheduleRequestType = {
   once: "once",
   interval: "interval",
   weekly: "weekly",
+  daily: "daily",
+  monthly: "monthly",
 } as const;
 
 export interface CreateScheduleRequest {
@@ -369,12 +377,23 @@ export interface CreateScheduleRequest {
   intervalMinutes?: number;
   daysOfWeek?: number[];
   timeOfDay?: string;
+  dayOfMonth?: number;
+  monthlyMode?: string;
+  nthWeek?: number;
+  nthWeekday?: number;
 }
 
 export interface UpdateScheduleRequest {
   name?: string;
   enabled?: boolean;
 }
+
+export type GetGroupsCounts200 = {
+  [key: string]: {
+    subgroups: number;
+    devices: number;
+  };
+};
 
 export type ListSnippetsParams = {
   tag?: string;

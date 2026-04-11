@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { useListGroups, useListRouters, useGetGroup, getListGroupsQueryKey, getGetGroupQueryKey } from "@workspace/api-client-react";
+import { useListGroups, useListRouters, useGetGroup, useGetGroupsCounts, getListGroupsQueryKey, getGetGroupQueryKey, getGetGroupsCountsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGroupsMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
@@ -23,6 +23,7 @@ type DragItem = { type: "group"; id: number } | { type: "device"; id: number; na
 export default function Groups() {
   const { data: groups = [], isLoading } = useListGroups();
   const { data: routers = [] } = useListRouters();
+  const { data: groupsCounts } = useGetGroupsCounts();
   const { createGroup, updateGroup, deleteGroup, addMember, removeMember } = useGroupsMutations();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -216,6 +217,7 @@ export default function Groups() {
       queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
       if (oldParentId !== null) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(oldParentId) });
       if (moveTargetParentId !== null) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(moveTargetParentId) });
+      queryClient.invalidateQueries({ queryKey: getGetGroupsCountsQueryKey() });
     } catch (e: any) {
       toast({ title: "Error moving group", description: e.message, variant: "destructive" });
     } finally {
@@ -250,6 +252,7 @@ export default function Groups() {
       if (oldParentId !== null) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(oldParentId) });
       if (targetParentId !== null) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(targetParentId) });
       if (selectedGroup) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
+      queryClient.invalidateQueries({ queryKey: getGetGroupsCountsQueryKey() });
     } catch (e: any) {
       toast({ title: "Error moving group", description: e.message, variant: "destructive" });
     } finally {
@@ -396,6 +399,20 @@ export default function Groups() {
                   ) : <div className="w-4" />}
                   <Folder className={cn("w-4 h-4", isSelected ? "text-primary" : "text-muted-foreground")} />
                   <span className={cn("text-sm font-medium", isSelected && "text-primary")}>{group.name}</span>
+                  {groupsCounts && groupsCounts[group.id] && (groupsCounts[group.id].subgroups > 0 || groupsCounts[group.id].devices > 0) && (
+                    <span className="flex items-center gap-1.5 ml-1.5 text-[11px] text-muted-foreground/70 tabular-nums">
+                      {groupsCounts[group.id].subgroups > 0 && (
+                        <span title={`${groupsCounts[group.id].subgroups} sub-group${groupsCounts[group.id].subgroups > 1 ? "s" : ""}`} className="flex items-center gap-0.5">
+                          <Folder className="w-3 h-3" />{groupsCounts[group.id].subgroups}
+                        </span>
+                      )}
+                      {groupsCounts[group.id].devices > 0 && (
+                        <span title={`${groupsCounts[group.id].devices} device${groupsCounts[group.id].devices > 1 ? "s" : ""}`} className="flex items-center gap-0.5">
+                          <Server className="w-3 h-3" />{groupsCounts[group.id].devices}
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </div>
                 <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={(e) => handleDeleteGroup(group.id, e)}>
                   <Trash2 className="w-3 h-3" />

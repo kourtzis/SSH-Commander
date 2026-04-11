@@ -15,4 +15,8 @@ export interface CreateScheduleRequest {
   intervalMinutes?: number;
   daysOfWeek?: number[];
   timeOfDay?: string;
+  dayOfMonth?: number;
+  monthlyMode?: string;
+  nthWeek?: number;
+  nthWeekday?: number;
 }

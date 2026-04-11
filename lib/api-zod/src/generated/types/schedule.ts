@@ -16,6 +16,10 @@ export interface Schedule {
   intervalMinutes?: number | null;
   daysOfWeek?: number[] | null;
   timeOfDay?: string | null;
+  dayOfMonth?: number | null;
+  monthlyMode?: string | null;
+  nthWeek?: number | null;
+  nthWeekday?: number | null;
   nextRunAt?: Date | null;
   lastRunAt?: Date | null;
   enabled: boolean;

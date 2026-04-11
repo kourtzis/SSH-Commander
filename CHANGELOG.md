@@ -12,6 +12,20 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.3.0] - 2025-04-11
+
+### Added
+- **Daily schedule type**: run a job every day at a specified time
+- **Monthly schedule type**: supports two modes — specific day of month (e.g. on the 14th) or Nth weekday of month (e.g. 2nd Tuesday)
+- **Recurring schedule category**: schedule creation now groups Interval, Daily, Weekly, and Monthly under a single "Recurring" button for a cleaner UI
+- **Group counts in tree**: the left pane of the Groups page shows sub-group and device counts next to each group name (folder + number, server + number)
+
+### Improved
+- **Script builder insert bars**: horizontal insert lines and the + button are now clearly visible without hovering — increased line contrast and persistent button opacity with a subtle border
+- **Text selection color**: selected text throughout the app now uses white text on a teal background instead of the previous dark-on-dark combination that made selections unreadable
+
+---
+
 ## [1.2.2] - 2025-04-11
 
 ### Fixed

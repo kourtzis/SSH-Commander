@@ -12,4 +12,6 @@ export const ScheduleType = {
   once: "once",
   interval: "interval",
   weekly: "weekly",
+  daily: "daily",
+  monthly: "monthly",
 } as const;

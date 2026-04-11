@@ -63,7 +63,7 @@ artifacts-monorepo/
 10. **Filter/sort bars** — Reusable `FilterSortBar` component across all list views (routers, jobs, scheduler, snippets); supports text search, dropdown filters, tag filters, and column sorting with direction toggle
 7. **Device reachability** — Real-time SSH port reachability check for all routers in the job form (green/red indicators, auto-refreshes every 10s)
 8. **Excel/CSV tag substitution** — Upload .xlsx or paste CSV data; column headers become tag names, rows applied per router in job order
-9. **Job scheduler** — Schedule jobs for one-time, interval-based, or weekly recurring execution; scheduler tick engine runs every 30s; one-time schedules execute the template job directly, recurring schedules clone it as new batch jobs
+9. **Job scheduler** — Schedule jobs for one-time, or recurring execution (interval, daily, weekly, monthly); monthly supports specific day-of-month and Nth weekday modes; scheduler tick engine runs every 30s; one-time schedules execute the template job directly, recurring schedules clone it as new batch jobs
 
 ## TypeScript & Composite Projects
 
@@ -79,7 +79,7 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 - `snippets` — id, name, tags (text[]), code, description, created_at, updated_at; **indexes**: tags (GIN)
 - `batch_jobs` — id, name, script_code, status (pending|running|completed|failed|cancelled|scheduled), target_router_ids[], target_group_ids[], excel_data, auto_confirm, totals, created_by, timestamps; **indexes**: status, created_by, created_at
 - `job_tasks` — id, job_id, router_id, router_name, router_ip, status (pending|running|success|failed|waiting_input), output, error_message, connection_log, resolved_script, prompt_text, timestamps; **indexes**: job_id, router_id, status, (job_id, router_id) composite
-- `schedules` — id, name, job_id (template), type (once|interval|weekly), scheduled_at, interval_minutes, days_of_week[], time_of_day, next_run_at, last_run_at, enabled, run_count, created_by, created_at; **indexes**: job_id, next_run_at, enabled, created_by
+- `schedules` — id, name, job_id (template), type (once|interval|daily|weekly|monthly), scheduled_at, interval_minutes, days_of_week[], time_of_day, day_of_month, monthly_mode, nth_week, nth_weekday, next_run_at, last_run_at, enabled, run_count, created_by, created_at; **indexes**: job_id, next_run_at, enabled, created_by
 
 ## SSH Execution
 
@@ -130,7 +130,7 @@ Implementation: `writeCommandWithControlChars()` in `ssh.ts` splits the command 
 
 ## Versioning
 
-- Current version: `1.0.2` (set in root `package.json`, `api-server/package.json`, and `mikro-manager/package.json`)
+- Current version: `1.3.0` (set in root `package.json`, `api-server/package.json`, and `mikro-manager/package.json`)
 - Follows Semantic Versioning: MAJOR.MINOR.PATCH
   - PATCH (x.y.Z): minor fixes and optimizations
   - MINOR (x.Y.0): substantial fixes and minor new features

@@ -157,8 +157,8 @@ export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: 
   const renderInsertBar = (atIndex: number) => {
     const isOpen = insertIndex === atIndex;
     return (
-      <div className="flex items-center gap-1 py-0.5 group/insert">
-        <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-primary/20 transition-colors" />
+      <div className="flex items-center gap-1 py-1 group/insert">
+        <div className="flex-1 h-px bg-white/15 group-hover/insert:bg-primary/40 transition-colors" />
         {isOpen ? (
           <div className="flex items-center gap-1 animate-in fade-in zoom-in-95 duration-150">
             {availableSnippets.length > 0 && (
@@ -197,14 +197,14 @@ export function ScriptBuilder({ blocks, onChange, snippets, excludeSnippetId }: 
           <Button
             variant="ghost"
             size="sm"
-            className="h-5 w-5 p-0 rounded-full opacity-0 group-hover/insert:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+            className="h-6 w-6 p-0 rounded-full opacity-40 group-hover/insert:opacity-100 transition-opacity text-muted-foreground hover:text-primary border border-white/10 group-hover/insert:border-primary/40"
             onClick={() => setInsertIndex(atIndex)}
             title="Insert block here"
           >
-            <Plus className="w-3 h-3" />
+            <Plus className="w-3.5 h-3.5" />
           </Button>
         )}
-        <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-primary/20 transition-colors" />
+        <div className="flex-1 h-px bg-white/15 group-hover/insert:bg-primary/40 transition-colors" />
       </div>
     );
   };

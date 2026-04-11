@@ -25,6 +25,7 @@ export * from "./createSnippetRequest";
 export * from "./createUserRequest";
 export * from "./createUserRequestRole";
 export * from "./errorResponse";
+export * from "./getGroupsCounts200";
 export * from "./healthStatus";
 export * from "./importRouterResult";
 export * from "./importRouterResultStatus";

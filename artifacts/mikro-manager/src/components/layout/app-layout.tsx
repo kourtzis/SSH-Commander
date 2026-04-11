@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen bg-background text-foreground selection:bg-primary/30">
+    <div className="flex min-h-screen bg-background text-foreground selection:bg-primary/40 selection:text-white">
       <AppSidebar />
       <main className="flex-1 md:ml-64 min-h-screen overflow-x-hidden">
         <motion.div 

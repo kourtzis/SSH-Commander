@@ -187,25 +187,40 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
   }).where(eq(batchJobsTable.id, newJob.id));
 }
 
-// ─── Next Run Calculation ───────────────────────────────────────────
-// Computes the next execution time based on the schedule type.
-// Returns null for one-time schedules (they disable after running once).
-function computeNextRun(schedule: typeof schedulesTable.$inferSelect): Date | null {
-  const now = new Date();
+function getNthWeekdayOfMonth(year: number, month: number, nth: number, weekday: number): Date | null {
+  const firstDay = new Date(year, month, 1);
+  let firstOccurrence = firstDay.getDate() + ((weekday - firstDay.getDay() + 7) % 7);
+  const target = firstOccurrence + (nth - 1) * 7;
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  if (target > lastDay) return null;
+  return new Date(year, month, target);
+}
 
+function computeNextRun(schedule: typeof schedulesTable.$inferSelect): Date | null {
   if (schedule.type === "once") {
-    return null; // One-time: no further runs
+    return null;
   }
+
+  const now = new Date();
 
   if (schedule.type === "interval" && schedule.intervalMinutes) {
     return new Date(now.getTime() + schedule.intervalMinutes * 60 * 1000);
   }
 
+  if (schedule.type === "daily" && schedule.timeOfDay) {
+    const [hours, minutes] = schedule.timeOfDay.split(":").map(Number);
+    const today = new Date(now);
+    today.setHours(hours, minutes, 0, 0);
+    if (today > now) return today;
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(hours, minutes, 0, 0);
+    return tomorrow;
+  }
+
   if (schedule.type === "weekly" && schedule.daysOfWeek && schedule.timeOfDay) {
     const [hours, minutes] = schedule.timeOfDay.split(":").map(Number);
     const days = schedule.daysOfWeek as number[];
-
-    // Find the next matching day within the next 7 days
     for (let offset = 0; offset <= 7; offset++) {
       const candidate = new Date(now);
       candidate.setDate(candidate.getDate() + offset);
@@ -214,11 +229,36 @@ function computeNextRun(schedule: typeof schedulesTable.$inferSelect): Date | nu
         return candidate;
       }
     }
-    // Fallback: same day next week
     const candidate = new Date(now);
     candidate.setDate(candidate.getDate() + 7);
     candidate.setHours(hours, minutes, 0, 0);
     return candidate;
+  }
+
+  if (schedule.type === "monthly" && schedule.monthlyMode && schedule.timeOfDay) {
+    const [hours, minutes] = schedule.timeOfDay.split(":").map(Number);
+    if (schedule.monthlyMode === "dayOfMonth" && schedule.dayOfMonth) {
+      for (let mo = 0; mo <= 12; mo++) {
+        const c = new Date(now.getFullYear(), now.getMonth() + mo, 1);
+        const lastDay = new Date(c.getFullYear(), c.getMonth() + 1, 0).getDate();
+        c.setDate(Math.min(schedule.dayOfMonth, lastDay));
+        c.setHours(hours, minutes, 0, 0);
+        if (c > now) return c;
+      }
+    }
+    if (schedule.monthlyMode === "nthWeekday" && schedule.nthWeek && schedule.nthWeekday !== null && schedule.nthWeekday !== undefined) {
+      for (let mo = 0; mo <= 12; mo++) {
+        const c = getNthWeekdayOfMonth(now.getFullYear(), now.getMonth() + mo, schedule.nthWeek, schedule.nthWeekday);
+        if (c) {
+          c.setHours(hours, minutes, 0, 0);
+          if (c > now) return c;
+        }
+      }
+    }
+    const fallback = new Date(now);
+    fallback.setMonth(fallback.getMonth() + 1);
+    fallback.setHours(hours, minutes, 0, 0);
+    return fallback;
   }
 
   return null;

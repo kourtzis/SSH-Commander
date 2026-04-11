@@ -2,15 +2,17 @@ import { useState, useMemo } from "react";
 import { useListSchedules, useListJobs } from "@workspace/api-client-react";
 import { useSchedulesMutations } from "@/hooks/use-mutations";
 import { Link } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Clock, Calendar, Repeat, Trash2 } from "lucide-react";
+import { Plus, Clock, Calendar, Repeat, Trash2, CalendarClock, CalendarDays } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const NTH_LABELS = ["1st", "2nd", "3rd", "4th", "5th"];
 
 function formatScheduleType(type: string, schedule: any) {
   if (type === "once") {
@@ -23,9 +25,25 @@ function formatScheduleType(type: string, schedule: any) {
     if (mins >= 60) return `Every ${Math.floor(mins / 60)}h ${mins % 60 ? `${mins % 60}m` : ""}`;
     return `Every ${mins}m`;
   }
+  if (type === "daily") {
+    return `Daily at ${schedule.timeOfDay ?? "00:00"}`;
+  }
   if (type === "weekly") {
     const days = (schedule.daysOfWeek ?? []).map((d: number) => DAY_NAMES[d]).join(", ");
     return `${days} at ${schedule.timeOfDay ?? "00:00"}`;
+  }
+  if (type === "monthly") {
+    if (schedule.monthlyMode === "dayOfMonth") {
+      const d = schedule.dayOfMonth ?? 1;
+      const suffix = d === 1 ? "st" : d === 2 ? "nd" : d === 3 ? "rd" : "th";
+      return `${d}${suffix} of each month at ${schedule.timeOfDay ?? "00:00"}`;
+    }
+    if (schedule.monthlyMode === "nthWeekday") {
+      const nth = NTH_LABELS[(schedule.nthWeek ?? 1) - 1] ?? `${schedule.nthWeek}th`;
+      const day = WEEKDAY_NAMES[schedule.nthWeekday ?? 0] ?? "day";
+      return `${nth} ${day} of each month at ${schedule.timeOfDay ?? "00:00"}`;
+    }
+    return "Monthly";
   }
   return type;
 }
@@ -33,6 +51,8 @@ function formatScheduleType(type: string, schedule: any) {
 function typeIcon(type: string) {
   if (type === "once") return <Clock className="w-4 h-4" />;
   if (type === "interval") return <Repeat className="w-4 h-4" />;
+  if (type === "daily") return <CalendarClock className="w-4 h-4" />;
+  if (type === "monthly") return <CalendarDays className="w-4 h-4" />;
   return <Calendar className="w-4 h-4" />;
 }
 
@@ -109,7 +129,9 @@ export default function SchedulerList() {
             options: [
               { value: "once", label: "Once" },
               { value: "interval", label: "Interval" },
+              { value: "daily", label: "Daily" },
               { value: "weekly", label: "Weekly" },
+              { value: "monthly", label: "Monthly" },
             ],
           },
           {

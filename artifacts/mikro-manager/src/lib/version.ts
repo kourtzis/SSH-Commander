@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.2.2";
+export const APP_VERSION = "1.3.0";
 export const APP_VERSION_DATE = "2025-04-11";
 
 export interface ChangelogSection {
@@ -13,6 +13,27 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.3.0",
+    date: "2025-04-11",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Daily and Monthly schedule types — monthly supports both specific day-of-month (e.g. on the 14th) and Nth weekday (e.g. 2nd Tuesday)",
+          "Schedule creation now groups all recurring options (Interval, Daily, Weekly, Monthly) under a single 'Recurring' button",
+          "Group tree shows sub-group and device counts next to each group name in the left pane",
+        ],
+      },
+      {
+        title: "Improved",
+        items: [
+          "Script builder insert lines and + button are now clearly visible without hovering (increased contrast and persistent opacity)",
+          "Text selection across the app now uses white text on teal background for readable highlighting",
+        ],
+      },
+    ],
+  },
   {
     version: "1.2.2",
     date: "2025-04-11",

@@ -253,6 +253,17 @@ export const CreateGroupBody = zod.object({
 });
 
 /**
+ * @summary Get sub-group and device counts for all groups
+ */
+export const GetGroupsCountsResponse = zod.record(
+  zod.string(),
+  zod.object({
+    subgroups: zod.number(),
+    devices: zod.number(),
+  }),
+);
+
+/**
  * @summary Get group by ID with members
  */
 export const GetGroupParams = zod.object({
@@ -631,11 +642,15 @@ export const ListSchedulesResponseItem = zod.object({
   id: zod.number(),
   name: zod.string(),
   jobId: zod.number(),
-  type: zod.enum(["once", "interval", "weekly"]),
+  type: zod.enum(["once", "interval", "weekly", "daily", "monthly"]),
   scheduledAt: zod.date().nullish(),
   intervalMinutes: zod.number().nullish(),
   daysOfWeek: zod.array(zod.number()).nullish(),
   timeOfDay: zod.string().nullish(),
+  dayOfMonth: zod.number().nullish(),
+  monthlyMode: zod.string().nullish(),
+  nthWeek: zod.number().nullish(),
+  nthWeekday: zod.number().nullish(),
   nextRunAt: zod.date().nullish(),
   lastRunAt: zod.date().nullish(),
   enabled: zod.boolean(),
@@ -651,11 +666,15 @@ export const ListSchedulesResponse = zod.array(ListSchedulesResponseItem);
 export const CreateScheduleBody = zod.object({
   name: zod.string(),
   jobId: zod.number(),
-  type: zod.enum(["once", "interval", "weekly"]),
+  type: zod.enum(["once", "interval", "weekly", "daily", "monthly"]),
   scheduledAt: zod.date().optional(),
   intervalMinutes: zod.number().optional(),
   daysOfWeek: zod.array(zod.number()).optional(),
   timeOfDay: zod.string().optional(),
+  dayOfMonth: zod.number().optional(),
+  monthlyMode: zod.string().optional(),
+  nthWeek: zod.number().optional(),
+  nthWeekday: zod.number().optional(),
 });
 
 /**
@@ -669,11 +688,15 @@ export const GetScheduleResponse = zod.object({
   id: zod.number(),
   name: zod.string(),
   jobId: zod.number(),
-  type: zod.enum(["once", "interval", "weekly"]),
+  type: zod.enum(["once", "interval", "weekly", "daily", "monthly"]),
   scheduledAt: zod.date().nullish(),
   intervalMinutes: zod.number().nullish(),
   daysOfWeek: zod.array(zod.number()).nullish(),
   timeOfDay: zod.string().nullish(),
+  dayOfMonth: zod.number().nullish(),
+  monthlyMode: zod.string().nullish(),
+  nthWeek: zod.number().nullish(),
+  nthWeekday: zod.number().nullish(),
   nextRunAt: zod.date().nullish(),
   lastRunAt: zod.date().nullish(),
   enabled: zod.boolean(),
@@ -698,11 +721,15 @@ export const UpdateScheduleResponse = zod.object({
   id: zod.number(),
   name: zod.string(),
   jobId: zod.number(),
-  type: zod.enum(["once", "interval", "weekly"]),
+  type: zod.enum(["once", "interval", "weekly", "daily", "monthly"]),
   scheduledAt: zod.date().nullish(),
   intervalMinutes: zod.number().nullish(),
   daysOfWeek: zod.array(zod.number()).nullish(),
   timeOfDay: zod.string().nullish(),
+  dayOfMonth: zod.number().nullish(),
+  monthlyMode: zod.string().nullish(),
+  nthWeek: zod.number().nullish(),
+  nthWeekday: zod.number().nullish(),
   nextRunAt: zod.date().nullish(),
   lastRunAt: zod.date().nullish(),
   enabled: zod.boolean(),

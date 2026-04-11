@@ -5,7 +5,7 @@
 
 import { Router, type IRouter } from "express";
 import { db, routerGroupsTable, groupRoutersTable, groupSubgroupsTable, routersTable } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import {
   CreateGroupBody,
   UpdateGroupBody,
@@ -16,11 +16,34 @@ import { requireAuth } from "../lib/auth.js";
 
 const router: IRouter = Router();
 
-// GET /groups — List all groups (flat list; hierarchy is rendered client-side)
 router.get("/groups", async (req, res) => {
   requireAuth(req);
   const groups = await db.select().from(routerGroupsTable).orderBy(routerGroupsTable.name);
   res.json(groups);
+});
+
+router.get("/groups-counts", async (req, res) => {
+  requireAuth(req);
+  const [subgroupCounts, deviceCounts] = await Promise.all([
+    db.select({
+      parentGroupId: groupSubgroupsTable.parentGroupId,
+      count: sql<number>`count(*)::int`.as("count"),
+    }).from(groupSubgroupsTable).groupBy(groupSubgroupsTable.parentGroupId),
+    db.select({
+      groupId: groupRoutersTable.groupId,
+      count: sql<number>`count(*)::int`.as("count"),
+    }).from(groupRoutersTable).groupBy(groupRoutersTable.groupId),
+  ]);
+  const counts: Record<number, { subgroups: number; devices: number }> = {};
+  for (const row of subgroupCounts) {
+    if (!counts[row.parentGroupId]) counts[row.parentGroupId] = { subgroups: 0, devices: 0 };
+    counts[row.parentGroupId].subgroups = row.count;
+  }
+  for (const row of deviceCounts) {
+    if (!counts[row.groupId]) counts[row.groupId] = { subgroups: 0, devices: 0 };
+    counts[row.groupId].devices = row.count;
+  }
+  res.json(counts);
 });
 
 // POST /groups — Create a new group
