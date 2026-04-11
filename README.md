@@ -22,13 +22,17 @@ Maintain a centralized inventory of all your network devices:
 - **Filter & sort bar** — search by name or IP, sort by name, IP address, or date added with ascending/descending toggle
 - Bulk select and delete operations for easy cleanup
 
-### Hierarchical Router Groups
-Organize routers into a flexible tree structure:
+### Hierarchical Device Groups
+Organize devices into a flexible tree structure:
 - Create nested groups and sub-groups to mirror your network topology (sites, regions, racks, VLANs, etc.)
-- Add routers to groups with **multi-select** — pick one, several, or all available routers at once with checkboxes, search filtering, and "Select All / Deselect All"
+- Add devices to groups with **multi-select** — pick one, several, or all available devices at once with checkboxes, search filtering, and "Select All / Deselect All"
 - **Move groups** — relocate any group (with all its subgroups and devices) to a different parent or to root level; circular reference protection prevents invalid moves
-- A single router can belong to multiple groups
-- Target entire groups (and their sub-groups) when creating batch jobs — all member routers are automatically resolved and deduplicated
+- **Drag-and-drop** — drag groups by their handle in the left tree to reparent them, or drag sub-groups and devices from the detail pane onto any group in the tree
+- **Resizable panels** — a draggable divider between the directory tree and the group detail panel; position is saved per user between sessions
+- **Smart unlink** — removing a sub-group moves it one level up to its grandparent (or to root if the parent is top-level); tooltip on the unlink button shows the destination before you click
+- **Circular reference protection** — both Move and Add Member endpoints use BFS descendant walks to prevent creating hierarchy loops
+- A single device can belong to multiple groups
+- Target entire groups (and their sub-groups) when creating batch jobs — all member devices are automatically resolved and deduplicated
 
 ### Code Snippet Library
 Build and maintain a reusable library of RouterOS scripts:
@@ -443,7 +447,9 @@ pnpm --filter @workspace/api-spec run codegen
 | `GET` | `/api/routers` | List all routers |
 | `POST` | `/api/routers/import` | Mass import routers from file data |
 | `GET/POST` | `/api/groups` | Group management |
-| `POST` | `/api/groups/:id/members` | Add members to group |
+| `PUT` | `/api/groups/:id/move` | Move group to new parent (with circular ref protection) |
+| `POST` | `/api/groups/:id/members` | Add members to group (with circular ref protection) |
+| `DELETE` | `/api/groups/:id/members` | Remove member (sub-groups move one level up) |
 | `GET/POST` | `/api/snippets` | Script snippet library |
 | `POST` | `/api/jobs` | Create and run a batch job |
 | `GET` | `/api/jobs/:id/live` | SSE stream for interactive jobs |
