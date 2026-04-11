@@ -64,9 +64,9 @@ export function useGroupsMutations() {
 
   const removeMember = useRemoveGroupMember({
     mutation: { 
-      onSuccess: (_, vars) => {
+      onSuccess: () => {
         qc.invalidateQueries({ queryKey: getListGroupsQueryKey() });
-        qc.invalidateQueries({ queryKey: getGetGroupQueryKey(vars.id) });
+        qc.invalidateQueries({ predicate: (query) => typeof query.queryKey[0] === "string" && (query.queryKey[0] as string).startsWith("/api/groups/") });
       }
     }
   });

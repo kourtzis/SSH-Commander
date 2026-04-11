@@ -195,6 +195,8 @@ export default function Groups() {
 
   const handleMoveGroup = async () => {
     if (!selectedGroup) return;
+    const currentGroup = groups.find(g => g.id === selectedGroup);
+    const oldParentId = currentGroup?.parentId ?? null;
     setIsMoving(true);
     try {
       const baseUrl = import.meta.env.BASE_URL || "/";
@@ -211,7 +213,9 @@ export default function Groups() {
       toast({ title: "Group moved successfully" });
       setIsMoveDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: getListGroupsQueryKey() });
-      if (selectedGroup) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
+      queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
+      if (oldParentId !== null) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(oldParentId) });
+      if (moveTargetParentId !== null) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(moveTargetParentId) });
     } catch (e: any) {
       toast({ title: "Error moving group", description: e.message, variant: "destructive" });
     } finally {
@@ -222,7 +226,8 @@ export default function Groups() {
   const handleDragDrop = async (draggedId: number, targetParentId: number | null) => {
     const draggedGroup = groups.find(g => g.id === draggedId);
     if (!draggedGroup) return;
-    if ((draggedGroup.parentId ?? null) === targetParentId) return;
+    const oldParentId = draggedGroup.parentId ?? null;
+    if (oldParentId === targetParentId) return;
     if (targetParentId === draggedId) return;
     const descendants = getDescendantIds(draggedId);
     if (targetParentId !== null && descendants.has(targetParentId)) return;
@@ -242,6 +247,8 @@ export default function Groups() {
       }
       toast({ title: "Group moved successfully" });
       queryClient.invalidateQueries({ queryKey: getListGroupsQueryKey() });
+      if (oldParentId !== null) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(oldParentId) });
+      if (targetParentId !== null) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(targetParentId) });
       if (selectedGroup) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
     } catch (e: any) {
       toast({ title: "Error moving group", description: e.message, variant: "destructive" });
@@ -257,7 +264,8 @@ export default function Groups() {
       await addMember.mutateAsync({ id: targetGroupId, data: { type: "router", memberId: deviceId } });
       toast({ title: "Device added to group" });
       queryClient.invalidateQueries({ queryKey: getListGroupsQueryKey() });
-      if (selectedGroup) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
+      queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(targetGroupId) });
+      if (selectedGroup && selectedGroup !== targetGroupId) queryClient.invalidateQueries({ queryKey: getGetGroupQueryKey(selectedGroup) });
     } catch (e: any) {
       toast({ title: "Error adding device", description: e.message, variant: "destructive" });
     }
