@@ -12,6 +12,19 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.2.1] - 2025-04-11
+
+### Improved
+- **Unlink moves one level up**: unlinking a sub-group now moves it to its grandparent instead of jumping to root level; if the parent is already at root, the child moves to root
+- **Unlink tooltips**: hovering the unlink button on a sub-group shows the destination (e.g. *"Detach from this group — moves up to ParentName"* or *"…moves to root level"*); device unlink shows *"Remove device from this group"*
+
+### Fixed
+- **Circular reference protection on Add Member**: adding an ancestor group as a sub-group is now blocked with a clear error (BFS descendant walk, same as the Move endpoint)
+- **Add Member dual-table sync**: adding a sub-group member now correctly sets `parentId` on the child group in addition to inserting the `group_subgroups` row
+- **Unlink membership validation**: the unlink endpoint now verifies the sub-group is actually a child of the specified group before proceeding
+
+---
+
 ## [1.2.0] - 2025-04-11
 
 ### Added

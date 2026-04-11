@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.2.0";
+export const APP_VERSION = "1.2.1";
 export const APP_VERSION_DATE = "2025-04-11";
 
 export interface ChangelogSection {
@@ -13,6 +13,28 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.2.1",
+    date: "2025-04-11",
+    sections: [
+      {
+        title: "Improved",
+        items: [
+          "Unlinking a sub-group now moves it one level up to its grandparent instead of jumping to root level",
+          "Unlink button tooltip for sub-groups shows the destination (e.g. 'moves up to ParentName' or 'moves to root level')",
+          "Unlink button tooltip for devices shows 'Remove device from this group'",
+        ],
+      },
+      {
+        title: "Fixed",
+        items: [
+          "Circular reference protection added to the Add Member endpoint — prevents adding an ancestor group as a sub-group",
+          "Add Member endpoint now keeps both the parentId column and group_subgroups join table in sync",
+          "Unlink endpoint validates membership before allowing the operation",
+        ],
+      },
+    ],
+  },
   {
     version: "1.2.0",
     date: "2025-04-11",
