@@ -12,6 +12,16 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.14] - 2026-04-19
+
+### Fixed
+- **The actual root cause of "one fingerprint kicks me out".** Two cooperating bugs:
+  1. **ssh2 sync-throw crashed the whole API server.** When a TCP connection to a device dropped before the SSH handshake completed (firewall reset, wrong port, device offline mid-probe), the ssh2 library threw the error *synchronously inside a `net.Socket` event handler*. That throw never reaches `conn.on("error", …)` — no amount of per-connection error handling can catch it. It landed on `process.uncaughtException`, which the entrypoint had wired to `process.exit(1)`. The whole node process died, the container restarted, and every in-flight HTTP request from the browser failed. The browser's error toast read "HTTP 401 Unauthorized" because the FE's retry hit the next bug below. Process-level handlers now log the error loudly and keep the server alive — one bad SSH session can no longer take down the API for every other concurrent operator.
+  2. **The session table was being dropped on every container start.** The `session` table (owned by `connect-pg-simple`, not by our code) was not declared in the drizzle schema, so `drizzle-kit push --force` in the docker entrypoint saw it as a stranger and dropped it. `connect-pg-simple`'s `createTableIfMissing: true` then quietly recreated it empty. Result: every container restart (including the crash-restart from bug 1) wiped every active login. Your browser's cookie pointed at a session ID that no longer existed in the database, express-session generated a fresh empty session per request, and `requireAuth` rejected every call with 401 even though your cookie was perfectly valid. The `session` table is now declared in the schema with the exact shape `connect-pg-simple` expects, so the schema sync recognises it and leaves it alone.
+- The combined effect of these two fixes: a single failed fingerprint no longer crashes the server, AND even when the server is restarted (by you, by an upgrade, or by anything else), your login survives.
+
+---
+
 ## [1.8.13] - 2026-04-19
 
 ### Fixed

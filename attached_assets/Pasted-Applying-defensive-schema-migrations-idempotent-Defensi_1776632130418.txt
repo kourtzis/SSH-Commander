@@ -1,0 +1,65 @@
+Applying defensive schema migrations (idempotent)...
+Defensive migrations applied.
+Running drizzle-kit push (catches any remaining schema drift)...
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/app/lib/db/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] Pulling schema from database...
+[⣯] Pulling schema from database...
+[⣟] Pulling schema from database...
+[⡿] Pulling schema from database...
+[✓] Pulling schema from database...
+[✓] Changes applied
+Seeding default admin user...
+
+> @workspace/scripts@0.0.0 seed /app/scripts
+> tsx ./src/seed.ts
+
+Admin user already exists, skipping seed.
+Starting SSH Commander...
+[app] Trusting 1 proxy hop(s) for X-Forwarded-* headers
+[app] Session cookie 'Secure' flag DISABLED (COOKIE_SECURE=false). Only safe behind a trusted reverse proxy on a private network.
+Using PostgreSQL session store (shared pool)
+Server listening on port 3000
+[Scheduler] Started (checking every 30s)
+[Reachability] Started (every 300s)
+[error] 401 GET /api/routers sid=le6bnS8a hasSession=true hasUserId=false cookieSent=yes msg=Unauthorized
+[error] 401 GET /api/saved-views?pageKey=devices sid=s3rNEkQa hasSession=true hasUserId=false cookieSent=yes msg=Unauthorized
+[error] 401 GET /api/routers/uptime sid=yAAhB4bx hasSession=true hasUserId=false cookieSent=yes msg=Unauthorized
+[error] 401 GET /api/routers sid=VK2C_rm3 hasSession=true hasUserId=false cookieSent=yes msg=Unauthorized
+[error] 401 GET /api/saved-views?pageKey=devices sid=9BZgPuyN hasSession=true hasUserId=false cookieSent=yes msg=Unauthorized
+[error] 401 GET /api/routers/uptime sid=sSv1_2aW hasSession=true hasUserId=false cookieSent=yes msg=Unauthorized
+UNCAUGHT EXCEPTION: Error: Connection lost before handshake
+    at makeError (/app/node_modules/.pnpm/ssh2@1.17.0/node_modules/ssh2/lib/protocol/utils.js:142:15)
+    at /app/node_modules/.pnpm/ssh2@1.17.0/node_modules/ssh2/lib/client.js:753:13
+    at Socket.<anonymous> (/app/node_modules/.pnpm/ssh2@1.17.0/node_modules/ssh2/lib/client.js:815:7)
+    at Socket.emit (node:events:524:28)
+    at TCP.<anonymous> (node:net:343:12) {
+  level: 'protocol',
+  fatal: true
+}
+Applying defensive schema migrations (idempotent)...
+Defensive migrations applied.
+Running drizzle-kit push (catches any remaining schema drift)...
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/app/lib/db/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] Pulling schema from database...
+[⣯] Pulling schema from database...
+[⣟] Pulling schema from database...
+[✓] Pulling schema from database...
+[✓] Changes applied
+Seeding default admin user...
+
+> @workspace/scripts@0.0.0 seed /app/scripts
+> tsx ./src/seed.ts
+
+Admin user already exists, skipping seed.
+Starting SSH Commander...
+[app] Trusting 1 proxy hop(s) for X-Forwarded-* headers
+[app] Session cookie 'Secure' flag DISABLED (COOKIE_SECURE=false). Only safe behind a trusted reverse proxy on a private network.
+Using PostgreSQL session store (shared pool)
+Server listening on port 3000
+[Scheduler] Started (checking every 30s)
+[Reachability] Started (every 300s)
+[error] 401 POST /api/routers/47/fingerprint sid=XLIdI23H hasSession=true hasUserId=false cookieSent=yes msg=Unauthorized

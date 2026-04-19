@@ -7,3 +7,4 @@ export * from "./schedules";
 export * from "./credential_profiles";
 export * from "./device_reachability";
 export * from "./saved_views";
+export * from "./sessions";

@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.13";  
+export const APP_VERSION = "1.8.14";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.14",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "ROOT CAUSE of 'one fingerprint logs me out': two real bugs feeding each other. (1) When an SSH connection dropped before the handshake finished, the ssh2 library threw the error synchronously from inside a TCP socket event — bypassing every per-connection error handler and landing on the process-level uncaughtException handler, which was configured to call process.exit(1). The whole API server died, your container restarted, and every in-flight request returned a connection error. The process now logs these errors loudly and stays alive. (2) The 'session' table used by the session store was not declared in the database schema, so the docker entrypoint's drizzle-kit push --force was dropping it on every container start (then the session library silently recreated it empty). Every restart wiped every active login. The table is now explicitly declared so the schema sync leaves it alone, and your sessions actually persist across container restarts.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.13",
     date: "2026-04-19",
