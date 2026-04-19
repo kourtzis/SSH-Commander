@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.8";
+export const APP_VERSION = "1.8.9";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.9",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Fingerprint, re-pin host key, and delete actions on the Devices page were invalidating the wrong React Query cache key (`/routers` instead of `/api/routers`), so the device list never refetched after a successful action. The data was saved correctly server-side, but the table column kept showing the old value (or 'unknown' for vendor) until you reloaded the page. All three actions now invalidate the correct key and the table updates immediately.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.8",
     date: "2026-04-19",

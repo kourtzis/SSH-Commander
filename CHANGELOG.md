@@ -12,6 +12,11 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.9] - 2026-04-19
+
+### Fixed
+- **Devices table not refreshing after fingerprint / re-pin / delete.** Three actions on the Devices page (`Fingerprint`, `Re-pin SSH host key`, and `Delete`) were calling `queryClient.invalidateQueries({ queryKey: ["/routers"] })` — but the actual cache key used by the device list query is `["/api/routers"]`. So the mutations succeeded server-side (vendor / OS were saved, host key cleared, row deleted) but the table never refetched, leaving the UI showing the stale row until the user manually reloaded the page. Most visible after a fingerprint succeeded: the Vendor / OS column kept showing "unknown". All three call sites now invalidate the correct key and the table updates immediately.
+
 ## [1.8.8] - 2026-04-19
 
 ### Fixed

@@ -806,7 +806,7 @@ function RepinHostKeyButton({ routerId, pinnedFingerprint }: { routerId: number;
             try {
               await customFetch(`${import.meta.env.BASE_URL}api/routers/${routerId}/repin-host-key`, { method: "POST" });
               toast({ title: "Host key cleared", description: "The next connection will re-pin." });
-              await queryClient.invalidateQueries({ queryKey: ["/routers"] });
+              await queryClient.invalidateQueries({ queryKey: ["/api/routers"] });
             } catch (err: any) {
               toast({ title: "Re-pin failed", description: String(err?.message || err), variant: "destructive" });
             } finally {
@@ -841,7 +841,7 @@ function FingerprintRowButton({ routerId }: { routerId: number }) {
                 title: res?.vendor ? `Detected ${res.vendor}` : "Fingerprint complete",
                 description: res?.osVersion || "Device probed",
               });
-              await queryClient.invalidateQueries({ queryKey: ["/routers"] });
+              await queryClient.invalidateQueries({ queryKey: ["/api/routers"] });
             } catch (err: any) {
               toast({ title: "Fingerprint failed", description: String(err?.message || err), variant: "destructive" });
             }
@@ -877,7 +877,7 @@ function FingerprintAllButton() {
             title: "Fingerprint complete",
             description: `${ok} detected, ${bad} failed`,
           });
-          await queryClient.invalidateQueries({ queryKey: ["/routers"] });
+          await queryClient.invalidateQueries({ queryKey: ["/api/routers"] });
         } catch (err: any) {
           toast({ title: "Fingerprint failed", description: String(err?.message || err), variant: "destructive" });
         }
