@@ -8,6 +8,7 @@ import { eq, inArray, and, gte, sql } from "drizzle-orm";
 import { CreateRouterBody, UpdateRouterBody } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth.js";
 import { executeSSH } from "../lib/ssh.js";
+import { resolveEffectiveCreds } from "../lib/effective-creds.js";
 import * as net from "net";
 
 const router: IRouter = Router();
@@ -384,9 +385,19 @@ router.get("/routers/:id/uptime", async (req, res) => {
 async function fingerprintOne(routerId: number): Promise<{ success: boolean; vendor?: string | null; osVersion?: string | null; errorMessage?: string | null }> {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId)).limit(1);
   if (!r) return { success: false, errorMessage: "Router not found" };
-  const username = r.sshUsername || "admin";
-  const password = r.sshPassword || "";
+  // Resolve the actual credentials (and any bastion) to use — devices
+  // attached to a credential profile would previously be probed with
+  // their (often empty) inline password, producing spurious auth
+  // failures. The shared resolver gives us profile + jump-host support.
+  const creds = await resolveEffectiveCreds(r);
+  const username = creds.username || "admin";
+  const password = creds.password || "";
   const port = r.sshPort || 22;
+  if (!password) {
+    // Don't even try the SSH probes — we know the auth will fail with
+    // an unhelpful generic error. Return a clear message instead.
+    return { success: false, errorMessage: "No SSH password configured (check the credential profile or set an inline password)" };
+  }
 
   // Ordered detection probes. Each entry: { cmd, parse(out) → {vendor, osVersion} | null }
   const probes: Array<{ cmd: string; parse: (out: string) => { vendor: string; osVersion: string | null } | null }> = [
@@ -428,6 +439,8 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
       const result = await executeSSH(r.ipAddress, port, username, password, probe.cmd, {
         timeoutMs: 15_000,
         autoConfirm: true,
+        enablePassword: creds.enablePassword,
+        jumpHost: creds.jumpHost,
         hostKeyTrust: { routerId: r.id, expectedFingerprint: r.sshHostKeyFingerprint ?? null },
       });
       if (!result.success) {
