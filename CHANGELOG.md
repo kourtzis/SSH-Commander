@@ -12,6 +12,16 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.11] - 2026-04-19
+
+### Fixed
+- **Operators were being logged out mid-action even while actively using the app.** Two compounding causes:
+  - The PostgreSQL-backed session store was gated on `isProd && DATABASE_URL`, so in development the API server fell through to express-session's default in-process `MemoryStore`. Every API server restart (version bump, backend code reload, `db:push`) destroyed every session in memory and kicked everyone out. Restarts happen routinely during normal development — sometimes several times an hour — which made the symptom feel random.
+  - Even when the server wasn't restarting, the session cookie's `Max-Age` was set once at login and never refreshed. With `rolling` not enabled, the 7-day window was fixed at login time and didn't extend on activity, so a long-lived session would still expire on the dot regardless of how active the operator was.
+- **Fixes:**
+  - The PostgreSQL session store is now used whenever a `DATABASE_URL` is set, including in development. Sessions survive API server restarts. (If somehow there's no `DATABASE_URL`, the in-memory store is still used as a fallback and a warning is logged at startup.)
+  - `rolling: true` is now set on the session config, so every authenticated request slides the 7-day cookie expiry forward. An operator who's actively using the app will never be logged out by timeout.
+
 ## [1.8.10] - 2026-04-19
 
 ### Added

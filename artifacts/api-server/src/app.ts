@@ -3,6 +3,7 @@ import express, { type Express } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
 import router from "./routes/index.js";
 
@@ -131,6 +132,11 @@ const sessionConfig: session.SessionOptions = {
   secret: SESSION_SECRET ?? "ssh-commander-dev-only-secret-change-in-prod",
   resave: false,
   saveUninitialized: false,
+  // `rolling: true` extends the cookie's `Max-Age` on every response, so an
+  // active operator's 7-day window keeps sliding forward as long as they're
+  // making requests. Without this, the cookie expiry is fixed at login time
+  // and the user is kicked out exactly 7 days later regardless of activity.
+  rolling: true,
   // express-session relies on `req.secure` to decide whether to emit a
   // Secure cookie. With `trust proxy` set above, `req.secure` correctly
   // reflects the upstream proxy's `X-Forwarded-Proto` header.
@@ -139,14 +145,19 @@ const sessionConfig: session.SessionOptions = {
     secure: cookieSecure, // overridable via COOKIE_SECURE env var (see comment above)
     httpOnly: true,    // Prevent client-side JS from reading the session cookie
     sameSite: "lax",   // CSRF protection while allowing normal navigation; "strict" can break login flows from external links
-    maxAge: 7 * 24 * 60 * 60 * 1000,  // 7-day session lifetime
+    maxAge: 7 * 24 * 60 * 60 * 1000,  // 7-day session lifetime (refreshed on every request — see `rolling` above)
   },
 };
 
-// In production, use PostgreSQL-backed session store for persistence
-if (isProd && process.env.DATABASE_URL) {
+// Use the PostgreSQL-backed session store whenever a DATABASE_URL is
+// available — including in development. The previous behaviour was to fall
+// through to express-session's default in-process MemoryStore in dev, which
+// meant every API server restart (version bump, hot-reload of backend code,
+// schema push) destroyed every session and kicked the operator out
+// mid-action. Persisting sessions to Postgres in dev keeps you logged in
+// across restarts, exactly like prod.
+if (process.env.DATABASE_URL) {
   try {
-    const connectPgSimple = require("connect-pg-simple");
     const PgStore = connectPgSimple(session);
     sessionConfig.store = new PgStore({
       conString: process.env.DATABASE_URL,
@@ -156,6 +167,8 @@ if (isProd && process.env.DATABASE_URL) {
   } catch (err) {
     console.warn("Failed to initialize PostgreSQL session store, using memory store:", err);
   }
+} else {
+  console.warn("[app] No DATABASE_URL — falling back to in-memory session store. Sessions will be wiped on server restart.");
 }
 
 app.use(session(sessionConfig));

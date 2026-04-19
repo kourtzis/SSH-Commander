@@ -133,7 +133,7 @@ Implementation: `writeCommandWithControlChars()` in `ssh.ts` splits the command 
 
 ## Versioning
 
-- Current version: `1.8.10` (set in root `package.json`, `api-server/package.json`, `mikro-manager/package.json`, `VERSION`, `version.ts`)
+- Current version: `1.8.11` (set in root `package.json`, `api-server/package.json`, `mikro-manager/package.json`, `VERSION`, `version.ts`)
 - v1.8.3 fix: docker-entrypoint.sh defensive migration now CREATE TABLE IF NOT EXISTS for `credential_profiles`, `device_reachability`, `saved_views` (+ their indexes) so drizzle-kit push doesn't hit an interactive rename prompt on upgrade from older releases (the prompt was offering to rename `session` → `credential_profiles`, blocking container start). Push also runs with `</dev/null` so any future prompt fails fast instead of hanging.
 - v1.8.2 perf/fix: per-request `getCurrentUser` memoization (Symbol-keyed cache on `req`); CSRF middleware mounted under `/api` instead of globally; new `TRUST_PROXY_HOPS` env var (default 1 dev / 0 prod) for correct `req.ip` behind reverse proxies; credential profile route coerces empty-string integer fields to NULL.
 - v1.8.0 hardening: SSH host-key TOFU pinning (`routers.ssh_host_key_fingerprint` + `makeHostKeyVerifier` in `api-server/src/lib/ssh.ts`), per-user terminal RBAC (`users.can_terminal`), CSRF middleware in `api-server/src/app.ts` requiring `X-Requested-With` on /api non-GET routes (frontend `customFetch` sets this automatically), session regenerate on login.

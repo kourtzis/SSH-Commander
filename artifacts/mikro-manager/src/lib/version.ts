@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.10";  
+export const APP_VERSION = "1.8.11";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.11",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "You were getting logged out unexpectedly while actively using the app. Two causes: the development server was using an in-memory session store that wiped every time the API restarted (which happens on every code change), and sessions weren't 'rolling' — the 7-day cookie was set once at login and never refreshed. Now the PostgreSQL session store is used in development too (sessions survive server restarts), and the 7-day window slides forward on every request, so an active session never expires while you're working.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.10",
     date: "2026-04-19",
