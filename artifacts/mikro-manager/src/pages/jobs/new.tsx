@@ -24,20 +24,32 @@ import type ExcelJS from "exceljs";
 // and reachability dots stayed grey. `customFetch` from the shared API client
 // adds the header automatically, so always use it for /api calls instead of
 // the global `fetch`.
+// IMPORTANT: customFetch from @workspace/api-client-react returns the
+// PARSED RESPONSE BODY (Promise<T>), NOT a Response object. It also throws
+// an ApiError on non-2xx so we don't need to check `.ok`. Older code in
+// this file treated the return value as a Response (`res.ok`, `res.json()`)
+// — that's a bug: `res.ok` is `undefined`, the early-return fires, and the
+// hook always resolves to its default (0 / {}). On a non-OK status,
+// customFetch throws and react-query catches it, so we wrap the call in
+// try/catch and fall back to the same defaults the old code used so the
+// UI still degrades gracefully when the user is logged out etc.
 function useResolvedDeviceCount(routerIds: number[], groupIds: number[]) {
   return useQuery({
     queryKey: ["resolve-count", routerIds, groupIds],
     queryFn: async () => {
       if (routerIds.length === 0 && groupIds.length === 0) return 0;
-      const res = await customFetch(`${import.meta.env.BASE_URL}api/jobs/resolve-count`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ targetRouterIds: routerIds, targetGroupIds: groupIds }),
-      });
-      if (!res.ok) return 0;
-      const data = await res.json();
-      return data.count as number;
+      try {
+        const data = await customFetch<{ count: number }>(
+          `${import.meta.env.BASE_URL}api/jobs/resolve-count`,
+          {
+            method: "POST",
+            body: JSON.stringify({ targetRouterIds: routerIds, targetGroupIds: groupIds }),
+          },
+        );
+        return data.count;
+      } catch {
+        return 0;
+      }
     },
     enabled: routerIds.length > 0 || groupIds.length > 0,
   });
@@ -48,14 +60,17 @@ function useReachability(routerIds: number[]) {
     queryKey: ["reachability", routerIds],
     queryFn: async () => {
       if (routerIds.length === 0) return {} as Record<number, boolean>;
-      const res = await customFetch(`${import.meta.env.BASE_URL}api/routers/check-reachability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ routerIds }),
-      });
-      if (!res.ok) return {} as Record<number, boolean>;
-      return (await res.json()) as Record<number, boolean>;
+      try {
+        return await customFetch<Record<number, boolean>>(
+          `${import.meta.env.BASE_URL}api/routers/check-reachability`,
+          {
+            method: "POST",
+            body: JSON.stringify({ routerIds }),
+          },
+        );
+      } catch {
+        return {} as Record<number, boolean>;
+      }
     },
     enabled: routerIds.length > 0,
     refetchInterval: 10000,

@@ -12,6 +12,16 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.22] - 2026-04-20
+
+### Fixed
+- **"Unique devices" counter and live reachability dots — for real this time.** Both 1.8.19 and 1.8.21 tried to fix this and both were wrong diagnoses. The actual bug was a misuse of the shared API client: `customFetch` from `@workspace/api-client-react` returns the **parsed response body** (`Promise<T>`) and throws an `ApiError` on non-2xx responses. The two hooks (`useResolvedDeviceCount`, `useReachability`) in `pages/jobs/new.tsx` were treating the return value as a raw `Response` object — checking `res.ok` (always `undefined`, so always falsy) and calling `await res.json()` (never reached). The early-return branch `if (!res.ok) return 0;` therefore fired on every successful call, and the hooks resolved to their defaults forever. Both hooks now consume the parsed body directly and use try/catch to handle the throw-on-error contract. The query keys, memoization, and CSRF-aware request path from previous attempts are kept since they're correct on their own.
+
+### Lessons
+- `customFetch` ≠ `fetch`. It returns `Promise<ParsedBody>`, not `Promise<Response>`, and throws on non-OK. Never call `.ok`, `.json()`, or `.status` on its return value. Always either await the parsed body directly or wrap in try/catch — there's no middle ground.
+
+---
+
 ## [1.8.21] - 2026-04-19
 
 ### Fixed

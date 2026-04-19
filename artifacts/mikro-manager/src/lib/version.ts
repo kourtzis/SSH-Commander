@@ -1,5 +1,5 @@
-export const APP_VERSION = "1.8.21";  
-export const APP_VERSION_DATE = "2026-04-19";
+export const APP_VERSION = "1.8.22";  
+export const APP_VERSION_DATE = "2026-04-20";
 
 
 export interface ChangelogSection {
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.22",
+    date: "2026-04-20",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "The 'unique devices' counter on the New Job page now actually updates when you select devices, and the green/red reachability dots actually light up. Both 1.8.19 and 1.8.21 attempted to fix this and both got the diagnosis wrong. The real bug: the two hooks behind those features were calling the shared API client and then treating the return value as if it were a raw browser Response object — checking `.ok` and calling `.json()` on it. The shared client actually returns the parsed JSON body directly and throws on errors, so `.ok` was always undefined, the early-return-on-error branch fired on every successful call, and the hooks always resolved to their defaults (0 / empty). Hooks now consume the parsed body directly and use try/catch. Apologies for the runaround on this one.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.21",
     date: "2026-04-19",
