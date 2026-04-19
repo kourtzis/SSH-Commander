@@ -173,7 +173,12 @@ if (process.env.DATABASE_URL) {
     sessionConfig.store = new PgStore({
       pool: dbPool,
       createTableIfMissing: true,
-    });
+      // Surface session-store query failures. Without this, a failed
+      // SELECT during get() is silently swallowed by express-session
+      // (which falls back to generating a fresh empty session) — the
+      // user is then "logged out" without a single line in the logs.
+      errorLog: (...args: unknown[]) => console.warn("[session-store]", ...args),
+    } as any);
     console.log("Using PostgreSQL session store (shared pool)");
   } catch (err) {
     console.warn("Failed to initialize PostgreSQL session store, using memory store:", err);
@@ -239,8 +244,25 @@ if (isProd) {
 }
 
 // ─── Global Error Handler ───────────────────────────────────────────
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status = err.status ?? 500;
+  // Diagnostic: log every 401/500 with session context so we can see why
+  // an apparently-authenticated user is being rejected. The "kicked out
+  // by one fingerprint" report is opaque without this — we need to know
+  // whether req.session was actually empty at the moment the 401 fired,
+  // and which route fired it.
+  if (status === 401 || status >= 500) {
+    const sid = (req as any).sessionID;
+    const hasSession = !!(req as any).session;
+    const hasUserId = !!((req as any).session?.userId);
+    const cookieHeader = req.headers.cookie ? "yes" : "no";
+    console.warn(
+      `[error] ${status} ${req.method} ${req.originalUrl} ` +
+      `sid=${sid?.slice(0, 8) ?? "none"} hasSession=${hasSession} hasUserId=${hasUserId} cookieSent=${cookieHeader} ` +
+      `msg=${err.message ?? "unknown"}`
+    );
+    if (status >= 500 && err.stack) console.warn(err.stack);
+  }
   res.status(status).json({ error: err.message ?? "Internal server error" });
 });
 

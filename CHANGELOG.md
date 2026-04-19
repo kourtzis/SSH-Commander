@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.13] - 2026-04-19
+
+### Fixed
+- Diagnostic logging for "one fingerprint kicks me out" — every 401 now logs session state (cookie sent, session loaded, userId present) and the session store reports DB query failures instead of swallowing them. Fingerprint endpoint now catches SSH-library exceptions and returns them as a normal failed-fingerprint response so the UI can no longer misread an unexpected throw as a session expiry.
+
+---
+
 ## [1.8.12] - 2026-04-19
 
 ### Fixed

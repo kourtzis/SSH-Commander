@@ -553,8 +553,17 @@ router.post("/routers/:id/fingerprint", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid router ID" }); return; }
-  const result = await fingerprintOne(id);
-  res.json(result);
+  try {
+    const result = await fingerprintOne(id);
+    res.json(result);
+  } catch (err: any) {
+    // Never let an SSH library error bubble to the global error handler —
+    // the client sees a generic "401/500" toast and assumes their session
+    // died. Wrap into a successful 200 with success=false so the FE shows
+    // a real error message ("connection refused", "timeout", etc).
+    console.warn(`[fingerprint] router ${id} threw:`, err?.message || err);
+    res.json({ success: false, errorMessage: String(err?.message || err) });
+  }
 });
 
 router.post("/routers/fingerprint-all", async (req, res) => {

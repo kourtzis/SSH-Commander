@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.12";  
+export const APP_VERSION = "1.8.13";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.13",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Diagnostic logging added for the 'one fingerprint kicks me out' issue: the server now logs every 401 with the session state at that exact moment (was the cookie sent, was the session loaded, was a userId present), and the session store itself now reports any database query failures it encounters instead of swallowing them. The fingerprint endpoint now also catches SSH-library exceptions and returns them as a normal failed-fingerprint response, so an unexpected throw can no longer be misread by the UI as a session expiry.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.12",
     date: "2026-04-19",
