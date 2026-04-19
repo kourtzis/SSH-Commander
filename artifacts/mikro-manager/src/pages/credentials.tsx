@@ -106,8 +106,20 @@ export default function Credentials() {
     };
     // Only send password fields when non-empty so editing without retyping
     // them preserves the existing secret.
-    if (sshPassword) payload.sshPassword = sshPassword;
-    if (enablePassword) payload.enablePassword = enablePassword;
+    if (sshPassword) {
+      if (sshPassword.length < 8) {
+        toast({ title: "Password too short", description: "SSH password must be at least 8 characters.", variant: "destructive" });
+        return;
+      }
+      payload.sshPassword = sshPassword;
+    }
+    if (enablePassword) {
+      if (enablePassword.length < 4) {
+        toast({ title: "Enable password too short", description: "Enable password must be at least 4 characters.", variant: "destructive" });
+        return;
+      }
+      payload.enablePassword = enablePassword;
+    }
 
     try {
       if (editing) {

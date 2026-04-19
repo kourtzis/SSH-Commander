@@ -217,6 +217,17 @@ export default function NewJob() {
       toast({ title: "Missing fields", description: "Please fill in job name, at least one script block, and at least one target.", variant: "destructive" });
       return;
     }
+    // Confirm before firing a "run now" job that will hit a large device set,
+    // since there's no undo once SSH commands start landing on production gear.
+    if (mode === "run" && !isEditMode && targets.length >= 5) {
+      const ok = await confirmDialog({
+        title: `Run job on ${targets.length} device${targets.length === 1 ? "" : "s"}?`,
+        description: "This will execute the script immediately on every selected device. There is no undo.",
+        confirmLabel: "Run now",
+        variant: "destructive",
+      });
+      if (!ok) return;
+    }
     setJobMode(mode);
     setIsSubmitting(true);
     try {

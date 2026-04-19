@@ -33,8 +33,26 @@ export const CHANGELOG: ChangelogEntry[] = [
           "Login endpoint is rate-limited to 10 attempts per IP per 15 minutes.",
           "Session cookies are marked Secure in production.",
           "JSON body limit tightened from 10mb to 1mb on general routes.",
+          "Per-device terminal input length capped at 4 KiB so a misbehaving client can't push unbounded input into a server-side SSH session.",
           "GET /users/:id is now admin-only (operators could previously read any user record).",
           "Defensive isNaN guards added to every DELETE :id route (routers, groups, snippets, schedules, credentials, users) so a malformed URL returns 400 instead of attempting a delete with NaN.",
+          "bcrypt cost factor raised from 10 → 12 rounds for new and rotated user passwords.",
+          "Minimum password length enforced on the credential profile form (8 chars for SSH password, 4 chars for enable password).",
+        ],
+      },
+      {
+        title: "Performance",
+        items: [
+          "Scheduler one-time path now runs all device tasks in parallel (10-way bounded concurrency) via a shared executeJobTasks helper — previously a one-time schedule against 50 devices would block the scheduler tick for minutes.",
+          "Scheduler bulk-fetches every due schedule's template job in one query (was N+1) and bulk-loads the job's tasks in one query (was one SELECT per device inside the SSH loop).",
+          "Scheduler router SELECT tightened to only the columns needed for SSH execution (id, name, ip, port, username, password, enable password) — drops description, vendor, OS, timestamps from the wire.",
+        ],
+      },
+      {
+        title: "Frontend",
+        items: [
+          "Destructive-action confirmation prompt before \"Run now\" on a job that targets 5 or more devices.",
+          "Per-device terminal input now correctly prefixes the artifact base path (was hard-coded /api/..., broke on path-routed deployments).",
         ],
       },
     ],

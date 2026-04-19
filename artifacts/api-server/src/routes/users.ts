@@ -44,7 +44,7 @@ router.post("/users", async (req, res) => {
   }
 
   const { username, email, password, role } = parsed.data;
-  const passwordHash = await bcrypt.hash(password, 10);
+  const passwordHash = await bcrypt.hash(password, 12);
 
   const [newUser] = await db
     .insert(usersTable)
@@ -92,7 +92,7 @@ router.put("/users/:id", async (req, res) => {
   if (username !== undefined) updates.username = username;
   if (email !== undefined) updates.email = email;
   if (role !== undefined) updates.role = role;
-  if (password !== undefined) updates.passwordHash = await bcrypt.hash(password, 10);
+  if (password !== undefined) updates.passwordHash = await bcrypt.hash(password, 12);
 
   const [updated] = await db
     .update(usersTable)

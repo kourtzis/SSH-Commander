@@ -73,7 +73,8 @@ export default function RouterTerminal() {
   const sendInput = async (value: string) => {
     if (!connected) return;
     try {
-      await fetch(`/api/routers/${id}/terminal/input`, {
+      const baseUrl = import.meta.env.BASE_URL || "/";
+      await fetch(`${baseUrl}api/routers/${id}/terminal/input`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

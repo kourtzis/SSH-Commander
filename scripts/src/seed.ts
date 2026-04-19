@@ -14,7 +14,7 @@ async function seed() {
     process.exit(0);
   }
 
-  const passwordHash = await bcrypt.hash("admin123", 10);
+  const passwordHash = await bcrypt.hash("admin123", 12);
   await db.insert(usersTable).values({
     username: "admin",
     email: "admin@localhost",

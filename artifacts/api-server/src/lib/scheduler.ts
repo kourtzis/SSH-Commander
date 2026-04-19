@@ -8,12 +8,120 @@ import { eq, lte, and, inArray } from "drizzle-orm";
 import { executeSSH, applyTagSubstitution } from "./ssh.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "./resolve-routers.js";
 
+// ─── Shared SSH execution helper ────────────────────────────────────
+// Runs the SSH commands for every router of a job in parallel (bounded
+// concurrency = 10), updating per-task and per-job rows as it goes.
+// Used by both runJobFromTemplate (interval/weekly clones) and the one-time
+// path in tick() — they used to be near-duplicates with the one-time path
+// running sequentially; sharing this helper makes them identical and parallel.
+async function executeJobTasks(
+  jobId: number,
+  routers: typeof routersTable.$inferSelect[],
+  scriptCode: string,
+  excelData: Record<string, string>[] | undefined,
+  options: { timeoutSeconds: number | null; autoConfirm: boolean | null; retryCount: number | null; retryBackoffSeconds: number | null }
+) {
+  // Bulk-load all this job's tasks once instead of one SELECT per router
+  // inside the loop (was the v1.7.x scheduler hot-spot for big jobs).
+  const insertedTasks = await db
+    .select({ id: jobTasksTable.id, routerId: jobTasksTable.routerId })
+    .from(jobTasksTable)
+    .where(eq(jobTasksTable.jobId, jobId));
+  const taskByRouterId = new Map(insertedTasks.map((t) => [t.routerId, t.id]));
+
+  const excelLookup = buildExcelLookup(excelData);
+  let completedCount = 0;
+  let failedCount = 0;
+
+  await runConcurrent(routers, async (r, i) => {
+    const taskId = taskByRouterId.get(r.id);
+    if (!taskId) return;
+
+    const row = findExcelRow(r, excelLookup, i, excelData);
+    const finalScript = applyTagSubstitution(scriptCode, row);
+
+    await db.update(jobTasksTable).set({
+      status: "running",
+      startedAt: new Date(),
+      resolvedScript: finalScript,
+    }).where(eq(jobTasksTable.id, taskId));
+
+    if (!r.sshPassword) {
+      failedCount++;
+      await db.update(jobTasksTable).set({
+        status: "failed",
+        errorMessage: "No SSH password configured",
+        completedAt: new Date(),
+      }).where(eq(jobTasksTable.id, taskId));
+    } else {
+      try {
+        const result = await executeSSH(
+          r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript,
+          {
+            timeoutMs: (options.timeoutSeconds || 30) * 1000,
+            autoConfirm: options.autoConfirm,
+            enablePassword: r.enablePassword ?? undefined,
+            retryCount: options.retryCount || 0,
+            retryBackoffSeconds: options.retryBackoffSeconds || 5,
+          }
+        );
+        if (result.success) {
+          completedCount++;
+          await db.update(jobTasksTable).set({
+            status: "success",
+            output: result.output,
+            connectionLog: result.connectionLog,
+            attemptCount: result.attemptCount,
+            completedAt: new Date(),
+          }).where(eq(jobTasksTable.id, taskId));
+        } else {
+          failedCount++;
+          await db.update(jobTasksTable).set({
+            status: "failed",
+            output: result.output,
+            errorMessage: result.errorMessage,
+            connectionLog: result.connectionLog,
+            attemptCount: result.attemptCount,
+            completedAt: new Date(),
+          }).where(eq(jobTasksTable.id, taskId));
+        }
+      } catch (err: any) {
+        failedCount++;
+        await db.update(jobTasksTable).set({
+          status: "failed",
+          errorMessage: err.message,
+          completedAt: new Date(),
+        }).where(eq(jobTasksTable.id, taskId));
+      }
+    }
+
+    await db.update(batchJobsTable).set({
+      completedTasks: completedCount,
+      failedTasks: failedCount,
+    }).where(eq(batchJobsTable.id, jobId));
+  }, 10);
+
+  return { completedCount, failedCount };
+}
+
+// Tighten the routers SELECT — we only need the columns relevant to SSH
+// execution (no description, createdAt, vendor, etc.). Cuts row size when
+// loading hundreds of devices for a scheduled job.
+const SSH_ROUTER_COLUMNS = {
+  id: routersTable.id,
+  name: routersTable.name,
+  ipAddress: routersTable.ipAddress,
+  sshPort: routersTable.sshPort,
+  sshUsername: routersTable.sshUsername,
+  sshPassword: routersTable.sshPassword,
+  enablePassword: routersTable.enablePassword,
+} as const;
+
 // ─── Template Job Execution ─────────────────────────────────────────
 // Clones a template job (status="scheduled") into a new running job,
-// creates per-router tasks, and executes SSH commands sequentially.
-// Used by interval and weekly schedules.
+// creates per-router tasks, and executes SSH commands in parallel.
+// Used by interval / daily / weekly / monthly schedules.
 async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelect) {
-  // Resolve all target routers from both direct IDs and group membership
   const allRouterIds = await resolveRouterIds(
     (templateJob.targetRouterIds as number[]) ?? [],
     (templateJob.targetGroupIds as number[]) ?? []
@@ -21,12 +129,13 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
 
   if (allRouterIds.length === 0) return;
 
-  // Fetch router details and preserve the resolved ordering
-  const routersUnordered = await db.select().from(routersTable).where(inArray(routersTable.id, allRouterIds));
-  const routerMap = new Map(routersUnordered.map(r => [r.id, r]));
-  const routers = allRouterIds.map(id => routerMap.get(id)!).filter(Boolean);
+  const routersUnordered = await db
+    .select(SSH_ROUTER_COLUMNS)
+    .from(routersTable)
+    .where(inArray(routersTable.id, allRouterIds));
+  const routerMap = new Map(routersUnordered.map((r) => [r.id, r]));
+  const routers = allRouterIds.map((id) => routerMap.get(id)!).filter(Boolean) as any;
 
-  // Create the new execution job (cloned from template)
   const [newJob] = await db.insert(batchJobsTable).values({
     name: `${templateJob.name} (scheduled)`,
     scriptCode: templateJob.scriptCode,
@@ -44,76 +153,25 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
     createdBy: templateJob.createdBy,
   }).returning();
 
-  // Insert pending tasks for each router
-  const tasks = routers.map(r => ({
+  await db.insert(jobTasksTable).values(routers.map((r: any) => ({
     jobId: newJob.id,
     routerId: r.id,
     routerName: r.name,
     routerIp: r.ipAddress,
     status: "pending" as const,
-  }));
-  await db.insert(jobTasksTable).values(tasks);
-
-  const insertedTasks = await db.select().from(jobTasksTable)
-    .where(eq(jobTasksTable.jobId, newJob.id));
-  const taskByRouterId = new Map(insertedTasks.map(t => [t.routerId, t.id]));
+  })));
 
   const excelData = templateJob.excelData as Record<string, string>[] | undefined;
-  const excelLookup = buildExcelLookup(excelData);
-  let completedCount = 0;
-  let failedCount = 0;
-
-  await runConcurrent(routers, async (r, i) => {
-    const taskId = taskByRouterId.get(r.id);
-    if (!taskId) return;
-
-    const row = findExcelRow(r, excelLookup, i, excelData);
-    const finalScript = applyTagSubstitution(templateJob.scriptCode, row);
-
-    await db.update(jobTasksTable).set({ status: "running", startedAt: new Date(), resolvedScript: finalScript }).where(eq(jobTasksTable.id, taskId));
-
-    if (!r.sshPassword) {
-      failedCount++;
-      await db.update(jobTasksTable).set({
-        status: "failed",
-        errorMessage: "No SSH password configured",
-        completedAt: new Date(),
-      }).where(eq(jobTasksTable.id, taskId));
-    } else {
-      try {
-        const result = await executeSSH(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, {
-          timeoutMs: (templateJob.timeoutSeconds || 30) * 1000,
-          autoConfirm: templateJob.autoConfirm,
-          enablePassword: r.enablePassword ?? undefined,
-          retryCount: templateJob.retryCount || 0,
-          retryBackoffSeconds: templateJob.retryBackoffSeconds || 5,
-        });
-        if (result.success) {
-          completedCount++;
-          await db.update(jobTasksTable).set({
-            status: "success", output: result.output, connectionLog: result.connectionLog, attemptCount: result.attemptCount, completedAt: new Date(),
-          }).where(eq(jobTasksTable.id, taskId));
-        } else {
-          failedCount++;
-          await db.update(jobTasksTable).set({
-            status: "failed", output: result.output, errorMessage: result.errorMessage, connectionLog: result.connectionLog, attemptCount: result.attemptCount, completedAt: new Date(),
-          }).where(eq(jobTasksTable.id, taskId));
-        }
-      } catch (err: any) {
-        failedCount++;
-        await db.update(jobTasksTable).set({
-          status: "failed", errorMessage: err.message, completedAt: new Date(),
-        }).where(eq(jobTasksTable.id, taskId));
-      }
+  const { completedCount, failedCount } = await executeJobTasks(
+    newJob.id, routers, templateJob.scriptCode, excelData,
+    {
+      timeoutSeconds: templateJob.timeoutSeconds,
+      autoConfirm: templateJob.autoConfirm,
+      retryCount: templateJob.retryCount,
+      retryBackoffSeconds: templateJob.retryBackoffSeconds,
     }
+  );
 
-    await db.update(batchJobsTable).set({
-      completedTasks: completedCount,
-      failedTasks: failedCount,
-    }).where(eq(batchJobsTable.id, newJob.id));
-  }, 10);
-
-  // Finalize the job — "failed" only if every single task failed
   await db.update(batchJobsTable).set({
     status: failedCount === routers.length ? "failed" : "completed",
     completedAt: new Date(),
@@ -200,24 +258,29 @@ function computeNextRun(schedule: typeof schedulesTable.$inferSelect): Date | nu
 }
 
 // ─── Scheduler Tick ─────────────────────────────────────────────────
-// Runs once per interval. Finds all enabled schedules whose nextRunAt is past due,
-// then executes each one. One-time schedules run the template job in-place;
-// interval/weekly schedules clone it via runJobFromTemplate.
+// Runs once per interval. Finds all enabled schedules whose nextRunAt is past
+// due, then executes each one. One-time schedules run the template job
+// in-place; interval / daily / weekly / monthly schedules clone it via
+// runJobFromTemplate.
 async function tick() {
   try {
     const now = new Date();
-    // Find all schedules that are enabled and past their next run time
     const due = await db.select().from(schedulesTable)
       .where(and(
         eq(schedulesTable.enabled, true),
         lte(schedulesTable.nextRunAt, now)
       ));
+    if (due.length === 0) return;
+
+    // Bulk-fetch every template job referenced by the due schedules in one
+    // query instead of one SELECT per schedule (was N+1 in 1.7.x).
+    const templateJobIds = Array.from(new Set(due.map((s) => s.jobId)));
+    const templates = await db.select().from(batchJobsTable)
+      .where(inArray(batchJobsTable.id, templateJobIds));
+    const templateById = new Map(templates.map((t) => [t.id, t]));
 
     for (const schedule of due) {
-      // Look up the template job this schedule is bound to
-      const [templateJob] = await db.select().from(batchJobsTable)
-        .where(eq(batchJobsTable.id, schedule.jobId))
-        .limit(1);
+      const templateJob = templateById.get(schedule.jobId);
 
       // If the template was deleted, disable this schedule
       if (!templateJob) {
@@ -228,7 +291,6 @@ async function tick() {
       console.log(`[Scheduler] Running schedule "${schedule.name}" (id=${schedule.id})`);
 
       if (schedule.type === "once") {
-        // One-time: execute the template job in-place (convert it from "scheduled" to "running")
         if (templateJob.status === "scheduled") {
           await db.update(batchJobsTable).set({ status: "running" }).where(eq(batchJobsTable.id, templateJob.id));
 
@@ -236,68 +298,44 @@ async function tick() {
             (templateJob.targetRouterIds as number[]) ?? [],
             (templateJob.targetGroupIds as number[]) ?? []
           );
-          const routersUnordered = await db.select().from(routersTable).where(inArray(routersTable.id, allRouterIds));
-          const routerMap = new Map(routersUnordered.map(r => [r.id, r]));
-          const routers = allRouterIds.map(id => routerMap.get(id)!).filter(Boolean);
+          const routersUnordered = await db
+            .select(SSH_ROUTER_COLUMNS)
+            .from(routersTable)
+            .where(inArray(routersTable.id, allRouterIds));
+          const routerMap = new Map(routersUnordered.map((r) => [r.id, r]));
+          const routers = allRouterIds.map((id) => routerMap.get(id)!).filter(Boolean) as any;
 
           await db.update(batchJobsTable).set({ totalTasks: routers.length }).where(eq(batchJobsTable.id, templateJob.id));
 
-          const tasks = routers.map(r => ({
-            jobId: templateJob.id,
-            routerId: r.id,
-            routerName: r.name,
-            routerIp: r.ipAddress,
-            status: "pending" as const,
-          }));
-          if (tasks.length > 0) await db.insert(jobTasksTable).values(tasks);
-
-          // Sequential SSH execution (same logic as runJobFromTemplate)
-          const excelData = templateJob.excelData as Record<string, string>[] | undefined;
-          const excelLookup = buildExcelLookup(excelData);
-          let completedCount = 0;
-          let failedCount = 0;
-
-          for (let i = 0; i < routers.length; i++) {
-            const r = routers[i];
-            const [task] = await db.select({ id: jobTasksTable.id }).from(jobTasksTable)
-              .where(and(eq(jobTasksTable.jobId, templateJob.id), eq(jobTasksTable.routerId, r.id)))
-              .limit(1);
-            if (!task) continue;
-
-            const row = findExcelRow(r, excelLookup, i, excelData);
-            const finalScript = applyTagSubstitution(templateJob.scriptCode, row);
-
-            await db.update(jobTasksTable).set({ status: "running", startedAt: new Date(), resolvedScript: finalScript }).where(eq(jobTasksTable.id, task.id));
-
-            if (!r.sshPassword) {
-              failedCount++;
-              await db.update(jobTasksTable).set({
-                status: "failed", errorMessage: "No SSH password configured", completedAt: new Date(),
-              }).where(eq(jobTasksTable.id, task.id));
-              await db.update(batchJobsTable).set({ failedTasks: failedCount }).where(eq(batchJobsTable.id, templateJob.id));
-              continue;
-            }
-
-            try {
-              const result = await executeSSH(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, {
-                timeoutMs: (templateJob.timeoutSeconds || 30) * 1000,
-                autoConfirm: templateJob.autoConfirm,
-                enablePassword: r.enablePassword ?? undefined,
-                retryCount: templateJob.retryCount || 0,
-                retryBackoffSeconds: templateJob.retryBackoffSeconds || 5,
-              });
-              if (result.success) { completedCount++; await db.update(jobTasksTable).set({ status: "success", output: result.output, connectionLog: result.connectionLog, attemptCount: result.attemptCount, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id)); }
-              else { failedCount++; await db.update(jobTasksTable).set({ status: "failed", output: result.output, errorMessage: result.errorMessage, connectionLog: result.connectionLog, attemptCount: result.attemptCount, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id)); }
-            } catch (err: any) {
-              failedCount++;
-              await db.update(jobTasksTable).set({ status: "failed", errorMessage: err.message, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id));
-            }
-            await db.update(batchJobsTable).set({ completedTasks: completedCount, failedTasks: failedCount }).where(eq(batchJobsTable.id, templateJob.id));
+          if (routers.length > 0) {
+            await db.insert(jobTasksTable).values(routers.map((r: any) => ({
+              jobId: templateJob.id,
+              routerId: r.id,
+              routerName: r.name,
+              routerIp: r.ipAddress,
+              status: "pending" as const,
+            })));
           }
+
+          // Run all tasks in parallel via the shared helper (was sequential
+          // before — a 50-device one-time schedule would block the scheduler
+          // tick for minutes).
+          const excelData = templateJob.excelData as Record<string, string>[] | undefined;
+          const { completedCount, failedCount } = await executeJobTasks(
+            templateJob.id, routers, templateJob.scriptCode, excelData,
+            {
+              timeoutSeconds: templateJob.timeoutSeconds,
+              autoConfirm: templateJob.autoConfirm,
+              retryCount: templateJob.retryCount,
+              retryBackoffSeconds: templateJob.retryBackoffSeconds,
+            }
+          );
 
           await db.update(batchJobsTable).set({
             status: failedCount === routers.length ? "failed" : "completed",
-            completedAt: new Date(), completedTasks: completedCount, failedTasks: failedCount,
+            completedAt: new Date(),
+            completedTasks: completedCount,
+            failedTasks: failedCount,
           }).where(eq(batchJobsTable.id, templateJob.id));
         }
 
@@ -306,14 +344,13 @@ async function tick() {
           enabled: false, lastRunAt: new Date(), nextRunAt: null, runCount: schedule.runCount + 1,
         }).where(eq(schedulesTable.id, schedule.id));
       } else {
-        // Interval/weekly: clone the template into a new job and execute
         await runJobFromTemplate(templateJob);
         const nextRun = computeNextRun(schedule);
         await db.update(schedulesTable).set({
           lastRunAt: new Date(),
           nextRunAt: nextRun,
           runCount: schedule.runCount + 1,
-          enabled: nextRun !== null,  // Disable if no valid next run (shouldn't happen for interval/weekly)
+          enabled: nextRun !== null,
         }).where(eq(schedulesTable.id, schedule.id));
       }
     }
@@ -327,7 +364,6 @@ async function tick() {
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let tickInFlight = false;  // Prevents overlapping ticks if a run takes longer than 30s
 
-// Wrapper that skips the tick if the previous one is still running
 async function safeTick() {
   if (tickInFlight) {
     console.log("[Scheduler] Skipping tick (previous still running)");
@@ -341,15 +377,13 @@ async function safeTick() {
   }
 }
 
-// Start the scheduler loop — called once at server startup
 export function startScheduler() {
   if (intervalHandle) return;
   console.log("[Scheduler] Started (checking every 30s)");
   intervalHandle = setInterval(safeTick, 30_000);
-  safeTick(); // Run immediately on startup to catch any overdue schedules
+  safeTick();
 }
 
-// Stop the scheduler loop (used during graceful shutdown)
 export function stopScheduler() {
   if (intervalHandle) {
     clearInterval(intervalHandle);

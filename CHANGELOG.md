@@ -25,8 +25,20 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 - **Login rate limiting.** `/api/auth/login` is capped at 10 attempts per IP per 15-minute window.
 - **Session cookies marked Secure in production** (`Set-Cookie ... Secure`).
 - **Request body limit** dropped from 10mb to 1mb on general routes.
+- **Terminal input length capped at 4 KiB** on `POST /routers/:id/terminal/input` so a misbehaving client can't push unbounded input into a server-side SSH session.
 - **`GET /api/users/:id` is now admin-only.** Operators could previously read any user record by ID.
 - **`isNaN` guards on all `DELETE /:id` routes** (routers, groups, snippets, schedules, credentials, users) — malformed IDs now return 400 instead of attempting a delete with `NaN`.
+- **bcrypt cost factor raised from 10 → 12 rounds** for new and rotated user passwords.
+- **Minimum password length enforced** on the credential profile form (8 chars for SSH password, 4 chars for enable password) before submission.
+
+### Performance
+- **Scheduler one-time path now executes in parallel** (10-way bounded concurrency) via a shared `executeJobTasks` helper. Previously a one-time schedule against 50 devices would block the scheduler tick for minutes — every other due schedule queued behind it.
+- **Scheduler bulk-fetches** every due schedule's template job in one query (was N+1) and bulk-loads each job's tasks in one query (was one SELECT per device inside the SSH loop).
+- **Scheduler router SELECT tightened** to only the columns needed for SSH execution (id, name, ip, port, username, password, enable password) — drops description, vendor, OS, timestamps from the wire.
+
+### Frontend
+- **Destructive-action confirmation** before "Run now" on a job that targets 5 or more devices.
+- **Per-device terminal input** now correctly prefixes the artifact base path (was hard-coded `/api/...`, broke on path-routed deployments).
 
 ### Upgrade notes
 - Set `SESSION_SECRET` in your `.env` / Docker environment before deploying. Generate one with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
