@@ -447,7 +447,7 @@ export default function Routers() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
+              <table className="min-w-[1100px] w-full text-sm text-left">
                 <thead className="text-xs text-muted-foreground uppercase bg-black/40 border-b border-border/50">
                   <tr>
                     <th className="px-4 py-4 w-10">
