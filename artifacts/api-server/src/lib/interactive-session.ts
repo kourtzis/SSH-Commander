@@ -50,6 +50,77 @@ export interface LiveEvent {
   totalTasks?: number;
 }
 
+// ─── Script Directives ─────────────────────────────────────────────
+// Operators can pause the script runner mid-execution with two tokens:
+//   <<SLEEP 5>>     pause 5 (or 5.5 etc.) seconds before sending the next chunk
+//   <<WAIT>>        wait until the device shell stops emitting data for 1.5s,
+//                   i.e. until the previous command finished and the prompt
+//                   came back. Useful between e.g. `apt update` and
+//                   `apt upgrade -y` when you can't predict how long the
+//                   first one takes.
+// The directives must be on their own (or surrounded by whitespace/newlines).
+// They are parsed out of the script before being sent to the device, so they
+// never reach the wire.
+type CmdSegment =
+  | { kind: "text"; text: string }
+  | { kind: "sleep"; ms: number }
+  | { kind: "wait" };
+
+const DIRECTIVE_RE = /<<\s*(SLEEP\s+\d+(?:\.\d+)?|WAIT)\s*>>/g;
+
+export function parseScriptDirectives(command: string): CmdSegment[] {
+  const segments: CmdSegment[] = [];
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+  DIRECTIVE_RE.lastIndex = 0;
+  while ((match = DIRECTIVE_RE.exec(command)) !== null) {
+    const before = command.slice(lastIdx, match.index);
+    if (before.length > 0) segments.push({ kind: "text", text: before });
+    const tok = match[1].toUpperCase().trim();
+    if (tok.startsWith("SLEEP")) {
+      const seconds = parseFloat(tok.split(/\s+/)[1]);
+      // Clamp to a sane range — 0.1s minimum, 10min maximum per directive.
+      // Operators wanting longer pauses should chain multiple <<SLEEP>>s or
+      // raise the per-job timeout (currently a 120s ceiling).
+      const ms = Math.max(100, Math.min(600000, Math.round(seconds * 1000)));
+      segments.push({ kind: "sleep", ms });
+    } else if (tok === "WAIT") {
+      segments.push({ kind: "wait" });
+    }
+    lastIdx = match.index + match[0].length;
+  }
+  const tail = command.slice(lastIdx);
+  if (tail.length > 0) segments.push({ kind: "text", text: tail });
+  return segments;
+}
+
+// Polls the per-device shellBuffer length; resolves once the buffer hasn't
+// grown for `idleMs` milliseconds (i.e. the device has finished talking and
+// is presumably back at the prompt). Bounded by `maxWaitMs` so a stuck device
+// can't hold the script forever — in that case we resolve anyway and let the
+// next segment be sent.
+function waitForShellIdle(
+  dev: { shellBuffer: string; resolved: boolean },
+  idleMs: number,
+  maxWaitMs: number,
+): Promise<void> {
+  return new Promise(resolve => {
+    let lastSize = dev.shellBuffer.length;
+    let lastChange = Date.now();
+    const start = Date.now();
+    const tick = setInterval(() => {
+      if (dev.resolved) { clearInterval(tick); resolve(); return; }
+      if (dev.shellBuffer.length !== lastSize) {
+        lastSize = dev.shellBuffer.length;
+        lastChange = Date.now();
+      }
+      const idleEnough = Date.now() - lastChange >= idleMs;
+      const timedOut = Date.now() - start >= maxWaitMs;
+      if (idleEnough || timedOut) { clearInterval(tick); resolve(); }
+    }, 250);
+  });
+}
+
 // Per-device SSH session state
 interface DeviceSession {
   taskId: number;
@@ -411,8 +482,53 @@ class InteractiveSessionManager {
           // log timestamp precedes any echoed output.
           log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
           appendWireLog(log, "", ">>", command + "\n");
-          writeCommandWithControlChars(stream, command);
-          resetIdleTimer();
+
+          // Parse for <<SLEEP N>> / <<WAIT>> directives. If none, the segments
+          // array contains a single text entry and we fall through to the
+          // simple single-write path. If directives are present, send each
+          // segment in sequence with the requested pause/idle-wait between.
+          const segments = parseScriptDirectives(command);
+          const hasDirectives = segments.some(s => s.kind !== "text");
+
+          if (!hasDirectives) {
+            writeCommandWithControlChars(stream, command);
+            resetIdleTimer();
+            return;
+          }
+
+          // Sequenced execution. Async IIFE so we can await sleeps/idles.
+          // We pause the idle timer during sleep/wait so the session doesn't
+          // self-terminate mid-script. The global timeout (`timeoutMs`) still
+          // applies — operators using long sleeps must set the job's timeout
+          // accordingly via the New Job page.
+          (async () => {
+            for (const seg of segments) {
+              if (dev.resolved) return;
+              if (seg.kind === "text") {
+                if (seg.text.length === 0) continue;
+                // Each text segment ends with an explicit newline so the
+                // shell executes the buffered command before we move on.
+                writeCommandWithControlChars(stream, seg.text, true);
+                resetIdleTimer();
+              } else if (seg.kind === "sleep") {
+                log.push(`[${ts()}] Pausing ${(seg.ms / 1000).toFixed(1)}s before next segment (<<SLEEP>>)`);
+                if (dev.idleTimerRef) { clearTimeout(dev.idleTimerRef); dev.idleTimerRef = null; }
+                await new Promise(r => setTimeout(r, seg.ms));
+                if (dev.resolved) return;
+                resetIdleTimer();
+              } else if (seg.kind === "wait") {
+                log.push(`[${ts()}] Waiting for shell to go idle (<<WAIT>>)`);
+                if (dev.idleTimerRef) { clearTimeout(dev.idleTimerRef); dev.idleTimerRef = null; }
+                await waitForShellIdle(dev, 1500, Math.max(timeoutMs - 5000, 30000));
+                if (dev.resolved) return;
+                log.push(`[${ts()}] Shell idle, resuming script`);
+                resetIdleTimer();
+              }
+            }
+          })().catch(err => {
+            log.push(`[${ts()}] ERROR during sequenced send: ${err?.message ?? err}`);
+            this.finalizeDevice(jobId, taskId, false, "sequenced-send error");
+          });
         }, 500);
       });
     });

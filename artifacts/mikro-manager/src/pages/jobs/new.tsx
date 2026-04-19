@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
-import { useListRouters, useListGroups, useListSnippets, useGetJob, useDryRunJob } from "@workspace/api-client-react";
+import { useListRouters, useListGroups, useListSnippets, useGetJob, useDryRunJob, customFetch } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,12 +16,20 @@ import { useToast } from "@/hooks/use-toast";
 import { extractTags } from "@/lib/utils";
 import type ExcelJS from "exceljs";
 
+// IMPORTANT: these two endpoints are POSTs and the API server's CSRF
+// middleware (added in 1.8.0) requires the `X-Requested-With: XMLHttpRequest`
+// header on every state-changing /api request. Plain `fetch()` does not set
+// that header, so it would 403 silently and the catch-all `if (!res.ok)
+// return 0` made the bug invisible — the "unique devices" badge stuck at 0
+// and reachability dots stayed grey. `customFetch` from the shared API client
+// adds the header automatically, so always use it for /api calls instead of
+// the global `fetch`.
 function useResolvedDeviceCount(routerIds: number[], groupIds: number[]) {
   return useQuery({
     queryKey: ["resolve-count", routerIds, groupIds],
     queryFn: async () => {
       if (routerIds.length === 0 && groupIds.length === 0) return 0;
-      const res = await fetch(`${import.meta.env.BASE_URL}api/jobs/resolve-count`, {
+      const res = await customFetch(`${import.meta.env.BASE_URL}api/jobs/resolve-count`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -40,7 +48,7 @@ function useReachability(routerIds: number[]) {
     queryKey: ["reachability", routerIds],
     queryFn: async () => {
       if (routerIds.length === 0) return {} as Record<number, boolean>;
-      const res = await fetch(`${import.meta.env.BASE_URL}api/routers/check-reachability`, {
+      const res = await customFetch(`${import.meta.env.BASE_URL}api/routers/check-reachability`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

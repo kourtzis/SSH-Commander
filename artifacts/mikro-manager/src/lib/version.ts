@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.20";  
+export const APP_VERSION = "1.8.21";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,24 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.21",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "The 'unique devices' counter on the New Job page actually works now. The previous 1.8.19 fix was wrong — the bug was never about array reference stability, it was that the count and reachability requests were using the plain browser fetch instead of the shared API client, so the CSRF middleware (added in 1.8.0) blocked them with a 403 and the error was swallowed by a 'fall back to 0' branch. Both requests now go through the shared API client which sets the required header, and the counter + reachability dots update normally.",
+        ],
+      },
+      {
+        title: "Added",
+        items: [
+          "Two new script directives for long-running multi-step jobs: place '<<SLEEP 5>>' on its own (or anywhere) in your script to make the job runner pause 5 seconds before sending the next chunk (decimals like 1.5 also work, max 10 minutes per directive). Place '<<WAIT>>' to make the runner wait until the device shell stops talking — useful between commands like 'apt update' and 'apt upgrade -y' where the first one's runtime is unpredictable. The directives are stripped from the script before it's sent to the device, so they never reach the wire. The connection log shows when each pause/wait starts and ends.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.20",
     date: "2026-04-19",

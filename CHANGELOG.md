@@ -12,6 +12,22 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.21] - 2026-04-19
+
+### Fixed
+- **"Unique devices" counter and live reachability dots stuck on the New Job page.** The 1.8.19 changelog blamed array reference instability and added `useMemo` wrappers — that was a misdiagnosis. React Query already deep-compares query keys so reference identity doesn't matter. The actual bug: `useResolvedDeviceCount` and `useReachability` used the global `fetch()` instead of the shared `customFetch` from `@workspace/api-client-react`. The CSRF middleware introduced in 1.8.0 requires `X-Requested-With: XMLHttpRequest` on every state-changing `/api` request, `customFetch` adds that header automatically, plain `fetch` does not — so both POSTs were 403'ing and the catch-all `if (!res.ok) return 0` made the failure invisible. Both hooks now use `customFetch`. The `useMemo` wrappers from 1.8.19 are kept since they don't hurt and are good practice.
+
+### Added
+- **Script directives `<<SLEEP N>>` and `<<WAIT>>` for multi-step interactive jobs.** Sometimes a script needs to pause between commands — e.g. after `apt update` you want to wait a few seconds before `apt upgrade -y`, or after a long-running install you need to wait for the prompt to come back before issuing the next command. Two new tokens handle this:
+  - `<<SLEEP 5>>` — pause the script runner for 5 seconds (decimals OK, e.g. `<<SLEEP 1.5>>`; clamped to 0.1s–600s per directive). The idle timer is paused during the sleep so the session doesn't auto-close mid-script.
+  - `<<WAIT>>` — pause until the device's shell stops emitting data for 1.5s, i.e. until the previous command finished and the prompt returned. Bounded by the per-job timeout so a hung device can't block forever.
+  
+  Implementation: `parseScriptDirectives` (in `lib/interactive-session.ts`) splits the script into a list of `{kind: 'text' | 'sleep' | 'wait', ...}` segments. If any non-text segment is present the runner switches from a single `writeCommandWithControlChars` call to a sequenced `for...of` loop that sends one text chunk, awaits the sleep/wait, then sends the next. Directives are stripped before reaching the wire, so they don't appear in the device's command history. Both directives are logged in the connection log with start/end markers (`Pausing 5.0s before next segment (<<SLEEP>>)` / `Waiting for shell to go idle (<<WAIT>>)` / `Shell idle, resuming script`).
+  
+  Caveat: the per-device global timeout in interactive-session is currently a hardcoded 120s. Long sleeps near or over that ceiling will be cut off. Plumbing the per-job `timeoutSeconds` value into interactive-session will be a follow-up patch — for now operators using long pauses should keep total script duration under ~110s.
+
+---
+
 ## [1.8.20] - 2026-04-19
 
 ### Improved
