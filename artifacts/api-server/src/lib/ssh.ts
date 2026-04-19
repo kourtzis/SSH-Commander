@@ -13,6 +13,63 @@ function ts(): string {
   return new Date().toISOString().replace("T", " ").replace("Z", "");
 }
 
+// Hard cap on log size — pathological devices that spew megabytes of output
+// (e.g. `show tech-support` on Cisco) would otherwise balloon the
+// `batch_jobs.connection_log` JSON column past Postgres TOAST limits and slow
+// the job-detail page to a crawl. 4000 lines is plenty for normal scripts and
+// still meaningful for debugging when truncated.
+const MAX_LOG_LINES = 4000;
+
+// Append wire data (sent or received) to a connection log as one entry per
+// line, with a direction prefix (">>" for sent, "<<" for received,
+// "<<E" for stderr). Coalesces partial-line chunks via a per-direction buffer
+// so a single TCP packet that breaks mid-line is still rendered as full lines.
+//
+// Why this exists: troubleshooting a job previously meant looking at the
+// "Output" pane (raw blob) and the "Connection Log" pane (just metadata) and
+// mentally interleaving them with timestamps. The connection log now contains
+// the full timeline (handshake → command sent → device replies → prompts →
+// close) so an operator can see exactly what was exchanged and when.
+//
+// Returns the new buffer state — caller must keep the returned string for the
+// next chunk so trailing partial lines don't get dropped or duplicated.
+export function appendWireLog(
+  log: string[],
+  buffer: string,
+  prefix: string,
+  chunk: string,
+): string {
+  if (!chunk) return buffer;
+  const combined = buffer + chunk.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const parts = combined.split("\n");
+  // Last element may be a partial line — keep it as the new buffer.
+  const newBuffer = parts.pop() ?? "";
+  for (const line of parts) {
+    if (line.length === 0) continue;
+    if (log.length >= MAX_LOG_LINES) {
+      if (log[log.length - 1] !== "[…connection log truncated]") {
+        log.push("[…connection log truncated]");
+      }
+      return newBuffer;
+    }
+    log.push(`[${ts()}] ${prefix} ${line}`);
+  }
+  return newBuffer;
+}
+
+// Flush whatever is left in a wire-log buffer when a stream closes — captures
+// the final line of output that didn't end in a newline (common with prompts
+// like `[admin@router] > `).
+export function flushWireLog(
+  log: string[],
+  buffer: string,
+  prefix: string,
+): void {
+  if (!buffer) return;
+  if (log.length >= MAX_LOG_LINES) return;
+  log.push(`[${ts()}] ${prefix} ${buffer}`);
+}
+
 // ─── Prompt Detection ───────────────────────────────────────────────
 // These patterns detect interactive prompts in the SSH output buffer.
 // Used to auto-confirm y/n prompts or pause for user input.
@@ -317,9 +374,15 @@ export async function executeSSHCommand(
             }, 3000);
           };
 
+          // Per-direction line buffers for the wire log (see appendWireLog).
+          let recvBuf = "";
+          let stderrBuf = "";
+
           stream.on("close", () => {
             clearTimeout(timer);
             if (idleTimer.ref) clearTimeout(idleTimer.ref);
+            flushWireLog(log, recvBuf, "<<");  recvBuf = "";
+            flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
             log.push(`[${ts()}] ──────────────────────────────────`);
             if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
             log.push(`[${ts()}] Session closed`);
@@ -333,6 +396,7 @@ export async function executeSSHCommand(
             const chunk = data.toString();
             shellBuffer += chunk;
             output += chunk;
+            recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
             resetIdleTimer();
 
             if (!commandSent) return;
@@ -348,12 +412,16 @@ export async function executeSSHCommand(
           });
 
           stream.stderr.on("data", (data: Buffer) => {
-            stderr += data.toString();
+            const chunk = data.toString();
+            stderr += chunk;
+            stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
           });
 
           // Delay command sending by 500ms to let the shell banner/MOTD arrive first
           setTimeout(() => {
             commandSent = true;
+            log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
+            appendWireLog(log, "", ">>", command + "\n");
             writeCommandWithControlChars(stream, command);
             resetIdleTimer();
           }, 500);
@@ -371,11 +439,20 @@ export async function executeSSHCommand(
             return;
           }
 
+          // Per-direction line buffers for the wire log.
+          let recvBuf = "";
+          let stderrBuf = "";
+
+          // Log the command before any output can echo back.
+          log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
+          appendWireLog(log, "", ">>", command + "\n");
+
           stream.on("close", (code: number) => {
             clearTimeout(timer);
+            flushWireLog(log, recvBuf, "<<");  recvBuf = "";
+            flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
             log.push(`[${ts()}] ──────────────────────────────────`);
             log.push(`[${ts()}] Command exited with code: ${code}`);
-            if (stderr.trim()) log.push(`[${ts()}] STDERR: ${stderr.trim()}`);
             log.push(`[${ts()}] Session closed`);
             conn.end();
             if (!timedOut) {
@@ -388,8 +465,16 @@ export async function executeSSHCommand(
             }
           });
 
-          stream.on("data", (data: Buffer) => { output += data.toString(); });
-          stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+          stream.on("data", (data: Buffer) => {
+            const chunk = data.toString();
+            output += chunk;
+            recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
+          });
+          stream.stderr.on("data", (data: Buffer) => {
+            const chunk = data.toString();
+            stderr += chunk;
+            stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
+          });
         });
       }
     });
@@ -605,11 +690,16 @@ async function executeOnce(
         let autoConfirmCount = 0;
         let lastPromptChecked = "";
         let enableSent = false;
+        // Per-direction line buffers for the wire log.
+        let recvBuf = "";
+        let stderrBuf = "";
         const idleTimer = { ref: null as ReturnType<typeof setTimeout> | null };
         const resetIdleTimer = () => {
           if (idleTimer.ref) clearTimeout(idleTimer.ref);
           idleTimer.ref = setTimeout(() => {
             clearTimeout(timer);
+            flushWireLog(log, recvBuf, "<<");  recvBuf = "";
+            flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
             log.push(`[${ts()}] ──────────────────────────────────`);
             log.push(`[${ts()}] Shell session idle — closing`);
             if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
@@ -621,6 +711,8 @@ async function executeOnce(
         stream.on("close", () => {
           clearTimeout(timer);
           if (idleTimer.ref) clearTimeout(idleTimer.ref);
+          flushWireLog(log, recvBuf, "<<");  recvBuf = "";
+          flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
           log.push(`[${ts()}] ──────────────────────────────────`);
           if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
           log.push(`[${ts()}] Session closed`);
@@ -631,6 +723,7 @@ async function executeOnce(
           const chunk = data.toString();
           shellBuffer += chunk;
           output += chunk;
+          recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
           resetIdleTimer();
           if (!commandSent) return;
           const tail = shellBuffer.slice(-200);
@@ -651,9 +744,15 @@ async function executeOnce(
             stream.write("y\n");
           }
         });
-        stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+        stream.stderr.on("data", (data: Buffer) => {
+          const chunk = data.toString();
+          stderr += chunk;
+          stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
+        });
         setTimeout(() => {
           commandSent = true;
+          log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
+          appendWireLog(log, "", ">>", command + "\n");
           writeCommandWithControlChars(stream, command);
           resetIdleTimer();
         }, 500);
@@ -667,11 +766,16 @@ async function executeOnce(
           resolve({ success: false, output: "", errorMessage: err.message, connectionLog: log.join("\n") });
           return;
         }
+        let recvBuf = "";
+        let stderrBuf = "";
+        log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
+        appendWireLog(log, "", ">>", command + "\n");
         stream.on("close", (code: number) => {
           clearTimeout(timer);
+          flushWireLog(log, recvBuf, "<<");  recvBuf = "";
+          flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
           log.push(`[${ts()}] ──────────────────────────────────`);
           log.push(`[${ts()}] Command exited with code: ${code}`);
-          if (stderr.trim()) log.push(`[${ts()}] STDERR: ${stderr.trim()}`);
           log.push(`[${ts()}] Session closed`);
           try { conn.end(); } catch {}
           if (!timedOut) {
@@ -683,8 +787,16 @@ async function executeOnce(
             });
           }
         });
-        stream.on("data", (data: Buffer) => { output += data.toString(); });
-        stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+        stream.on("data", (data: Buffer) => {
+          const chunk = data.toString();
+          output += chunk;
+          recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
+        });
+        stream.stderr.on("data", (data: Buffer) => {
+          const chunk = data.toString();
+          stderr += chunk;
+          stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
+        });
       });
     }
 

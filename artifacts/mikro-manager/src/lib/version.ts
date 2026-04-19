@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.19";  
+export const APP_VERSION = "1.8.20";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.20",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Improved",
+        items: [
+          "The connection log on the job detail page now shows the actual command/response exchange, not just connection metadata. Each line sent to the device is prefixed with '>>' and each line received back is prefixed with '<<' (stderr uses '<<E'), all with timestamps. This makes troubleshooting failed scripts and slow devices dramatically easier — you can see exactly what was sent, what came back, and when. The log is capped at 4000 lines per session to keep it readable on chatty devices.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.19",
     date: "2026-04-19",

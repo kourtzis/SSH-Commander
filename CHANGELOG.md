@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.20] - 2026-04-19
+
+### Improved
+- **Connection log now shows the SSH command/response exchange.** The job-detail "Connection Log" pane previously stopped at metadata (handshake, KEX, auth, prompt detection, idle/close). Operators debugging a script that "ran but did nothing" had no way to tell whether the device echoed the command, returned an error mid-script, or was sitting on a hidden prompt. Now every line written to the stream is logged with a `>>` prefix and every line read back is logged with `<<` (stderr `<<E`), all with the same timestamp format as the rest of the log. Implemented via a new `appendWireLog` / `flushWireLog` helper in `lib/ssh.ts` that line-buffers chunked TCP data so partial writes don't fragment the log. Wired into all four SSH paths: `interactive-session.ts` (jobs page), `ssh.ts` shell + exec mode, and the retry-wrapped shell + exec mode. Hard cap of 4000 lines per session prevents pathological devices (e.g. Cisco `show tech-support`) from bloating the `connectionLog` JSON column past Postgres TOAST limits.
+
+---
+
 ## [1.8.19] - 2026-04-19
 
 ### Fixed

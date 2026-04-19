@@ -21,6 +21,8 @@ import {
   writeCommandWithControlChars,
   makeHostKeyVerifier,
   connectViaJumpHost,
+  appendWireLog,
+  flushWireLog,
 } from "./ssh.js";
 import { resolveEffectiveCreds } from "./effective-creds.js";
 
@@ -315,6 +317,12 @@ class InteractiveSessionManager {
 
         dev.stream = stream;
 
+        // Per-direction line buffers so partial chunks don't show as
+        // truncated/duplicated lines in the wire log. See `appendWireLog`
+        // in ssh.ts for the full rationale.
+        let recvBuf = "";
+        let stderrBuf = "";
+
         // Idle timer: if no new data for 5s, check for prompts or close
         const resetIdleTimer = () => {
           if (dev.idleTimerRef) clearTimeout(dev.idleTimerRef);
@@ -335,6 +343,8 @@ class InteractiveSessionManager {
         };
 
         stream.on("close", () => {
+          flushWireLog(log, recvBuf, "<<");  recvBuf = "";
+          flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
           if (!dev.resolved) {
             log.push(`[${ts()}] ──────────────────────────────────`);
             log.push(`[${ts()}] Shell session closed by remote`);
@@ -345,6 +355,7 @@ class InteractiveSessionManager {
         stream.on("data", (data: Buffer) => {
           const chunk = data.toString();
           dev.shellBuffer += chunk;
+          recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
           resetIdleTimer();
 
           // Stream output to SSE subscribers in real-time
@@ -383,11 +394,17 @@ class InteractiveSessionManager {
         stream.stderr.on("data", (data: Buffer) => {
           const chunk = data.toString();
           dev.shellBuffer += chunk;
+          stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
         });
 
         // Delay command send to let shell banner/MOTD arrive first
         setTimeout(() => {
           dev.commandSent = true;
+          // Log every line of the command being sent so the operator can see
+          // exactly what hit the wire. Logged before the actual write so the
+          // log timestamp precedes any echoed output.
+          log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
+          appendWireLog(log, "", ">>", command + "\n");
           writeCommandWithControlChars(stream, command);
           resetIdleTimer();
         }, 500);
