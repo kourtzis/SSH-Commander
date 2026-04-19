@@ -24,6 +24,7 @@ function sanitizeRouter(r: typeof routersTable.$inferSelect) {
     description: r.description,
     credentialProfileId: r.credentialProfileId ?? null,
     vendor: r.vendor ?? null,
+    model: r.model ?? null,
     osVersion: r.osVersion ?? null,
     lastFingerprintAt: r.lastFingerprintAt ?? null,
     hasEnablePassword: !!r.enablePassword,
@@ -44,6 +45,7 @@ router.get("/routers", async (req, res) => {
       description: routersTable.description,
       credentialProfileId: routersTable.credentialProfileId,
       vendor: routersTable.vendor,
+      model: routersTable.model,
       osVersion: routersTable.osVersion,
       lastFingerprintAt: routersTable.lastFingerprintAt,
       enablePassword: routersTable.enablePassword,
@@ -60,6 +62,7 @@ router.get("/routers", async (req, res) => {
     description: r.description,
     credentialProfileId: r.credentialProfileId ?? null,
     vendor: r.vendor ?? null,
+    model: r.model ?? null,
     osVersion: r.osVersion ?? null,
     lastFingerprintAt: r.lastFingerprintAt ?? null,
     hasEnablePassword: !!r.enablePassword,
@@ -382,7 +385,7 @@ router.get("/routers/:id/uptime", async (req, res) => {
 // We intentionally use a short timeout (15s) because slow/non-responsive
 // devices should fall through to the next command rather than blocking the
 // whole detection chain.
-async function fingerprintOne(routerId: number): Promise<{ success: boolean; vendor?: string | null; osVersion?: string | null; errorMessage?: string | null }> {
+async function fingerprintOne(routerId: number): Promise<{ success: boolean; vendor?: string | null; osVersion?: string | null; model?: string | null; errorMessage?: string | null }> {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId)).limit(1);
   if (!r) return { success: false, errorMessage: "Router not found" };
   // Resolve the actual credentials (and any bastion) to use — devices
@@ -421,55 +424,76 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
   // and pagination prompts that scramble the output. Falls back to the bare
   // username if the device rejects the suffix (older RouterOS, non-MikroTik).
   const mtUser = `${username}+cte`;
-  const probes: Array<{ cmd: string; user: string; parse: (out: string) => { vendor: string; osVersion: string | null } | null }> = [
+  const probes: Array<{ cmd: string; user: string; parse: (out: string) => { vendor: string; osVersion: string | null; model: string | null } | null }> = [
     {
-      // RouterOS v7+ — terse one-liner via scripting `:put`. Returns just the
-      // version string (e.g. "7.13.5 (stable)") on its own line, no headers.
-      cmd: ":put [/system resource get version]",
+      // RouterOS v7+ — terse one-liner via scripting `:put`. Combined call
+      // returns version on the first line and board-name (the hardware model,
+      // e.g. "RB4011iGS+" or "CCR2004-1G-12S+2XS") on the second.
+      cmd: ":put [/system resource get version]; :put [/system resource get board-name]",
       user: mtUser,
       parse: (raw) => {
         const out = stripAnsi(raw);
-        // Pick the first line that looks like a version (digits.dots, optional channel suffix)
-        const m = /^\s*(\d+\.\d+(?:\.\d+)?(?:\s*\([^)]+\))?)\s*$/m.exec(out);
-        if (m) return { vendor: "MikroTik", osVersion: `RouterOS ${m[1].trim()}` };
-        return null;
+        const verMatch = /^\s*(\d+\.\d+(?:\.\d+)?(?:\s*\([^)]+\))?)\s*$/m.exec(out);
+        if (!verMatch) return null;
+        // Pick a board-name line: any non-empty line that isn't the version line itself.
+        // RouterOS board names include letters, digits, +, -, /, parens.
+        const verLine = verMatch[0];
+        const boardLines = out.split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0 && s !== verLine.trim() && /^[A-Za-z][A-Za-z0-9+\-/. ()]*$/.test(s));
+        const model = boardLines[0] || null;
+        return { vendor: "MikroTik", osVersion: `RouterOS ${verMatch[1].trim()}`, model };
       },
     },
     {
-      // RouterOS v6/v7 — full resource dump. `version:` appears as a column.
+      // RouterOS v6/v7 — full resource dump. `version:` and `board-name:`
+      // appear as separate labelled columns.
       cmd: "/system resource print",
       user: mtUser,
       parse: (raw) => {
         const out = stripAnsi(raw);
         const ver = /version\s*:\s*([^\r\n]+)/i.exec(out);
-        if (ver) return { vendor: "MikroTik", osVersion: `RouterOS ${ver[1].trim()}` };
-        // Some RouterOS builds put it on the line above as just "RouterOS X.Y.Z"
         const ros = /RouterOS\s+v?(\d+\.\d+(?:\.\d+)?(?:[A-Za-z0-9.\-]*)?)/i.exec(out);
-        if (ros) return { vendor: "MikroTik", osVersion: `RouterOS ${ros[1]}` };
-        return null;
+        const board = /board-?name\s*:\s*([^\r\n]+)/i.exec(out);
+        const osVersion = ver ? `RouterOS ${ver[1].trim()}` : ros ? `RouterOS ${ros[1]}` : null;
+        if (!osVersion) return null;
+        return { vendor: "MikroTik", osVersion, model: board?.[1].trim() || null };
       },
     },
     {
-      // Cisco IOS / IOS-XE
-      cmd: "show version | include Software",
+      // Cisco IOS / IOS-XE — `show version` includes both version and model.
+      // Switched away from `| include Software` (too narrow) to capture model lines too.
+      cmd: "show version",
       user: username,
       parse: (out) => {
-        const m = /Cisco IOS[^\n]*Version\s+([^\s,]+)/i.exec(out);
-        if (m) return { vendor: "Cisco", osVersion: `IOS ${m[1]}` };
-        return null;
+        const ver = /Cisco IOS[^\n]*Version\s+([^\s,]+)/i.exec(out)
+          || /Cisco IOS Software[^\n]*Version\s+([^\s,]+)/i.exec(out);
+        if (!ver) return null;
+        // Common Cisco model patterns: "cisco WS-C2960-...", "Model number : ...",
+        // "cisco ISR4321/K9", "cisco C9300-24P". Try the explicit "Model" line first,
+        // then the "cisco <MODEL>" line near the top of `show version`.
+        const modelLine = /Model\s+(?:[Nn]umber|[Nn]ame)?\s*:?\s*([A-Za-z0-9\-+/]+)/.exec(out)?.[1]
+          || /\bcisco\s+([A-Z0-9][A-Z0-9\-+/]+)\b/i.exec(out)?.[1]
+          || null;
+        return { vendor: "Cisco", osVersion: `IOS ${ver[1]}`, model: modelLine };
       },
     },
     {
-      // Generic Linux
-      cmd: "uname -a; lsb_release -a 2>/dev/null || cat /etc/os-release 2>/dev/null",
+      // Generic Linux — distro + DMI product name (works on most x86 servers,
+      // returns "To be filled by O.E.M." or similar on whitebox hardware which
+      // we filter out so the column shows blank rather than garbage).
+      cmd: "uname -a; lsb_release -a 2>/dev/null || cat /etc/os-release 2>/dev/null; echo '---DMI---'; cat /sys/class/dmi/id/product_name 2>/dev/null",
       user: username,
       parse: (out) => {
         const distro =
           /PRETTY_NAME="?([^"\n]+)/i.exec(out)?.[1] ||
           /Description:\s*(.+)/i.exec(out)?.[1];
-        if (distro) return { vendor: "Linux", osVersion: distro.trim() };
-        if (/Linux\s+\S+\s+(\S+)/.test(out)) return { vendor: "Linux", osVersion: /Linux\s+\S+\s+(\S+)/.exec(out)![1] };
-        return null;
+        const osVersion = distro?.trim()
+          || (/Linux\s+\S+\s+(\S+)/.exec(out)?.[1] ?? null);
+        if (!osVersion) return null;
+        const dmi = out.split("---DMI---")[1]?.trim().split(/\r?\n/)[0]?.trim() || "";
+        const isJunk = !dmi || /to be filled|o\.?e\.?m|system product name|default string|none/i.test(dmi);
+        return { vendor: "Linux", osVersion, model: isJunk ? null : dmi };
       },
     },
   ];
@@ -508,9 +532,9 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
       if (parsed) {
         await db
           .update(routersTable)
-          .set({ vendor: parsed.vendor, osVersion: parsed.osVersion, lastFingerprintAt: new Date() })
+          .set({ vendor: parsed.vendor, osVersion: parsed.osVersion, model: parsed.model, lastFingerprintAt: new Date() })
           .where(eq(routersTable.id, routerId));
-        return { success: true, vendor: parsed.vendor, osVersion: parsed.osVersion };
+        return { success: true, vendor: parsed.vendor, osVersion: parsed.osVersion, model: parsed.model };
       }
     } catch (err: any) {
       lastErr = String(err?.message || err);

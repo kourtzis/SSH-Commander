@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.9";  
+export const APP_VERSION = "1.8.10";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.10",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Device fingerprinting now also detects and stores the hardware model number (MikroTik board name like 'RB4011iGS+', Cisco model like 'WS-C2960-24TT-L', and DMI product name on Linux servers). The Devices table column has been renamed Vendor / Model / OS and now shows three lines per device: vendor, model, and OS version.",
+          "MikroTik probe now fetches version and board-name in a single SSH session via combined `:put` calls, so detecting both fields costs no extra round-trip.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.9",
     date: "2026-04-19",

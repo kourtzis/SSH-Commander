@@ -446,7 +446,7 @@ export default function Routers() {
                     <th className="px-6 py-4 font-medium">Name</th>
                     <th className="px-6 py-4 font-medium">IP Address</th>
                     <th className="px-6 py-4 font-medium">SSH Config</th>
-                    <th className="px-6 py-4 font-medium">Vendor / OS</th>
+                    <th className="px-6 py-4 font-medium">Vendor / Model / OS</th>
                     <th className="px-6 py-4 font-medium">
                       <span className="inline-flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> Uptime (30d)</span>
                     </th>
@@ -485,8 +485,11 @@ export default function Routers() {
                         {(router as any).vendor ? (
                           <div>
                             <div className="font-medium text-foreground capitalize">{(router as any).vendor}</div>
+                            {(router as any).model && (
+                              <div className="text-xs text-foreground/80 font-mono truncate max-w-[180px]">{(router as any).model}</div>
+                            )}
                             {(router as any).osVersion && (
-                              <div className="text-xs text-muted-foreground truncate max-w-[160px]">{(router as any).osVersion}</div>
+                              <div className="text-xs text-muted-foreground truncate max-w-[180px]">{(router as any).osVersion}</div>
                             )}
                           </div>
                         ) : (
@@ -839,7 +842,7 @@ function FingerprintRowButton({ routerId }: { routerId: number }) {
               const res: any = await mut.mutateAsync({ id: routerId } as any);
               toast({
                 title: res?.vendor ? `Detected ${res.vendor}` : "Fingerprint complete",
-                description: res?.osVersion || "Device probed",
+                description: [res?.model, res?.osVersion].filter(Boolean).join(" — ") || "Device probed",
               });
               await queryClient.invalidateQueries({ queryKey: ["/api/routers"] });
             } catch (err: any) {

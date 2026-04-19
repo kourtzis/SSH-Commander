@@ -14,6 +14,7 @@ export const routersTable = pgTable("routers", {
   description: text("description"),         // Optional notes about the device
   credentialProfileId: integer("credential_profile_id"), // Optional — preferred over inline credentials when set
   vendor: text("vendor"),                   // Auto-detected: e.g. "MikroTik", "Cisco", "Linux"
+  model: text("model"),                     // Auto-detected: e.g. "RB4011iGS+", "WS-C2960-24TT-L"
   osVersion: text("os_version"),            // Auto-detected: e.g. "RouterOS 7.10.2"
   lastFingerprintAt: timestamp("last_fingerprint_at"),
   // SHA256 fingerprint of the device's SSH host key, captured on first
