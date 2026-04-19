@@ -154,6 +154,56 @@ export function hasControlChars(script: string): boolean {
 
 export const SUPPORTED_CONTROL_CHARS = Object.keys(CONTROL_CHAR_MAP);
 
+// ─── SSH Host Key Verification (TOFU) ───────────────────────────────
+// Trust-on-first-use host key pinning. The first successful connection to
+// a device records the SHA256 fingerprint of its public host key in
+// `routers.ssh_host_key_fingerprint`. Every subsequent connection refuses
+// to authenticate if the presented key does not match — defending against
+// MITM attacks where an attacker on-path swaps the server.
+//
+// Operators can clear the pinned fingerprint via the admin "Re-pin" action
+// when a device's host key legitimately rotates (factory reset, OS upgrade).
+import crypto from "crypto";
+import { db as _db, routersTable as _routersTable } from "@workspace/db";
+import { eq as _eq, and, isNull } from "drizzle-orm";
+
+export function sha256Fingerprint(key: Buffer): string {
+  return "SHA256:" + crypto.createHash("sha256").update(key).digest("base64").replace(/=+$/, "");
+}
+
+export interface HostKeyTrust {
+  routerId: number;
+  expectedFingerprint: string | null;
+}
+
+// Build a hostVerifier callback that ssh2 invokes with the presented key buffer.
+// Return true to accept, false to reject. On TOFU first-use we persist the
+// fingerprint asynchronously without blocking auth (worst case: a concurrent
+// connection also TOFUs and one wins; both are still pinned to the same key).
+export function makeHostKeyVerifier(
+  trust: HostKeyTrust,
+  onMismatch: (presented: string, expected: string) => void,
+): (key: Buffer) => boolean {
+  return (key: Buffer) => {
+    const presented = sha256Fingerprint(key);
+    if (!trust.expectedFingerprint) {
+      // TOFU: persist on first sight using compare-and-set so a concurrent
+      // connection cannot race in and overwrite an already-pinned fingerprint.
+      // We only set the column if it is still NULL; pin it locally so this
+      // verifier won't accept a different key later in the same process.
+      trust.expectedFingerprint = presented;
+      _db.update(_routersTable)
+        .set({ sshHostKeyFingerprint: presented })
+        .where(and(_eq(_routersTable.id, trust.routerId), isNull(_routersTable.sshHostKeyFingerprint)))
+        .catch((err) => console.error("[ssh] Failed to persist host key fingerprint:", err));
+      return true;
+    }
+    if (presented === trust.expectedFingerprint) return true;
+    onMismatch(presented, trust.expectedFingerprint);
+    return false;
+  };
+}
+
 // ─── SSH Algorithm Configuration ────────────────────────────────────
 // Broad algorithm set for compatibility with older MikroTik RouterOS versions
 // and other network equipment that may not support modern ciphers.
@@ -381,6 +431,10 @@ export interface SSHExecOptions {
   retryBackoffSeconds?: number;
   /** Called for each attempt with attemptIndex (1-based). */
   onAttempt?: (attemptIndex: number) => void;
+  /** Trust-on-first-use host key pinning. When set, the first connection
+   * persists the device's host key fingerprint and every subsequent
+   * connection refuses to authenticate if the presented key changes. */
+  hostKeyTrust?: HostKeyTrust;
 }
 
 // Detect transient/connection-level failures that are worth retrying.
@@ -406,7 +460,7 @@ function isRetryableError(msg?: string): boolean {
 
 // Open an SSH connection that goes through a jump host using ssh2's forwardOut.
 async function connectViaJumpHost(
-  target: { host: string; port: number; username: string; password: string },
+  target: { host: string; port: number; username: string; password: string; hostKeyTrust?: HostKeyTrust },
   jump: JumpHostConfig,
   timeoutMs: number,
   log: string[],
@@ -435,13 +489,19 @@ async function connectViaJumpHost(
           reject(e);
         });
         try {
-          targetConn.connect({
+          const cfg: any = {
             sock: stream as any,
             username: target.username,
             password: target.password,
             readyTimeout: timeoutMs,
             algorithms: SSH_ALGORITHMS,
-          });
+          };
+          if (target.hostKeyTrust) {
+            cfg.hostVerifier = makeHostKeyVerifier(target.hostKeyTrust, (presented, expected) => {
+              log.push(`[${ts()}] ERROR: Host key MISMATCH for ${target.host} (presented ${presented}, expected ${expected})`);
+            });
+          }
+          targetConn.connect(cfg);
         } catch (e: any) {
           jumpConn.end();
           reject(e);
@@ -480,6 +540,7 @@ async function executeOnce(
   const autoConfirm = options.autoConfirm ?? true;
   const enablePassword = options.enablePassword;
   const jumpHost = options.jumpHost;
+  const hostKeyTrust = options.hostKeyTrust;
   const log: string[] = [];
   let output = "";
   let stderr = "";
@@ -495,13 +556,19 @@ async function executeOnce(
   let conn: Client;
   try {
     conn = jumpHost
-      ? await connectViaJumpHost({ host, port, username, password }, jumpHost, timeoutMs, log)
+      ? await connectViaJumpHost({ host, port, username, password, hostKeyTrust }, jumpHost, timeoutMs, log)
       : await new Promise<Client>((resolve, reject) => {
           const c = new Client();
           c.once("ready", () => resolve(c));
           c.once("error", (e) => reject(e));
           try {
-            c.connect({ host, port, username, password, readyTimeout: timeoutMs, algorithms: SSH_ALGORITHMS });
+            const cfg: any = { host, port, username, password, readyTimeout: timeoutMs, algorithms: SSH_ALGORITHMS };
+            if (hostKeyTrust) {
+              cfg.hostVerifier = makeHostKeyVerifier(hostKeyTrust, (presented, expected) => {
+                log.push(`[${ts()}] ERROR: Host key MISMATCH for ${host} (presented ${presented}, expected ${expected})`);
+              });
+            }
+            c.connect(cfg);
           } catch (e: any) { reject(e); }
         });
   } catch (err: any) {

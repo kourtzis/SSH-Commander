@@ -42,6 +42,10 @@ const { Client } = require('pg');
     \"ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS retry_backoff_seconds integer NOT NULL DEFAULT 5\",
     // ── job_tasks: 1.5.0 (retry tracking) ─────────────────────────
     \"ALTER TABLE job_tasks ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0\",
+    // ── routers: 1.8.0 (SSH host-key TOFU pinning) ────────────────
+    \"ALTER TABLE routers ADD COLUMN IF NOT EXISTS ssh_host_key_fingerprint text\",
+    // ── users: 1.8.0 (per-user terminal RBAC) ─────────────────────
+    \"ALTER TABLE users ADD COLUMN IF NOT EXISTS can_terminal boolean NOT NULL DEFAULT false\",
   ];
   for (const sql of stmts) {
     try {

@@ -63,6 +63,7 @@ async function executeJobTasks(
             enablePassword: r.enablePassword ?? undefined,
             retryCount: options.retryCount || 0,
             retryBackoffSeconds: options.retryBackoffSeconds || 5,
+            hostKeyTrust: { routerId: r.id, expectedFingerprint: (r as any).sshHostKeyFingerprint ?? null },
           }
         );
         if (result.success) {
@@ -115,6 +116,8 @@ const SSH_ROUTER_COLUMNS = {
   sshUsername: routersTable.sshUsername,
   sshPassword: routersTable.sshPassword,
   enablePassword: routersTable.enablePassword,
+  // Needed for TOFU host-key verification on every connection.
+  sshHostKeyFingerprint: routersTable.sshHostKeyFingerprint,
 } as const;
 
 // ─── Template Job Execution ─────────────────────────────────────────

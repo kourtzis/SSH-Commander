@@ -12,6 +12,36 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.1] - 2026-04-19
+
+### Security
+- Closed MITM gaps in 1.8.0's host-key TOFU pinning: the verifier is now wired into the jump-host target connect path (`connectViaJumpHost` in `api-server/src/lib/ssh.ts`) and into all interactive SSH job sessions (`interactive-session.ts`), so every SSH connection — direct, bastion-routed, or interactive — is pinned to the device's recorded fingerprint.
+- Host-key TOFU persistence now uses a compare-and-set update (`UPDATE ... WHERE id=? AND ssh_host_key_fingerprint IS NULL`) so concurrent first-use connections cannot race in and overwrite an already-pinned fingerprint. The verifier also pins locally for the lifetime of the in-flight connection.
+- Removed dead/broken host-key code in the legacy `executeSSHCommand` wrapper that referenced an out-of-scope `hostKeyTrust` variable and would have thrown at runtime if called.
+
+### Fixed
+- Per-device terminal POST input now goes through the shared API client (`customFetch`), so 1.8.0's CSRF middleware no longer rejects typed input with a 403.
+- CSRF middleware exemption corrected from the non-existent `/api/health` to the actual `/api/healthz` route.
+
+## [1.8.0] - 2026-04-19
+
+### Security
+- **SSH host-key TOFU pinning.** The first successful SSH connection to each device records its host-key SHA256 fingerprint in `routers.ssh_host_key_fingerprint`. Every subsequent connection (interactive terminal, batch jobs, scheduled jobs, vendor-fingerprint probe, reachability checks via the SSH path) refuses to authenticate if the device presents a different key — defending against MITM attacks where an attacker on-path swaps the server. Admins can clear a pinned fingerprint from the device list (KeyRound icon) when a device legitimately rotates its key (factory reset, OS upgrade, etc.).
+- **Per-device terminal access is now gated by an explicit per-user grant.** Admins always have terminal access. Operators must have the new `canTerminal` flag enabled in the user editor before they can open the per-device terminal — both the route (`GET /routers/:id/terminal` and `POST /routers/:id/terminal/input`) and the UI button enforce this. The terminal is a raw root shell with no per-command audit trail, so it is no longer granted to every operator by default.
+- **CSRF protection via the `X-Requested-With` header pattern.** Every state-changing `/api` request (POST/PUT/PATCH/DELETE) must carry `X-Requested-With: XMLHttpRequest`. Browsers refuse to forge this header from a cross-site form submission without a CORS preflight, and our 1.7.2 CORS allow-list rejects unknown origins on preflight — so an attacker site can no longer fire authenticated state-changing requests at the API. The frontend `customFetch` wrapper sets this header automatically on every request. Health checks and the login bootstrap step are exempt.
+- **Session is regenerated on successful login** (defence against session-fixation). Any session id an attacker may have pre-set in the victim's browser via XSS on a sister subdomain or network-level injection is discarded before `userId` is attached.
+
+### Fixed
+- Light-theme audit pass: replaced hardcoded `bg-black/*` and `bg-white/*` surfaces in users page header, log panels, and tooltips so the light theme renders cleanly throughout.
+- Error toasts on schedule/job pages now surface the real backend error message instead of a generic "Failed" string.
+
+### Schema
+- `routers.ssh_host_key_fingerprint` (text, nullable) — TOFU host-key pin.
+- `users.can_terminal` (boolean, NOT NULL DEFAULT false) — per-user terminal grant.
+- Both columns added to `docker-entrypoint.sh` defensive migrations so 1.7.x → 1.8.0 in-place container upgrades succeed even if `drizzle-kit push` fails.
+
+---
+
 ## [1.7.2] - 2026-04-19
 
 ### Fixed

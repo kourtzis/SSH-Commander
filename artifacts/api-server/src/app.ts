@@ -99,6 +99,31 @@ const authLimiter = rateLimit({
 });
 app.use("/api/auth/login", authLimiter);
 
+// ─── CSRF protection ────────────────────────────────────────────────
+// We use the "custom request header" pattern: any state-changing request
+// (POST/PUT/PATCH/DELETE) under /api must carry an `X-Requested-With`
+// header. Browsers refuse to send this header on a simple cross-site
+// form submission without a preflight, and our CORS config rejects
+// unknown origins on preflight — so an attacker site cannot fire
+// authenticated state-changing requests at this API.
+//
+// Health checks and login itself are exempt: health for liveness
+// probes, login because it's the bootstrap step that establishes the
+// session in the first place (the rate-limiter and password check
+// already protect login).
+const CSRF_EXEMPT_PATHS = new Set(["/api/healthz", "/api/auth/login"]);
+app.use((req, res, next) => {
+  const method = req.method.toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+  if (!req.path.startsWith("/api/")) return next();
+  if (CSRF_EXEMPT_PATHS.has(req.path)) return next();
+  if (req.get("X-Requested-With") !== "XMLHttpRequest") {
+    res.status(403).json({ error: "Missing X-Requested-With header (CSRF protection)" });
+    return;
+  }
+  next();
+});
+
 // ─── API Routes ─────────────────────────────────────────────────────
 app.use("/api", router);
 

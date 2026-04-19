@@ -12,4 +12,5 @@ export interface UpdateUserRequest {
   email?: string;
   password?: string;
   role?: UpdateUserRequestRole;
+  canTerminal?: boolean;
 }

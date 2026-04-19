@@ -1165,6 +1165,9 @@ components:
         role:
           type: string
           enum: [admin, operator]
+        canTerminal:
+          type: boolean
+          description: Whether this user has access to the per-device terminal. Admins always have access.
         createdAt:
           type: string
           format: date-time
@@ -1186,6 +1189,8 @@ components:
         role:
           type: string
           enum: [admin, operator]
+        canTerminal:
+          type: boolean
       required:
         - username
         - password
@@ -1203,6 +1208,8 @@ components:
         role:
           type: string
           enum: [admin, operator]
+        canTerminal:
+          type: boolean
 
     Router:
       type: object

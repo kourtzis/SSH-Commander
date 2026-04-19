@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, pgEnum, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -12,6 +12,10 @@ export const usersTable = pgTable("users", {
   email: text("email"),
   passwordHash: text("password_hash").notNull(), // bcrypt-hashed password
   role: userRoleEnum("role").notNull().default("operator"),
+  // Per-user grant for the per-device interactive terminal. Admins always
+  // have terminal access; operators must be explicitly granted because a
+  // terminal is a raw root shell on production gear with no audit trail.
+  canTerminal: boolean("can_terminal").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

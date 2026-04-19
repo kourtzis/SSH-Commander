@@ -301,6 +301,14 @@ export async function customFetch<T = unknown>(
     headers.set("accept", DEFAULT_JSON_ACCEPT);
   }
 
+  // CSRF defense: send X-Requested-With on every request. Browsers will
+  // refuse to forge this header from a cross-site form post without a CORS
+  // preflight, and our API rejects state-changing /api requests that lack
+  // it. Setting it unconditionally (even on GET) keeps the wrapper simple.
+  if (!headers.has("x-requested-with")) {
+    headers.set("x-requested-with", "XMLHttpRequest");
+  }
+
   const requestInfo = { method, url: resolveUrl(input) };
 
   const response = await fetch(input, { ...init, method, headers, credentials: "include" });

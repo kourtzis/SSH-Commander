@@ -12,4 +12,5 @@ export interface CreateUserRequest {
   email?: string;
   password: string;
   role: CreateUserRequestRole;
+  canTerminal?: boolean;
 }

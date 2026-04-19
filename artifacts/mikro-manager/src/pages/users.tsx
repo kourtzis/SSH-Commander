@@ -32,6 +32,7 @@ export default function Users() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "operator">("operator");
+  const [canTerminal, setCanTerminal] = useState(false);
 
   const selectableUsers = users.filter(u => u.id !== user?.id);
   const selection = useSelection(selectableUsers.map(u => u.id));
@@ -53,12 +54,14 @@ export default function Users() {
       setEmail(u.email || "");
       setPassword("");
       setRole(u.role);
+      setCanTerminal(Boolean(u.canTerminal));
     } else {
       setEditingUser(null);
       setUsername("");
       setEmail("");
       setPassword("");
       setRole("operator");
+      setCanTerminal(false);
     }
     setIsDialogOpen(true);
   };
@@ -66,7 +69,7 @@ export default function Users() {
   const handleSave = async () => {
     try {
       if (editingUser) {
-        const data: any = { username, role };
+        const data: any = { username, role, canTerminal };
         if (email) data.email = email;
         if (password) data.password = password;
         await updateUser.mutateAsync({ id: editingUser.id, data });
@@ -76,7 +79,7 @@ export default function Users() {
           toast({ title: "Password required for new users", variant: "destructive" });
           return;
         }
-        await createUser.mutateAsync({ data: { username, email, password, role } });
+        await createUser.mutateAsync({ data: { username, email, password, role, canTerminal } as any });
         toast({ title: "User created" });
       }
       setIsDialogOpen(false);
@@ -244,6 +247,22 @@ export default function Users() {
                 <option value="admin">Administrator (Full access)</option>
               </select>
             </div>
+            {role === "operator" && (
+              <div className="flex items-start gap-3 rounded-lg border border-border/50 bg-muted/30 p-3">
+                <Checkbox
+                  id="canTerminal"
+                  checked={canTerminal}
+                  onCheckedChange={(v) => setCanTerminal(Boolean(v))}
+                  className="mt-0.5"
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="canTerminal" className="cursor-pointer">Allow per-device terminal access</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Operators do not get a terminal by default. The terminal is a raw root shell with no audit trail — only enable for trusted users.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>

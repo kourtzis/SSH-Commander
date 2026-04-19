@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "wouter";
-import { useListRouters } from "@workspace/api-client-react";
+import { useListRouters, customFetch } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,7 +74,7 @@ export default function RouterTerminal() {
     if (!connected) return;
     try {
       const baseUrl = import.meta.env.BASE_URL || "/";
-      await fetch(`${baseUrl}api/routers/${id}/terminal/input`, {
+      await customFetch(`${baseUrl}api/routers/${id}/terminal/input`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

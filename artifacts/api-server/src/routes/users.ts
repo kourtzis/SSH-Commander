@@ -18,6 +18,7 @@ function sanitizeUser(user: typeof usersTable.$inferSelect) {
     username: user.username,
     email: user.email,
     role: user.role,
+    canTerminal: user.canTerminal,
     createdAt: user.createdAt,
   };
 }
@@ -43,12 +44,12 @@ router.post("/users", async (req, res) => {
     return;
   }
 
-  const { username, email, password, role } = parsed.data;
+  const { username, email, password, role, canTerminal } = parsed.data as any;
   const passwordHash = await bcrypt.hash(password, 12);
 
   const [newUser] = await db
     .insert(usersTable)
-    .values({ username, email, passwordHash, role })
+    .values({ username, email, passwordHash, role, canTerminal: Boolean(canTerminal) })
     .returning();
 
   res.status(201).json(sanitizeUser(newUser));
@@ -87,11 +88,12 @@ router.put("/users/:id", async (req, res) => {
     return;
   }
 
-  const { username, email, password, role } = parsed.data;
+  const { username, email, password, role, canTerminal } = parsed.data as any;
   const updates: Record<string, any> = {};
   if (username !== undefined) updates.username = username;
   if (email !== undefined) updates.email = email;
   if (role !== undefined) updates.role = role;
+  if (canTerminal !== undefined) updates.canTerminal = Boolean(canTerminal);
   if (password !== undefined) updates.passwordHash = await bcrypt.hash(password, 12);
 
   const [updated] = await db

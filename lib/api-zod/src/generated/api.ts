@@ -28,6 +28,12 @@ export const LoginResponse = zod.object({
     username: zod.string(),
     email: zod.string().optional(),
     role: zod.enum(["admin", "operator"]),
+    canTerminal: zod
+      .boolean()
+      .optional()
+      .describe(
+        "Whether this user has access to the per-device terminal. Admins always have access.",
+      ),
     createdAt: zod.date(),
   }),
   message: zod.string(),
@@ -48,6 +54,12 @@ export const GetMeResponse = zod.object({
   username: zod.string(),
   email: zod.string().optional(),
   role: zod.enum(["admin", "operator"]),
+  canTerminal: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Whether this user has access to the per-device terminal. Admins always have access.",
+    ),
   createdAt: zod.date(),
 });
 
@@ -59,6 +71,12 @@ export const ListUsersResponseItem = zod.object({
   username: zod.string(),
   email: zod.string().optional(),
   role: zod.enum(["admin", "operator"]),
+  canTerminal: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Whether this user has access to the per-device terminal. Admins always have access.",
+    ),
   createdAt: zod.date(),
 });
 export const ListUsersResponse = zod.array(ListUsersResponseItem);
@@ -71,6 +89,7 @@ export const CreateUserBody = zod.object({
   email: zod.string().optional(),
   password: zod.string(),
   role: zod.enum(["admin", "operator"]),
+  canTerminal: zod.boolean().optional(),
 });
 
 /**
@@ -85,6 +104,12 @@ export const GetUserResponse = zod.object({
   username: zod.string(),
   email: zod.string().optional(),
   role: zod.enum(["admin", "operator"]),
+  canTerminal: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Whether this user has access to the per-device terminal. Admins always have access.",
+    ),
   createdAt: zod.date(),
 });
 
@@ -100,6 +125,7 @@ export const UpdateUserBody = zod.object({
   email: zod.string().optional(),
   password: zod.string().optional(),
   role: zod.enum(["admin", "operator"]).optional(),
+  canTerminal: zod.boolean().optional(),
 });
 
 export const UpdateUserResponse = zod.object({
@@ -107,6 +133,12 @@ export const UpdateUserResponse = zod.object({
   username: zod.string(),
   email: zod.string().optional(),
   role: zod.enum(["admin", "operator"]),
+  canTerminal: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Whether this user has access to the per-device terminal. Admins always have access.",
+    ),
   createdAt: zod.date(),
 });
 

@@ -162,7 +162,7 @@ router.post("/jobs", async (req, res) => {
     // Interactive mode: parallel SSH sessions with live SSE streaming
     interactiveSessions.startInteractiveJob(
       job.id,
-      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword })),
+      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword, sshHostKeyFingerprint: r.sshHostKeyFingerprint })),
       scriptCode,
       excelData as Record<string, string>[] | undefined,
       false,
@@ -276,6 +276,7 @@ async function runJobInBackground(
           enablePassword: r.enablePassword ?? undefined,
           retryCount: reliability.retryCount,
           retryBackoffSeconds: reliability.retryBackoffSeconds,
+          hostKeyTrust: { routerId: r.id, expectedFingerprint: r.sshHostKeyFingerprint ?? null },
         },
       );
 
@@ -640,7 +641,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
   if (useInteractive) {
     interactiveSessions.startInteractiveJob(
       newJob.id,
-      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword })),
+      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword, sshHostKeyFingerprint: r.sshHostKeyFingerprint })),
       sourceJob.scriptCode,
       sourceJob.excelData as Record<string, string>[] | undefined,
       false,

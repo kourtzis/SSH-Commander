@@ -41,8 +41,18 @@ router.post("/auth/login", async (req, res) => {
     return;
   }
 
-  // Persist the authenticated user's ID in the session
+  // Regenerate the session on login to defeat session-fixation:
+  // an attacker who pre-set the victim's session cookie (e.g. via XSS on a
+  // sister subdomain or a network-level injection) would otherwise share
+  // the authenticated session. regenerate() issues a fresh session id and
+  // discards the prior one before we attach the userId.
+  await new Promise<void>((resolve, reject) => {
+    req.session.regenerate((err) => (err ? reject(err) : resolve()));
+  });
   (req.session as any).userId = user.id;
+  await new Promise<void>((resolve, reject) => {
+    req.session.save((err) => (err ? reject(err) : resolve()));
+  });
 
   res.json({
     user: {

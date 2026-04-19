@@ -133,7 +133,9 @@ Implementation: `writeCommandWithControlChars()` in `ssh.ts` splits the command 
 
 ## Versioning
 
-- Current version: `1.7.2` (set in root `package.json`, `api-server/package.json`, `mikro-manager/package.json`, `VERSION`, `version.ts`)
+- Current version: `1.8.1` (set in root `package.json`, `api-server/package.json`, `mikro-manager/package.json`, `VERSION`, `version.ts`)
+- v1.8.0 hardening: SSH host-key TOFU pinning (`routers.ssh_host_key_fingerprint` + `makeHostKeyVerifier` in `api-server/src/lib/ssh.ts`), per-user terminal RBAC (`users.can_terminal`), CSRF middleware in `api-server/src/app.ts` requiring `X-Requested-With` on /api non-GET routes (frontend `customFetch` sets this automatically), session regenerate on login.
+- v1.8.1 follow-ups: TOFU verifier wired into jump-host target connect (`connectViaJumpHost`) and `interactive-session.ts` (was missed in 1.8.0). TOFU persistence is now compare-and-set against `IS NULL`. Per-device terminal POST input switched to `customFetch` so CSRF doesn't 403 it. CSRF exempt path corrected to `/api/healthz`.
 - Follows Semantic Versioning: MAJOR.MINOR.PATCH
   - PATCH (x.y.Z): minor fixes and optimizations
   - MINOR (x.Y.0): substantial fixes and minor new features

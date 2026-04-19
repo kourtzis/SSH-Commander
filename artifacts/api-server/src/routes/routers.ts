@@ -428,6 +428,7 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
       const result = await executeSSH(r.ipAddress, port, username, password, probe.cmd, {
         timeoutMs: 15_000,
         autoConfirm: true,
+        hostKeyTrust: { routerId: r.id, expectedFingerprint: r.sshHostKeyFingerprint ?? null },
       });
       if (!result.success) {
         lastErr = result.errorMessage || "ssh failed";

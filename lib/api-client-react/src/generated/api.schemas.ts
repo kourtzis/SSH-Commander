@@ -34,6 +34,8 @@ export interface User {
   username: string;
   email?: string;
   role: UserRole;
+  /** Whether this user has access to the per-device terminal. Admins always have access. */
+  canTerminal?: boolean;
   createdAt: string;
 }
 
@@ -55,6 +57,7 @@ export interface CreateUserRequest {
   email?: string;
   password: string;
   role: CreateUserRequestRole;
+  canTerminal?: boolean;
 }
 
 export type UpdateUserRequestRole =
@@ -70,6 +73,7 @@ export interface UpdateUserRequest {
   email?: string;
   password?: string;
   role?: UpdateUserRequestRole;
+  canTerminal?: boolean;
 }
 
 export interface Router {

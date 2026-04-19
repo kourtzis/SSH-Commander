@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.7.2";
+export const APP_VERSION = "1.8.1";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -14,15 +14,44 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "1.7.2",
+    version: "1.8.1",
     date: "2026-04-19",
     sections: [
       {
+        title: "Security",
+        items: [
+          "Closed MITM gaps in 1.8.0's host-key TOFU pinning: the verifier is now wired into the jump-host target connect path and into all interactive SSH job sessions, so every SSH connection — direct, bastion-routed, or interactive — is pinned to the device's recorded fingerprint.",
+          "Host-key TOFU persistence now uses a compare-and-set update (only writes the column while it is still NULL) so concurrent first-use connections cannot race in and overwrite an already-pinned fingerprint.",
+          "Removed a dead code path in the legacy executeSSHCommand wrapper that referenced an out-of-scope variable and would have thrown at runtime if reused.",
+        ],
+      },
+      {
         title: "Fixed",
         items: [
-          "CRITICAL: Empty device / job lists and 'Fingerprint failed: column does not exist' errors after upgrading from 1.4.x to 1.7.x in Docker. The container entrypoint was silently swallowing migration failures, leaving the deployment running against an old schema. The entrypoint now applies the new columns (enable_password, credential_profile_id, vendor, os_version, last_fingerprint_at, timeout_seconds, retry_count, retry_backoff_seconds, attempt_count) explicitly with idempotent ADD COLUMN IF NOT EXISTS statements before drizzle-kit push, so a broken push can no longer leave the app serving 500s.",
-          "Per-task output and connection log are no longer included in the polled job-detail response (they're fetched lazily when the user expands a task), and the original Excel import blob is no longer returned to the client. Cuts polling payload size dramatically on jobs with many devices or large outputs.",
-          "Reachability poller now writes all device probes for each tick in a single bulk upsert instead of one INSERT per device.",
+          "Per-device terminal POST input now travels through the shared API client (sets X-Requested-With), so 1.8.0's CSRF middleware no longer blocks typed input with a 403.",
+          "CSRF middleware exemption corrected from /api/health to the actual /api/healthz route.",
+        ],
+      },
+    ],
+  },
+  {
+    version: "1.8.0",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Security",
+        items: [
+          "SSH host-key TOFU pinning. The first successful SSH connection to each device records its host-key fingerprint in the database. Every subsequent connection (terminal, jobs, scheduler, fingerprint probe) refuses to authenticate if the device presents a different key — defending against MITM attacks where an attacker on-path swaps the server. Admins can clear a pinned fingerprint from the device list (KeyRound icon) when a device legitimately rotates its key.",
+          "Per-device terminal access is now gated by an explicit per-user grant. Admins always have terminal access; operators must have the new \"Allow per-device terminal access\" checkbox enabled in the user editor. The terminal is a raw root shell with no per-command audit trail, so it is no longer granted to every operator by default.",
+          "CSRF protection via the X-Requested-With header pattern. Every state-changing /api request (POST/PUT/PATCH/DELETE) must carry X-Requested-With: XMLHttpRequest. Browsers refuse to forge this header from a cross-site form submission without a CORS preflight, and our CORS allow-list rejects unknown origins on preflight — so an attacker site can no longer fire authenticated state-changing requests at the API. The frontend sends this header automatically on every request.",
+          "Session is regenerated on successful login (defense against session-fixation). Any session id an attacker may have pre-set in the victim's browser is discarded before the userId is attached.",
+        ],
+      },
+      {
+        title: "Fixed",
+        items: [
+          "Light-theme audit pass: replaced hardcoded bg-black/* and bg-white/* surfaces in users page header, log panels, and tooltips so the light theme renders cleanly throughout.",
+          "Error toasts on schedule/job pages now surface the real backend error message instead of a generic 'Failed' string.",
         ],
       },
       {

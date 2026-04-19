@@ -16,6 +16,12 @@ export const routersTable = pgTable("routers", {
   vendor: text("vendor"),                   // Auto-detected: e.g. "MikroTik", "Cisco", "Linux"
   osVersion: text("os_version"),            // Auto-detected: e.g. "RouterOS 7.10.2"
   lastFingerprintAt: timestamp("last_fingerprint_at"),
+  // SHA256 fingerprint of the device's SSH host key, captured on first
+  // successful connection (TOFU — trust on first use). Subsequent connections
+  // refuse to authenticate if the presented key fingerprint differs from this
+  // value, defending against MITM attacks. Cleared via the "Re-pin" admin
+  // action when the device's key legitimately rotates.
+  sshHostKeyFingerprint: text("ssh_host_key_fingerprint"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

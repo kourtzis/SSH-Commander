@@ -14,7 +14,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Server, Edit2, Trash2, Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, Activity, Fingerprint, Terminal as TerminalIcon, Loader2 } from "lucide-react";
+import { Plus, Server, Edit2, Trash2, Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, Activity, Fingerprint, Terminal as TerminalIcon, Loader2, KeyRound } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
+import { customFetch } from "@workspace/api-client-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useForm } from "react-hook-form";
@@ -167,6 +169,7 @@ function UptimeCell({ percent, days }: { percent: number | undefined; days: Arra
 }
 
 export default function Routers() {
+  const { user } = useAuth();
   const { data: routers = [], isLoading } = useListRouters();
   const { data: uptimeMap } = useGetRoutersUptime();
   const { createRouter, updateRouter, deleteRouter } = useRoutersMutations();
@@ -500,16 +503,21 @@ export default function Routers() {
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-1">
                           <FingerprintRowButton routerId={router.id} />
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Link href={`/routers/${router.id}/terminal`}>
-                                <Button variant="ghost" size="icon" data-testid={`terminal-button-${router.id}`}>
-                                  <TerminalIcon className="w-4 h-4" />
-                                </Button>
-                              </Link>
-                            </TooltipTrigger>
-                            <TooltipContent>Open terminal</TooltipContent>
-                          </Tooltip>
+                          {(user?.role === "admin" || (user as any)?.canTerminal) && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Link href={`/routers/${router.id}/terminal`}>
+                                  <Button variant="ghost" size="icon" data-testid={`terminal-button-${router.id}`}>
+                                    <TerminalIcon className="w-4 h-4" />
+                                  </Button>
+                                </Link>
+                              </TooltipTrigger>
+                              <TooltipContent>Open terminal</TooltipContent>
+                            </Tooltip>
+                          )}
+                          {user?.role === "admin" && (
+                            <RepinHostKeyButton routerId={router.id} pinnedFingerprint={(router as any).sshHostKeyFingerprint ?? null} />
+                          )}
                           <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(router)}>
                             <Edit2 className="w-4 h-4" />
                           </Button>
@@ -768,6 +776,53 @@ export default function Routers() {
 // Per-row Fingerprint button. Triggers `POST /routers/:id/fingerprint`,
 // shows a spinner while in flight, and refreshes the list on success so the
 // new vendor/OS values appear immediately.
+// Admin-only "Re-pin host key" button. Clears the device's pinned SSH host
+// key fingerprint so the next connection re-pins via TOFU. Use after a
+// device legitimately rotated its key (factory reset, OS upgrade, etc).
+// When no key is pinned yet, the button is shown disabled with a tooltip.
+function RepinHostKeyButton({ routerId, pinnedFingerprint }: { routerId: number; pinnedFingerprint: string | null }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const isPinned = Boolean(pinnedFingerprint);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={busy || !isPinned}
+          onClick={async () => {
+            const ok = await confirm({
+              title: "Re-pin SSH host key?",
+              description: `The pinned fingerprint will be cleared and the next connection will trust whatever key the device presents. Only do this if you have an out-of-band reason to believe the device's key legitimately changed.\n\nCurrent pin: ${pinnedFingerprint}`,
+              confirmLabel: "Re-pin",
+              variant: "destructive",
+            });
+            if (!ok) return;
+            setBusy(true);
+            try {
+              await customFetch(`${import.meta.env.BASE_URL}api/routers/${routerId}/repin-host-key`, { method: "POST" });
+              toast({ title: "Host key cleared", description: "The next connection will re-pin." });
+              await queryClient.invalidateQueries({ queryKey: ["/routers"] });
+            } catch (err: any) {
+              toast({ title: "Re-pin failed", description: String(err?.message || err), variant: "destructive" });
+            } finally {
+              setBusy(false);
+            }
+          }}
+          data-testid={`repin-button-${routerId}`}
+        >
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{isPinned ? "Re-pin SSH host key (clear current pin)" : "No host key pinned yet"}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function FingerprintRowButton({ routerId }: { routerId: number }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();

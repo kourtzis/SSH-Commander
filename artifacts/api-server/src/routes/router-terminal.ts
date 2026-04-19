@@ -4,18 +4,28 @@
 // long-running automation, which belongs in a Batch Job.
 //
 // Lifecycle:
-//   GET  /routers/:id/terminal       → opens SSE stream + opens SSH shell
-//   POST /routers/:id/terminal/input → forwards typed input to the shell
+//   GET  /routers/:id/terminal           → opens SSE stream + opens SSH shell
+//   POST /routers/:id/terminal/input     → forwards typed input to the shell
+//   POST /routers/:id/repin-host-key     → admin: clears the pinned host-key
+//                                          fingerprint so the next connection
+//                                          re-pins (used after legitimate
+//                                          device key rotation)
 //
 // We deliberately keep this stateless across requests by keying open
 // sessions on (userId, routerId): one session per (user, device) at a time
 // — connecting again replaces the previous session.
+//
+// Authorization: terminal access is admin-only by default. Operators must
+// have `canTerminal=true` set on their user record because a terminal is
+// effectively a raw root shell on production gear with no per-command
+// audit trail.
 
 import { Router, type IRouter } from "express";
 import { Client, type ClientChannel } from "ssh2";
 import { db, routersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, getCurrentUser, requireAdmin } from "../lib/auth.js";
+import { makeHostKeyVerifier } from "../lib/ssh.js";
 
 const router: IRouter = Router();
 
@@ -39,11 +49,22 @@ function sendEvent(res: import("express").Response, event: any) {
   try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch {}
 }
 
+// Gatekeeper: admin or explicitly-granted operator. Throws 403 otherwise.
+async function requireTerminalAccess(req: import("express").Request) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    const err: any = new Error("Unauthorized"); err.status = 401; throw err;
+  }
+  if (user.role === "admin") return user;
+  if ((user as any).canTerminal === true) return user;
+  const err: any = new Error("Terminal access requires admin role or explicit grant");
+  err.status = 403;
+  throw err;
+}
+
 router.get("/routers/:id/terminal", async (req, res) => {
   requireAuth(req);
-  // requireAuth() returns void in this codebase; the userId we need to scope
-  // sessions lives directly on the session.
-  const user = { id: (req.session as any).userId as number };
+  const user = await requireTerminalAccess(req);
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid router id" }); return; }
 
@@ -113,18 +134,34 @@ router.get("/routers/:id/terminal", async (req, res) => {
     cleanup();
   });
 
+  // TOFU host-key verification: persist the device's host key fingerprint
+  // on first connect, then refuse subsequent connections that present a
+  // different key (MITM defense). Operators clear the pinned fingerprint
+  // via POST /routers/:id/repin-host-key when the device legitimately
+  // rotates its key.
+  const hostVerifier = makeHostKeyVerifier(
+    { routerId: id, expectedFingerprint: router_.sshHostKeyFingerprint ?? null },
+    (presented, expected) => {
+      sendEvent(res, {
+        type: "error",
+        message: `Host key MISMATCH — presented ${presented}, pinned ${expected}. Refusing to connect. If the device legitimately rotated its key, an admin can re-pin from the device page.`,
+      });
+    },
+  );
+
   conn.connect({
     host: router_.ipAddress,
     port: router_.sshPort ?? 22,
     username: router_.sshUsername,
     password: router_.sshPassword,
     readyTimeout: 15_000,
-  });
+    hostVerifier,
+  } as any);
 });
 
 router.post("/routers/:id/terminal/input", async (req, res) => {
   requireAuth(req);
-  const user = { id: (req.session as any).userId as number };
+  const user = await requireTerminalAccess(req);
   const id = parseInt(req.params.id);
   const input = String(req.body?.input ?? "");
   // Cap input size — without this, a misbehaving client can OOM the server
@@ -143,6 +180,25 @@ router.post("/routers/:id/terminal/input", async (req, res) => {
   // Append a newline so the remote shell treats it as a complete command.
   session.stream.write(input + "\n");
   res.json({ ok: true });
+});
+
+// Admin-only: clear the pinned host-key fingerprint so the next connection
+// re-pins. Use after a legitimate device key rotation (factory reset, OS
+// upgrade, etc). The next SSH connect will TOFU-pin whatever key is presented.
+router.post("/routers/:id/repin-host-key", async (req, res) => {
+  requireAuth(req);
+  const user = await getCurrentUser(req);
+  requireAdmin(user!);
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid router id" }); return; }
+
+  const [updated] = await db
+    .update(routersTable)
+    .set({ sshHostKeyFingerprint: null })
+    .where(eq(routersTable.id, id))
+    .returning({ id: routersTable.id });
+  if (!updated) { res.status(404).json({ error: "Router not found" }); return; }
+  res.json({ ok: true, message: "Host key fingerprint cleared. The next connection will re-pin." });
 });
 
 export default router;

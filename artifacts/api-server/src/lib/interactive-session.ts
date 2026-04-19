@@ -19,6 +19,7 @@ import {
   extractPromptText,
   applyTagSubstitution,
   writeCommandWithControlChars,
+  makeHostKeyVerifier,
 } from "./ssh.js";
 
 // Event types emitted via SSE to the frontend
@@ -238,7 +239,7 @@ class InteractiveSessionManager {
   private connectDevice(
     jobId: number,
     taskId: number,
-    router: { id: number; name: string; ipAddress: string; sshPort: number; sshUsername: string; sshPassword: string | null },
+    router: { id: number; name: string; ipAddress: string; sshPort: number; sshUsername: string; sshPassword: string | null; sshHostKeyFingerprint?: string | null },
     command: string,
     autoConfirm: boolean
   ): void {
@@ -392,14 +393,21 @@ class InteractiveSessionManager {
     });
 
     try {
-      conn.connect({
+      const cfg: any = {
         host: router.ipAddress,
         port: router.sshPort,
         username: router.sshUsername,
         password: router.sshPassword!,
         readyTimeout: 30000,
         algorithms: SSH_ALGORITHMS,
-      });
+      };
+      cfg.hostVerifier = makeHostKeyVerifier(
+        { routerId: router.id, expectedFingerprint: router.sshHostKeyFingerprint ?? null },
+        (presented, expected) => {
+          log.push(`[${ts()}] ERROR: Host key MISMATCH for ${router.ipAddress} (presented ${presented}, expected ${expected})`);
+        },
+      );
+      conn.connect(cfg);
     } catch (err: any) {
       log.push(`[${ts()}] ERROR: Failed to initiate — ${err.message}`);
       this.finalizeDevice(jobId, taskId, false, err.message);
