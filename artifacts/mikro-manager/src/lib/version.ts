@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.4.1";
+export const APP_VERSION = "1.7.0";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -13,6 +13,21 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.7.0",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Per-job timeout — every job now has a Timeout (seconds) setting that hard-limits each device's SSH session (1–3600s, default 30s); shown as a badge on the job detail page",
+          "Automatic retry on connection failure — set Retries (0–10) and Retry back-off (seconds) on each job; only network/connection errors are retried, not auth failures or post-success errors",
+          "Per-task retry display — each task on the job detail page shows a 'Retried N×' badge when more than one attempt was needed",
+          "Device uptime tracking — a background reachability poller probes every device's SSH port every 5 minutes; the Devices page now has a 30-day uptime % column with a sparkline",
+        ],
+      },
+    ],
+  },
   {
     version: "1.4.1",
     date: "2026-04-19",

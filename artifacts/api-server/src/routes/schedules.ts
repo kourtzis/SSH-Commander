@@ -328,5 +328,101 @@ router.delete("/schedules/:id", async (req, res) => {
   res.json({ message: "Schedule deleted" });
 });
 
+// ─── Calendar view ───────────────────────────────────────────────────
+// Returns every projected schedule run in the requested year+month.
+// We intentionally don't reuse computeNextRun (which only returns a single
+// "next" run from `now`) — instead we walk every day in the month and check
+// whether each enabled schedule fires that day. Cap at 64 occurrences per
+// schedule per month to bound output for high-frequency interval schedules.
+router.get("/schedules/calendar", async (req, res) => {
+  requireAuth(req);
+  const year = parseInt(String(req.query.year || ""));
+  const month = parseInt(String(req.query.month || "")); // 1-12
+  if (!year || !month || month < 1 || month > 12) {
+    res.status(400).json({ error: "year and month (1-12) are required" });
+    return;
+  }
+  const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const monthEnd = new Date(year, month, 1, 0, 0, 0, 0); // exclusive
+
+  const schedules = await db.select().from(schedulesTable).where(eq(schedulesTable.enabled, true));
+  const jobs = await db.select({ id: batchJobsTable.id, name: batchJobsTable.name }).from(batchJobsTable);
+  const jobMap = new Map(jobs.map((j) => [j.id, j.name]));
+
+  type Entry = { scheduleId: number; scheduleName: string; jobName: string; datetime: string };
+  const entries: Entry[] = [];
+
+  for (const s of schedules) {
+    const jobName = jobMap.get(s.jobId) ?? `Job #${s.jobId}`;
+    const push = (d: Date) => {
+      if (d >= monthStart && d < monthEnd) {
+        entries.push({
+          scheduleId: s.id,
+          scheduleName: s.name,
+          jobName,
+          datetime: d.toISOString(),
+        });
+      }
+    };
+
+    if (s.type === "once" && s.scheduledAt) {
+      push(new Date(s.scheduledAt));
+      continue;
+    }
+
+    if (s.type === "interval" && s.intervalMinutes) {
+      // Walk forward from the schedule's nextRunAt (or monthStart) in step increments.
+      let cursor = s.nextRunAt ? new Date(s.nextRunAt) : new Date(monthStart);
+      // Fast-forward up to monthStart so we don't loop millions of times for short intervals
+      // when the schedule was created long ago.
+      if (cursor < monthStart) {
+        const stepMs = s.intervalMinutes * 60 * 1000;
+        const skip = Math.floor((monthStart.getTime() - cursor.getTime()) / stepMs);
+        cursor = new Date(cursor.getTime() + skip * stepMs);
+      }
+      let n = 0;
+      while (cursor < monthEnd && n < 1024) {
+        if (cursor >= monthStart) push(cursor);
+        cursor = new Date(cursor.getTime() + s.intervalMinutes * 60 * 1000);
+        n++;
+      }
+      continue;
+    }
+
+    if ((s.type === "daily" || s.type === "weekly" || s.type === "monthly") && s.timeOfDay) {
+      const [hh, mm] = s.timeOfDay.split(":").map(Number);
+      // Walk every day in the month and decide if the schedule fires that day
+      const lastDay = new Date(year, month, 0).getDate();
+      for (let day = 1; day <= lastDay; day++) {
+        const d = new Date(year, month - 1, day, hh || 0, mm || 0, 0, 0);
+        if (s.type === "daily") { push(d); continue; }
+        if (s.type === "weekly") {
+          const days = (s.daysOfWeek as number[] | null) ?? [];
+          if (days.includes(d.getDay())) push(d);
+          continue;
+        }
+        if (s.type === "monthly") {
+          if (s.monthlyMode === "dayOfMonth" && s.dayOfMonth) {
+            // Clamp to last day for short months (e.g. day 31 → Feb 28/29)
+            const target = Math.min(s.dayOfMonth, lastDay);
+            if (day === target) push(d);
+          }
+          if (s.monthlyMode === "nthWeekday" && s.nthWeek != null && s.nthWeekday != null) {
+            // Find which occurrence of this weekday it is in the month
+            if (d.getDay() === s.nthWeekday) {
+              const occurrence = Math.floor((day - 1) / 7) + 1;
+              const isLast = day + 7 > lastDay;
+              if (s.nthWeek === occurrence || (s.nthWeek === 5 && isLast)) push(d);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  entries.sort((a, b) => a.datetime.localeCompare(b.datetime));
+  res.json(entries);
+});
+
 export default router;
 export { computeNextWeeklyRun, computeNextDailyRun, computeNextMonthlyRun };

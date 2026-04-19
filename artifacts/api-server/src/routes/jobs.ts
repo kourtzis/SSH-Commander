@@ -20,7 +20,7 @@ import {
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { CreateJobBody } from "@workspace/api-zod";
 import { getCurrentUser, requireAuth } from "../lib/auth.js";
-import { executeSSHCommand, applyTagSubstitution } from "../lib/ssh.js";
+import { executeSSH, applyTagSubstitution } from "../lib/ssh.js";
 import { interactiveSessions, type LiveEvent } from "../lib/interactive-session.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "../lib/resolve-routers.js";
 
@@ -66,7 +66,7 @@ router.post("/jobs", async (req, res) => {
     return;
   }
 
-  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData, mode, autoConfirm } = parsed.data;
+  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData, mode, autoConfirm, timeoutSeconds, retryCount, retryBackoffSeconds } = parsed.data;
 
   // Resolve all target routers from direct IDs + group membership
   const allRouterIds = await resolveRouterIds(
@@ -91,6 +91,9 @@ router.post("/jobs", async (req, res) => {
         targetGroupIds: targetGroupIds ?? [],
         excelData: excelData as any,
         autoConfirm: autoConfirm ?? true,
+        timeoutSeconds: timeoutSeconds ?? 30,
+        retryCount: retryCount ?? 0,
+        retryBackoffSeconds: retryBackoffSeconds ?? 5,
         totalTasks: 0,
         completedTasks: 0,
         failedTasks: 0,
@@ -125,6 +128,9 @@ router.post("/jobs", async (req, res) => {
       targetGroupIds: targetGroupIds ?? [],
       excelData: excelData as any,
       autoConfirm: autoConfirm ?? true,
+      timeoutSeconds: timeoutSeconds ?? 30,
+      retryCount: retryCount ?? 0,
+      retryBackoffSeconds: retryBackoffSeconds ?? 5,
       totalTasks: routers.length,
       completedTasks: 0,
       failedTasks: 0,
@@ -164,7 +170,7 @@ router.post("/jobs", async (req, res) => {
     );
   } else {
     // Auto-confirm mode: sequential background execution
-    runJobInBackground(job.id, routers, scriptCode, excelData as Record<string, string>[] | undefined, autoConfirm ?? true, insertedTasks.map(t => t.id))
+    runJobInBackground(job.id, routers, scriptCode, excelData as Record<string, string>[] | undefined, autoConfirm ?? true, insertedTasks.map(t => t.id), { timeoutSeconds: timeoutSeconds ?? 30, retryCount: retryCount ?? 0, retryBackoffSeconds: retryBackoffSeconds ?? 5 })
       .catch((err) => {
         console.error(`[Job ${job.id}] Background execution failed:`, err);
         db.update(batchJobsTable)
@@ -190,7 +196,8 @@ async function runJobInBackground(
   scriptCode: string,
   excelData?: Record<string, string>[],
   autoConfirm: boolean = true,
-  taskIds?: number[]
+  taskIds?: number[],
+  reliability: { timeoutSeconds: number; retryCount: number; retryBackoffSeconds: number } = { timeoutSeconds: 30, retryCount: 0, retryBackoffSeconds: 5 },
 ) {
   let completedCount = 0;
   let failedCount = 0;
@@ -257,14 +264,19 @@ async function runJobInBackground(
         .where(eq(jobTasksTable.id, taskId));
       failedCount++;
     } else {
-      const result = await executeSSHCommand(
+      const result = await executeSSH(
         r.ipAddress,
         r.sshPort,
         r.sshUsername,
         r.sshPassword,
         finalScript,
-        30000,
-        autoConfirm
+        {
+          timeoutMs: reliability.timeoutSeconds * 1000,
+          autoConfirm,
+          enablePassword: r.enablePassword ?? undefined,
+          retryCount: reliability.retryCount,
+          retryBackoffSeconds: reliability.retryBackoffSeconds,
+        },
       );
 
       await db
@@ -274,6 +286,7 @@ async function runJobInBackground(
           output: result.output || null,
           errorMessage: result.errorMessage || null,
           connectionLog: result.connectionLog,
+          attemptCount: result.attemptCount,
           completedAt: new Date(),
         })
         .where(eq(jobTasksTable.id, taskId));
@@ -454,7 +467,7 @@ router.put("/jobs/:id", async (req, res) => {
     res.status(400).json({ error: "Invalid request body" });
     return;
   }
-  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData, autoConfirm } = parsed.data;
+  const { name, scriptCode, targetRouterIds, targetGroupIds, excelData, autoConfirm, timeoutSeconds, retryCount, retryBackoffSeconds } = parsed.data;
   const [updated] = await db
     .update(batchJobsTable)
     .set({
@@ -464,6 +477,9 @@ router.put("/jobs/:id", async (req, res) => {
       targetGroupIds: targetGroupIds ?? [],
       excelData: excelData as any,
       autoConfirm: autoConfirm ?? job.autoConfirm,
+      timeoutSeconds: timeoutSeconds ?? job.timeoutSeconds,
+      retryCount: retryCount ?? job.retryCount,
+      retryBackoffSeconds: retryBackoffSeconds ?? job.retryBackoffSeconds,
     })
     .where(eq(batchJobsTable.id, id))
     .returning();
@@ -545,6 +561,9 @@ router.post("/jobs/:id/rerun", async (req, res) => {
       targetGroupIds: sourceJob.targetGroupIds ?? [],
       excelData: sourceJob.excelData as any,
       autoConfirm: sourceJob.autoConfirm,
+      timeoutSeconds: sourceJob.timeoutSeconds,
+      retryCount: sourceJob.retryCount,
+      retryBackoffSeconds: sourceJob.retryBackoffSeconds,
       totalTasks: routers.length,
       completedTasks: 0,
       failedTasks: 0,
@@ -580,7 +599,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
       insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
     );
   } else {
-    runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined, sourceJob.autoConfirm, insertedTasks.map(t => t.id))
+    runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined, sourceJob.autoConfirm, insertedTasks.map(t => t.id), { timeoutSeconds: sourceJob.timeoutSeconds, retryCount: sourceJob.retryCount, retryBackoffSeconds: sourceJob.retryBackoffSeconds })
       .catch((err) => {
         console.error(`[Job ${newJob.id}] Background execution failed:`, err);
         db.update(batchJobsTable)
@@ -611,6 +630,145 @@ router.post("/jobs/:id/cancel", async (req, res) => {
     .set({ status: "cancelled", completedAt: new Date() })
     .where(eq(batchJobsTable.id, id));
   res.json({ message: "Job cancelled" });
+});
+
+// ─── Dry-run / preview ───────────────────────────────────────────────
+// Resolves the targeted routers, applies tag substitution, and returns the
+// per-device script that *would* run — without opening a single SSH session.
+// Used by the "Preview" button on the new-job page so operators can verify
+// substitutions before launching a destructive job.
+router.post("/jobs/dry-run", async (req, res) => {
+  requireAuth(req);
+  const parsed = CreateJobBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request body" });
+    return;
+  }
+  const { scriptCode, targetRouterIds, targetGroupIds, excelData } = parsed.data;
+  const allRouterIds = await resolveRouterIds(targetRouterIds ?? [], targetGroupIds ?? []);
+  if (allRouterIds.length === 0) { res.json([]); return; }
+  const routers = await db
+    .select({ id: routersTable.id, name: routersTable.name, ipAddress: routersTable.ipAddress })
+    .from(routersTable)
+    .where(inArray(routersTable.id, allRouterIds));
+
+  const excelLookup = buildExcelLookup(excelData as Record<string, string>[] | undefined);
+  const tagRe = /\{\{\s*([A-Za-z0-9_-]+)\s*\}\}/g;
+
+  const result = routers.map((r, i) => {
+    const row = findExcelRow(r as any, excelLookup, i, excelData as any);
+    const resolvedScript = applyTagSubstitution(scriptCode, row);
+    // Anything still in {{...}} after substitution is a tag we couldn't fill.
+    const missingTags = Array.from(new Set(
+      [...resolvedScript.matchAll(tagRe)].map((m) => m[1])
+    ));
+    return {
+      routerId: r.id,
+      routerName: r.name,
+      routerIp: r.ipAddress,
+      resolvedScript,
+      missingTags,
+    };
+  });
+  res.json(result);
+});
+
+// ─── Job result export ──────────────────────────────────────────────
+// Exports completed task results in one of three shapes:
+//  - csv: spreadsheet with device,status,duration,output
+//  - txt: single concatenated text file with per-device sections
+//  - zip: one .txt per device inside a zip archive
+//
+// We escape CSV fields by quoting and doubling embedded quotes — sufficient
+// for the typical SSH command output, and avoids pulling in a heavy CSV
+// library for one endpoint.
+function csvField(s: string | null | undefined): string {
+  const v = s == null ? "" : String(s);
+  if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+  return v;
+}
+
+router.get("/jobs/:id/export", async (req, res) => {
+  requireAuth(req);
+  const id = parseInt(req.params.id);
+  const format = String(req.query.format || "").toLowerCase();
+  if (!["csv", "txt", "zip"].includes(format)) {
+    res.status(400).json({ error: "format must be one of csv, txt, zip" });
+    return;
+  }
+  const [job] = await db.select().from(batchJobsTable).where(eq(batchJobsTable.id, id)).limit(1);
+  if (!job) { res.status(404).json({ error: "Job not found" }); return; }
+  const tasks = await db
+    .select()
+    .from(jobTasksTable)
+    .where(eq(jobTasksTable.jobId, id))
+    .orderBy(jobTasksTable.id);
+
+  const safeName = (job.name || `job-${id}`).replace(/[^a-zA-Z0-9._-]+/g, "_");
+
+  if (format === "csv") {
+    const header = "device,ip,status,duration_seconds,attempts,output,error";
+    const lines = tasks.map((t) => {
+      const dur = t.startedAt && t.completedAt
+        ? Math.round((new Date(t.completedAt).getTime() - new Date(t.startedAt).getTime()) / 1000)
+        : "";
+      return [
+        csvField(t.routerName),
+        csvField(t.routerIp),
+        csvField(t.status),
+        csvField(String(dur)),
+        csvField(String((t as any).attemptCount ?? 1)),
+        csvField(t.output),
+        csvField(t.errorMessage),
+      ].join(",");
+    });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeName}.csv"`);
+    res.send([header, ...lines].join("\n"));
+    return;
+  }
+
+  if (format === "txt") {
+    const sections = tasks.map((t) => {
+      return [
+        `=== ${t.routerName} (${t.routerIp}) — ${t.status} ===`,
+        t.output || "(no output)",
+        t.errorMessage ? `\nERROR: ${t.errorMessage}` : "",
+        "",
+      ].join("\n");
+    });
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeName}.txt"`);
+    res.send([
+      `# Job: ${job.name}`,
+      `# Status: ${job.status}`,
+      `# Tasks: ${tasks.length}`,
+      "",
+      ...sections,
+    ].join("\n"));
+    return;
+  }
+
+  // zip: dynamically import jszip so it's only loaded when an export is requested
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  zip.file("README.txt", `Job: ${job.name}\nStatus: ${job.status}\nTasks: ${tasks.length}\n`);
+  for (const t of tasks) {
+    const fname = `${(t.routerName || `router-${t.routerId}`).replace(/[^a-zA-Z0-9._-]+/g, "_")}-${t.id}.txt`;
+    zip.file(fname, [
+      `Device: ${t.routerName} (${t.routerIp})`,
+      `Status: ${t.status}`,
+      `Attempts: ${(t as any).attemptCount ?? 1}`,
+      "",
+      "--- OUTPUT ---",
+      t.output || "(none)",
+      t.errorMessage ? `\n--- ERROR ---\n${t.errorMessage}` : "",
+    ].join("\n"));
+  }
+  const buf = await zip.generateAsync({ type: "nodebuffer" });
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="${safeName}.zip"`);
+  res.send(buf);
 });
 
 export default router;

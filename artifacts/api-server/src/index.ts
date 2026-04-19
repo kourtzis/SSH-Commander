@@ -14,6 +14,7 @@ process.on("unhandledRejection", (err) => {
 
 import app from "./app";
 import { startScheduler } from "./lib/scheduler.js";
+import { startReachabilityLoop } from "./lib/reachability-loop.js";
 
 // PORT is required — set by Replit in dev, by Docker in production
 const rawPort = process.env["PORT"];
@@ -32,5 +33,6 @@ if (Number.isNaN(port) || port <= 0) {
 
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
-  startScheduler();  // Start the 30-second tick loop for scheduled jobs
+  startScheduler();          // 30-second loop for scheduled jobs
+  startReachabilityLoop();   // 5-minute loop for device uptime aggregates
 });

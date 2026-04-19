@@ -12,5 +12,7 @@ export interface UpdateRouterRequest {
   sshPort?: number;
   sshUsername?: string;
   sshPassword?: string;
+  enablePassword?: string;
   description?: string;
+  credentialProfileId?: number | null;
 }

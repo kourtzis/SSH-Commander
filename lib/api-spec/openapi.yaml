@@ -23,6 +23,10 @@ tags:
     description: Batch job management
   - name: schedules
     description: Job schedule management
+  - name: credentials
+    description: Credential profile management
+  - name: views
+    description: Saved views management
 
 paths:
   /healthz:
@@ -823,6 +827,270 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
 
+  /schedules/calendar:
+    get:
+      operationId: getScheduleCalendar
+      tags: [schedules]
+      summary: Get all scheduled runs in a given month
+      parameters:
+        - name: year
+          in: query
+          required: true
+          schema: { type: integer }
+        - name: month
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 12 }
+      responses:
+        "200":
+          description: List of upcoming runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScheduleCalendarEntry"
+
+  /credentials:
+    get:
+      operationId: listCredentialProfiles
+      tags: [credentials]
+      summary: List all credential profiles
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CredentialProfile"
+    post:
+      operationId: createCredentialProfile
+      tags: [credentials]
+      summary: Create a credential profile (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialProfileRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialProfile"
+
+  /credentials/{id}:
+    put:
+      operationId: updateCredentialProfile
+      tags: [credentials]
+      summary: Update a credential profile (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialProfileRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialProfile"
+    delete:
+      operationId: deleteCredentialProfile
+      tags: [credentials]
+      summary: Delete a credential profile (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /saved-views:
+    get:
+      operationId: listSavedViews
+      tags: [views]
+      summary: List saved views for the current user
+      parameters:
+        - name: pageKey
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SavedView"
+    post:
+      operationId: createSavedView
+      tags: [views]
+      summary: Create a saved view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavedViewRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedView"
+
+  /saved-views/{id}:
+    delete:
+      operationId: deleteSavedView
+      tags: [views]
+      summary: Delete a saved view
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /routers/{id}/uptime:
+    get:
+      operationId: getRouterUptime
+      tags: [routers]
+      summary: Get daily uptime history for a router
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: days
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 365 }
+      responses:
+        "200":
+          description: Daily uptime data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouterUptime"
+
+  /routers/uptime:
+    get:
+      operationId: getRoutersUptime
+      tags: [routers]
+      summary: Get current uptime % for all routers (last 30 days)
+      responses:
+        "200":
+          description: Map of router id to uptime percentage
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: number
+
+  /routers/{id}/fingerprint:
+    post:
+      operationId: fingerprintRouter
+      tags: [routers]
+      summary: Detect vendor and OS version via SSH
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Detection result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FingerprintResult"
+
+  /routers/fingerprint-all:
+    post:
+      operationId: fingerprintAllRouters
+      tags: [routers]
+      summary: Detect vendor/OS for all routers in parallel
+      responses:
+        "200":
+          description: Result summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  successCount: { type: integer }
+                  failedCount: { type: integer }
+                required: [successCount, failedCount]
+
+  /jobs/dry-run:
+    post:
+      operationId: dryRunJob
+      tags: [jobs]
+      summary: Preview a job without executing it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+      responses:
+        "200":
+          description: Resolved scripts per device
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DryRunEntry"
+
+  /jobs/{id}/export:
+    get:
+      operationId: exportJob
+      tags: [jobs]
+      summary: Export job task results in csv, txt, or zip format
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [csv, txt, zip]
+      responses:
+        "200":
+          description: File download (content type varies by format)
+
 components:
   schemas:
     HealthStatus:
@@ -925,44 +1193,38 @@ components:
     Router:
       type: object
       properties:
-        id:
-          type: integer
-        name:
-          type: string
-        ipAddress:
-          type: string
-        sshPort:
-          type: integer
-        sshUsername:
-          type: string
-        description:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
+        id: { type: integer }
+        name: { type: string }
+        ipAddress: { type: string }
+        sshPort: { type: integer }
+        sshUsername: { type: string }
+        description: { type: string }
+        credentialProfileId: { type: integer, nullable: true }
+        vendor: { type: string, nullable: true }
+        osVersion: { type: string, nullable: true }
+        lastFingerprintAt: { type: string, format: date-time, nullable: true }
+        hasEnablePassword: { type: boolean }
+        createdAt: { type: string, format: date-time }
       required:
         - id
         - name
         - ipAddress
         - sshPort
         - sshUsername
+        - hasEnablePassword
         - createdAt
 
     CreateRouterRequest:
       type: object
       properties:
-        name:
-          type: string
-        ipAddress:
-          type: string
-        sshPort:
-          type: integer
-        sshUsername:
-          type: string
-        sshPassword:
-          type: string
-        description:
-          type: string
+        name: { type: string }
+        ipAddress: { type: string }
+        sshPort: { type: integer }
+        sshUsername: { type: string }
+        sshPassword: { type: string }
+        enablePassword: { type: string }
+        description: { type: string }
+        credentialProfileId: { type: integer, nullable: true }
       required:
         - name
         - ipAddress
@@ -972,18 +1234,14 @@ components:
     UpdateRouterRequest:
       type: object
       properties:
-        name:
-          type: string
-        ipAddress:
-          type: string
-        sshPort:
-          type: integer
-        sshUsername:
-          type: string
-        sshPassword:
-          type: string
-        description:
-          type: string
+        name: { type: string }
+        ipAddress: { type: string }
+        sshPort: { type: integer }
+        sshUsername: { type: string }
+        sshPassword: { type: string }
+        enablePassword: { type: string }
+        description: { type: string }
+        credentialProfileId: { type: integer, nullable: true }
 
     ImportRoutersRequest:
       type: object
@@ -1228,6 +1486,9 @@ components:
             type: integer
         autoConfirm:
           type: boolean
+        timeoutSeconds: { type: integer }
+        retryCount: { type: integer }
+        retryBackoffSeconds: { type: integer }
         totalTasks:
           type: integer
         completedTasks:
@@ -1251,6 +1512,9 @@ components:
         - targetRouterIds
         - targetGroupIds
         - autoConfirm
+        - timeoutSeconds
+        - retryCount
+        - retryBackoffSeconds
         - totalTasks
         - completedTasks
         - failedTasks
@@ -1286,6 +1550,9 @@ components:
           nullable: true
         autoConfirm:
           type: boolean
+        timeoutSeconds: { type: integer }
+        retryCount: { type: integer }
+        retryBackoffSeconds: { type: integer }
         totalTasks:
           type: integer
         completedTasks:
@@ -1313,6 +1580,9 @@ components:
         - targetRouterIds
         - targetGroupIds
         - autoConfirm
+        - timeoutSeconds
+        - retryCount
+        - retryBackoffSeconds
         - totalTasks
         - completedTasks
         - failedTasks
@@ -1351,6 +1621,8 @@ components:
         promptText:
           type: string
           nullable: true
+        attemptCount:
+          type: integer
         startedAt:
           type: string
           format: date-time
@@ -1396,6 +1668,15 @@ components:
         autoConfirm:
           type: boolean
           description: Automatically answer yes to SSH confirmation prompts (default true)
+        timeoutSeconds:
+          type: integer
+          description: Per-device SSH timeout in seconds (1-3600, default 30)
+        retryCount:
+          type: integer
+          description: Number of retries on connection failure (0-10, default 0)
+        retryBackoffSeconds:
+          type: integer
+          description: Seconds to wait between retries (default 5)
       required:
         - name
         - scriptCode
@@ -1541,3 +1822,100 @@ components:
         nthWeekday:
           type: integer
           nullable: true
+
+    CredentialProfile:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        sshUsername: { type: string }
+        hasPassword: { type: boolean }
+        hasEnablePassword: { type: boolean }
+        jumpHostId: { type: integer, nullable: true }
+        jumpHost: { type: string, nullable: true }
+        jumpPort: { type: integer, nullable: true }
+        description: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+      required: [id, name, sshUsername, hasPassword, hasEnablePassword, createdAt]
+
+    CredentialProfileRequest:
+      type: object
+      properties:
+        name: { type: string }
+        sshUsername: { type: string }
+        sshPassword: { type: string }
+        enablePassword: { type: string }
+        jumpHostId: { type: integer, nullable: true }
+        jumpHost: { type: string, nullable: true }
+        jumpPort: { type: integer, nullable: true }
+        description: { type: string }
+      required: [name, sshUsername]
+
+    SavedView:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        pageKey: { type: string }
+        name: { type: string }
+        viewState:
+          type: object
+          additionalProperties: true
+        createdAt: { type: string, format: date-time }
+      required: [id, userId, pageKey, name, viewState, createdAt]
+
+    SavedViewRequest:
+      type: object
+      properties:
+        pageKey: { type: string }
+        name: { type: string }
+        viewState:
+          type: object
+          additionalProperties: true
+      required: [pageKey, name, viewState]
+
+    RouterUptime:
+      type: object
+      properties:
+        routerId: { type: integer }
+        uptimePercent: { type: number }
+        days:
+          type: array
+          items:
+            type: object
+            properties:
+              day: { type: string }
+              totalChecks: { type: integer }
+              successCount: { type: integer }
+            required: [day, totalChecks, successCount]
+      required: [routerId, uptimePercent, days]
+
+    FingerprintResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        vendor: { type: string, nullable: true }
+        osVersion: { type: string, nullable: true }
+        errorMessage: { type: string, nullable: true }
+      required: [success]
+
+    DryRunEntry:
+      type: object
+      properties:
+        routerId: { type: integer }
+        routerName: { type: string }
+        routerIp: { type: string }
+        resolvedScript: { type: string }
+        missingTags:
+          type: array
+          items: { type: string }
+      required: [routerId, routerName, routerIp, resolvedScript, missingTags]
+
+    ScheduleCalendarEntry:
+      type: object
+      properties:
+        scheduleId: { type: integer }
+        scheduleName: { type: string }
+        jobName: { type: string }
+        datetime: { type: string, format: date-time }
+      required: [scheduleId, scheduleName, jobName, datetime]

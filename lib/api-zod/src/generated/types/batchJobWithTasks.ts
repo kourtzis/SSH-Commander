@@ -18,6 +18,9 @@ export interface BatchJobWithTasks {
   targetGroupIds: number[];
   excelData?: BatchJobWithTasksExcelDataItem[] | null;
   autoConfirm: boolean;
+  timeoutSeconds: number;
+  retryCount: number;
+  retryBackoffSeconds: number;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;

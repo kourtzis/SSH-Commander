@@ -19,6 +19,7 @@ export interface JobTask {
   connectionLog?: string | null;
   resolvedScript?: string | null;
   promptText?: string | null;
+  attemptCount?: number;
   startedAt?: Date | null;
   completedAt?: Date | null;
 }

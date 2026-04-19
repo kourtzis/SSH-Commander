@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { AppLayout } from "@/components/layout/app-layout";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { ConfirmProvider } from "@/components/confirm-dialog";
+import { ThemeProvider } from "@/contexts/theme-context";
 import { Loader2 } from "lucide-react";
 
 const Login = React.lazy(() => import("@/pages/login"));
@@ -20,6 +21,9 @@ const JobDetail = React.lazy(() => import("@/pages/jobs/detail"));
 const Users = React.lazy(() => import("@/pages/users"));
 const SchedulerList = React.lazy(() => import("@/pages/scheduler/index"));
 const NewSchedule = React.lazy(() => import("@/pages/scheduler/new"));
+const ScheduleCalendar = React.lazy(() => import("@/pages/scheduler/calendar"));
+const Credentials = React.lazy(() => import("@/pages/credentials"));
+const RouterTerminal = React.lazy(() => import("@/pages/router-terminal"));
 const NotFound = React.lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
@@ -74,6 +78,9 @@ const ProtectedJobDetail = () => <ProtectedRoute component={JobDetail} />;
 const ProtectedSchedulerList = () => <ProtectedRoute component={SchedulerList} />;
 const ProtectedNewSchedule = () => <ProtectedRoute component={NewSchedule} />;
 const ProtectedUsers = () => <ProtectedRoute component={Users} />;
+const ProtectedScheduleCalendar = () => <ProtectedRoute component={ScheduleCalendar} />;
+const ProtectedCredentials = () => <ProtectedRoute component={Credentials} />;
+const ProtectedRouterTerminal = () => <ProtectedRoute component={RouterTerminal} />;
 
 function Router() {
   return (
@@ -89,6 +96,9 @@ function Router() {
         <Route path="/jobs/:id" component={ProtectedJobDetail} />
         <Route path="/scheduler" component={ProtectedSchedulerList} />
         <Route path="/scheduler/new" component={ProtectedNewSchedule} />
+        <Route path="/scheduler/calendar" component={ProtectedScheduleCalendar} />
+        <Route path="/credentials" component={ProtectedCredentials} />
+        <Route path="/routers/:id/terminal" component={ProtectedRouterTerminal} />
         <Route path="/users" component={ProtectedUsers} />
         <Route component={NotFound} />
       </Switch>
@@ -101,6 +111,7 @@ function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
+          <ThemeProvider>
           <AuthProvider>
             <ConfirmProvider>
               <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
@@ -109,6 +120,7 @@ function App() {
               <Toaster />
             </ConfirmProvider>
           </AuthProvider>
+          </ThemeProvider>
         </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>

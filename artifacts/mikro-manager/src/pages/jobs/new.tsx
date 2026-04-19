@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
-import { useListRouters, useListGroups, useListSnippets, useGetJob } from "@workspace/api-client-react";
+import { useListRouters, useListGroups, useListSnippets, useGetJob, useDryRunJob } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Wifi, WifiOff, Clock, ShieldCheck, Search } from "lucide-react";
+import { Play, Upload, Code, Target, Table as TableIcon, Monitor, GripVertical, X, Wifi, WifiOff, Clock, ShieldCheck, Search, Eye, AlertTriangle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScriptBuilder, ScriptBlock, buildCombinedScript } from "@/components/script-builder";
 import { useDragReorder } from "@/hooks/use-drag-reorder";
 import { useToast } from "@/hooks/use-toast";
@@ -85,7 +86,13 @@ export default function NewJob() {
   const [targets, setTargets] = useState<TargetEntry[]>([]);
   const [excelData, setExcelData] = useState<any[]>([]);
   const [autoConfirm, setAutoConfirm] = useState(true);
+  const [timeoutSeconds, setTimeoutSeconds] = useState(30);
+  const [retryCount, setRetryCount] = useState(0);
+  const [retryBackoffSeconds, setRetryBackoffSeconds] = useState(5);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<Array<{ routerId: number; routerName: string; routerIp: string; resolvedScript: string; missingTags: string[] }>>([]);
+  const dryRunMut = useDryRunJob();
   const [deviceSearch, setDeviceSearch] = useState("");
   const [groupSearch, setGroupSearch] = useState("");
   const [jobMode, setJobMode] = useState<"run" | "schedule">("run");
@@ -109,6 +116,9 @@ export default function NewJob() {
       setJobMode("schedule");
     }
     setAutoConfirm(sourceJob.autoConfirm);
+    if (sourceJob.timeoutSeconds) setTimeoutSeconds(sourceJob.timeoutSeconds);
+    if (typeof sourceJob.retryCount === "number") setRetryCount(sourceJob.retryCount);
+    if (typeof sourceJob.retryBackoffSeconds === "number") setRetryBackoffSeconds(sourceJob.retryBackoffSeconds);
 
     const newTargets: TargetEntry[] = [];
     if (sourceJob.targetRouterIds) {
@@ -222,6 +232,9 @@ export default function NewJob() {
             excelData: excelData.length > 0 ? excelData : undefined,
             mode: "schedule",
             autoConfirm,
+            timeoutSeconds,
+            retryCount,
+            retryBackoffSeconds,
           },
         });
         toast({ title: "Job updated successfully!" });
@@ -236,6 +249,9 @@ export default function NewJob() {
             excelData: excelData.length > 0 ? excelData : undefined,
             mode: mode === "schedule" ? "schedule" : undefined,
             autoConfirm,
+            timeoutSeconds,
+            retryCount,
+            retryBackoffSeconds,
           },
         });
 
@@ -530,8 +546,86 @@ export default function NewJob() {
       </Card>
 
       <Card className="glass-panel">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <ShieldCheck className="w-5 h-5 text-primary" /> 4. Reliability
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm">Timeout (seconds)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={3600}
+                value={timeoutSeconds}
+                onChange={(e) => setTimeoutSeconds(Math.max(1, Math.min(3600, parseInt(e.target.value) || 30)))}
+              />
+              <p className="text-xs text-muted-foreground">Per-device SSH hard limit (1–3600).</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">Retries on failure</Label>
+              <Input
+                type="number"
+                min={0}
+                max={10}
+                value={retryCount}
+                onChange={(e) => setRetryCount(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))}
+              />
+              <p className="text-xs text-muted-foreground">Only retries connection-level failures (0–10).</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">Retry back-off (seconds)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={300}
+                value={retryBackoffSeconds}
+                onChange={(e) => setRetryBackoffSeconds(Math.max(0, Math.min(300, parseInt(e.target.value) || 0)))}
+                disabled={retryCount === 0}
+              />
+              <p className="text-xs text-muted-foreground">Wait between attempts.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="glass-panel">
         <CardContent className="py-4">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3">
+            <Button
+              size="lg"
+              variant="outline"
+              type="button"
+              onClick={async () => {
+                try {
+                  // Send the same payload shape we'd send on submit, but with
+                  // mode="run" since the server only cares about routers/script.
+                  const scriptCode = buildCombinedScript(scriptBlocks);
+                  const data = await dryRunMut.mutateAsync({
+                    data: {
+                      name: name || "preview",
+                      scriptCode,
+                      targetRouterIds: selectedRouterIds,
+                      targetGroupIds: selectedGroupIds,
+                      excelData: excelData.length > 0 ? (excelData as any) : undefined,
+                      mode: "run" as const,
+                      autoConfirm,
+                    } as any,
+                  });
+                  setPreviewData(data as any);
+                  setPreviewOpen(true);
+                } catch (err: any) {
+                  toast({ title: "Preview failed", description: String(err?.message || err), variant: "destructive" });
+                }
+              }}
+              disabled={dryRunMut.isPending || (selectedRouterIds.length === 0 && selectedGroupIds.length === 0)}
+              className="text-lg gap-2"
+              data-testid="preview-button"
+            >
+              {dryRunMut.isPending ? "Resolving…" : <><Eye className="w-5 h-5" /> Preview</>}
+            </Button>
             {isEditMode ? (
               <Button
                 size="lg"
@@ -571,6 +665,55 @@ export default function NewJob() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5 text-primary" /> Preview ({previewData.length} device{previewData.length !== 1 ? "s" : ""})
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {previewData.length === 0 && (
+              <p className="text-muted-foreground text-sm">No devices resolved.</p>
+            )}
+            {previewData.map((p) => {
+              // Escape HTML first (defends against XSS — script bodies and
+              // Excel-substituted values can contain arbitrary characters),
+              // then highlight any unresolved {{TAG}} placeholders so the
+              // operator can spot missing substitutions before firing.
+              const escaped = p.resolvedScript
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+              const html = escaped.replace(
+                /\{\{\s*([A-Za-z0-9_-]+)\s*\}\}/g,
+                (m) => `<mark class="bg-destructive/30 text-destructive px-1 rounded">${m}</mark>`,
+              );
+              return (
+                <div key={p.routerId} className="border border-white/5 rounded-lg overflow-hidden">
+                  <div className="bg-white/[0.02] px-4 py-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{p.routerName}</div>
+                      <div className="text-xs text-muted-foreground font-mono">{p.routerIp}</div>
+                    </div>
+                    {p.missingTags.length > 0 && (
+                      <Badge variant="destructive" className="gap-1 shrink-0">
+                        <AlertTriangle className="w-3 h-3" />
+                        Missing: {p.missingTags.join(", ")}
+                      </Badge>
+                    )}
+                  </div>
+                  <pre
+                    className="bg-black/40 text-xs p-3 overflow-x-auto whitespace-pre-wrap font-mono"
+                    dangerouslySetInnerHTML={{ __html: html }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

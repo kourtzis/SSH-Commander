@@ -95,6 +95,49 @@
   --sidebar-ring: 173 80% 40%;
 }
 
+/* ─── Light theme overrides ────────────────────────────────────────
+ * Applied when ThemeProvider adds the `light` class to <html>.
+ * We keep the same primary teal as the dark theme for brand continuity
+ * and lift the surfaces to bright neutral tones. */
+:root.light {
+  --background: 210 20% 98%;
+  --foreground: 224 71% 8%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 224 71% 8%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 224 71% 8%;
+
+  --primary: 173 80% 35%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 210 20% 94%;
+  --secondary-foreground: 224 71% 8%;
+
+  --muted: 210 20% 94%;
+  --muted-foreground: 215 16% 35%;
+
+  --accent: 210 20% 92%;
+  --accent-foreground: 224 71% 8%;
+
+  --destructive: 0 70% 50%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 215 20% 86%;
+  --input: 215 20% 88%;
+  --ring: 173 80% 35%;
+
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 224 71% 8%;
+  --sidebar-primary: 173 80% 35%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 210 20% 94%;
+  --sidebar-accent-foreground: 224 71% 8%;
+  --sidebar-border: 215 20% 86%;
+  --sidebar-ring: 173 80% 35%;
+}
+
 @layer base {
   * {
     @apply border-border;

@@ -27,11 +27,21 @@ import type {
   CreateScheduleRequest,
   CreateSnippetRequest,
   CreateUserRequest,
+  CredentialProfile,
+  CredentialProfileRequest,
+  DryRunEntry,
   ErrorResponse,
+  ExportJobParams,
+  FingerprintAllRouters200,
+  FingerprintResult,
   GetGroupsCounts200,
+  GetRouterUptimeParams,
+  GetRoutersUptime200,
+  GetScheduleCalendarParams,
   HealthStatus,
   ImportRoutersRequest,
   ImportRoutersResponse,
+  ListSavedViewsParams,
   ListSnippetsParams,
   LoginRequest,
   MessageResponse,
@@ -39,7 +49,11 @@ import type {
   Router,
   RouterGroup,
   RouterGroupWithMembers,
+  RouterUptime,
+  SavedView,
+  SavedViewRequest,
   Schedule,
+  ScheduleCalendarEntry,
   Snippet,
   UpdateGroupRequest,
   UpdateRouterRequest,
@@ -3350,3 +3364,1240 @@ export const useDeleteSchedule = <
 > => {
   return useMutation(getDeleteScheduleMutationOptions(options));
 };
+
+/**
+ * @summary Get all scheduled runs in a given month
+ */
+export const getGetScheduleCalendarUrl = (
+  params: GetScheduleCalendarParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/schedules/calendar?${stringifiedParams}`
+    : `/api/schedules/calendar`;
+};
+
+export const getScheduleCalendar = async (
+  params: GetScheduleCalendarParams,
+  options?: RequestInit,
+): Promise<ScheduleCalendarEntry[]> => {
+  return customFetch<ScheduleCalendarEntry[]>(
+    getGetScheduleCalendarUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetScheduleCalendarQueryKey = (
+  params?: GetScheduleCalendarParams,
+) => {
+  return [`/api/schedules/calendar`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetScheduleCalendarQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScheduleCalendar>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetScheduleCalendarParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getScheduleCalendar>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetScheduleCalendarQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getScheduleCalendar>>
+  > = ({ signal }) =>
+    getScheduleCalendar(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScheduleCalendar>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScheduleCalendarQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScheduleCalendar>>
+>;
+export type GetScheduleCalendarQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get all scheduled runs in a given month
+ */
+
+export function useGetScheduleCalendar<
+  TData = Awaited<ReturnType<typeof getScheduleCalendar>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetScheduleCalendarParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getScheduleCalendar>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScheduleCalendarQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List all credential profiles
+ */
+export const getListCredentialProfilesUrl = () => {
+  return `/api/credentials`;
+};
+
+export const listCredentialProfiles = async (
+  options?: RequestInit,
+): Promise<CredentialProfile[]> => {
+  return customFetch<CredentialProfile[]>(getListCredentialProfilesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListCredentialProfilesQueryKey = () => {
+  return [`/api/credentials`] as const;
+};
+
+export const getListCredentialProfilesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCredentialProfiles>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCredentialProfiles>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListCredentialProfilesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCredentialProfiles>>
+  > = ({ signal }) => listCredentialProfiles({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCredentialProfiles>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCredentialProfilesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCredentialProfiles>>
+>;
+export type ListCredentialProfilesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all credential profiles
+ */
+
+export function useListCredentialProfiles<
+  TData = Awaited<ReturnType<typeof listCredentialProfiles>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCredentialProfiles>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCredentialProfilesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a credential profile (admin only)
+ */
+export const getCreateCredentialProfileUrl = () => {
+  return `/api/credentials`;
+};
+
+export const createCredentialProfile = async (
+  credentialProfileRequest: CredentialProfileRequest,
+  options?: RequestInit,
+): Promise<CredentialProfile> => {
+  return customFetch<CredentialProfile>(getCreateCredentialProfileUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(credentialProfileRequest),
+  });
+};
+
+export const getCreateCredentialProfileMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createCredentialProfile>>,
+    TError,
+    { data: BodyType<CredentialProfileRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createCredentialProfile>>,
+  TError,
+  { data: BodyType<CredentialProfileRequest> },
+  TContext
+> => {
+  const mutationKey = ["createCredentialProfile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createCredentialProfile>>,
+    { data: BodyType<CredentialProfileRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createCredentialProfile(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateCredentialProfileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createCredentialProfile>>
+>;
+export type CreateCredentialProfileMutationBody =
+  BodyType<CredentialProfileRequest>;
+export type CreateCredentialProfileMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a credential profile (admin only)
+ */
+export const useCreateCredentialProfile = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createCredentialProfile>>,
+    TError,
+    { data: BodyType<CredentialProfileRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createCredentialProfile>>,
+  TError,
+  { data: BodyType<CredentialProfileRequest> },
+  TContext
+> => {
+  return useMutation(getCreateCredentialProfileMutationOptions(options));
+};
+
+/**
+ * @summary Update a credential profile (admin only)
+ */
+export const getUpdateCredentialProfileUrl = (id: number) => {
+  return `/api/credentials/${id}`;
+};
+
+export const updateCredentialProfile = async (
+  id: number,
+  credentialProfileRequest: CredentialProfileRequest,
+  options?: RequestInit,
+): Promise<CredentialProfile> => {
+  return customFetch<CredentialProfile>(getUpdateCredentialProfileUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(credentialProfileRequest),
+  });
+};
+
+export const getUpdateCredentialProfileMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCredentialProfile>>,
+    TError,
+    { id: number; data: BodyType<CredentialProfileRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateCredentialProfile>>,
+  TError,
+  { id: number; data: BodyType<CredentialProfileRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateCredentialProfile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateCredentialProfile>>,
+    { id: number; data: BodyType<CredentialProfileRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateCredentialProfile(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateCredentialProfileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateCredentialProfile>>
+>;
+export type UpdateCredentialProfileMutationBody =
+  BodyType<CredentialProfileRequest>;
+export type UpdateCredentialProfileMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update a credential profile (admin only)
+ */
+export const useUpdateCredentialProfile = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCredentialProfile>>,
+    TError,
+    { id: number; data: BodyType<CredentialProfileRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateCredentialProfile>>,
+  TError,
+  { id: number; data: BodyType<CredentialProfileRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateCredentialProfileMutationOptions(options));
+};
+
+/**
+ * @summary Delete a credential profile (admin only)
+ */
+export const getDeleteCredentialProfileUrl = (id: number) => {
+  return `/api/credentials/${id}`;
+};
+
+export const deleteCredentialProfile = async (
+  id: number,
+  options?: RequestInit,
+): Promise<MessageResponse> => {
+  return customFetch<MessageResponse>(getDeleteCredentialProfileUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteCredentialProfileMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCredentialProfile>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteCredentialProfile>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteCredentialProfile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteCredentialProfile>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteCredentialProfile(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteCredentialProfileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteCredentialProfile>>
+>;
+
+export type DeleteCredentialProfileMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a credential profile (admin only)
+ */
+export const useDeleteCredentialProfile = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCredentialProfile>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteCredentialProfile>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteCredentialProfileMutationOptions(options));
+};
+
+/**
+ * @summary List saved views for the current user
+ */
+export const getListSavedViewsUrl = (params?: ListSavedViewsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/saved-views?${stringifiedParams}`
+    : `/api/saved-views`;
+};
+
+export const listSavedViews = async (
+  params?: ListSavedViewsParams,
+  options?: RequestInit,
+): Promise<SavedView[]> => {
+  return customFetch<SavedView[]>(getListSavedViewsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListSavedViewsQueryKey = (params?: ListSavedViewsParams) => {
+  return [`/api/saved-views`, ...(params ? [params] : [])] as const;
+};
+
+export const getListSavedViewsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSavedViews>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSavedViewsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listSavedViews>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSavedViewsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSavedViews>>> = ({
+    signal,
+  }) => listSavedViews(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSavedViews>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListSavedViewsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSavedViews>>
+>;
+export type ListSavedViewsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List saved views for the current user
+ */
+
+export function useListSavedViews<
+  TData = Awaited<ReturnType<typeof listSavedViews>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSavedViewsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listSavedViews>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListSavedViewsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a saved view
+ */
+export const getCreateSavedViewUrl = () => {
+  return `/api/saved-views`;
+};
+
+export const createSavedView = async (
+  savedViewRequest: SavedViewRequest,
+  options?: RequestInit,
+): Promise<SavedView> => {
+  return customFetch<SavedView>(getCreateSavedViewUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(savedViewRequest),
+  });
+};
+
+export const getCreateSavedViewMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSavedView>>,
+    TError,
+    { data: BodyType<SavedViewRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createSavedView>>,
+  TError,
+  { data: BodyType<SavedViewRequest> },
+  TContext
+> => {
+  const mutationKey = ["createSavedView"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createSavedView>>,
+    { data: BodyType<SavedViewRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createSavedView(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateSavedViewMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createSavedView>>
+>;
+export type CreateSavedViewMutationBody = BodyType<SavedViewRequest>;
+export type CreateSavedViewMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a saved view
+ */
+export const useCreateSavedView = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSavedView>>,
+    TError,
+    { data: BodyType<SavedViewRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createSavedView>>,
+  TError,
+  { data: BodyType<SavedViewRequest> },
+  TContext
+> => {
+  return useMutation(getCreateSavedViewMutationOptions(options));
+};
+
+/**
+ * @summary Delete a saved view
+ */
+export const getDeleteSavedViewUrl = (id: number) => {
+  return `/api/saved-views/${id}`;
+};
+
+export const deleteSavedView = async (
+  id: number,
+  options?: RequestInit,
+): Promise<MessageResponse> => {
+  return customFetch<MessageResponse>(getDeleteSavedViewUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteSavedViewMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSavedView>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteSavedView>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteSavedView"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteSavedView>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteSavedView(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteSavedViewMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteSavedView>>
+>;
+
+export type DeleteSavedViewMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a saved view
+ */
+export const useDeleteSavedView = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSavedView>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteSavedView>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteSavedViewMutationOptions(options));
+};
+
+/**
+ * @summary Get daily uptime history for a router
+ */
+export const getGetRouterUptimeUrl = (
+  id: number,
+  params?: GetRouterUptimeParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/routers/${id}/uptime?${stringifiedParams}`
+    : `/api/routers/${id}/uptime`;
+};
+
+export const getRouterUptime = async (
+  id: number,
+  params?: GetRouterUptimeParams,
+  options?: RequestInit,
+): Promise<RouterUptime> => {
+  return customFetch<RouterUptime>(getGetRouterUptimeUrl(id, params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRouterUptimeQueryKey = (
+  id: number,
+  params?: GetRouterUptimeParams,
+) => {
+  return [`/api/routers/${id}/uptime`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetRouterUptimeQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRouterUptime>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  params?: GetRouterUptimeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRouterUptime>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetRouterUptimeQueryKey(id, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getRouterUptime>>> = ({
+    signal,
+  }) => getRouterUptime(id, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRouterUptime>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRouterUptimeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRouterUptime>>
+>;
+export type GetRouterUptimeQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get daily uptime history for a router
+ */
+
+export function useGetRouterUptime<
+  TData = Awaited<ReturnType<typeof getRouterUptime>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  params?: GetRouterUptimeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRouterUptime>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRouterUptimeQueryOptions(id, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get current uptime % for all routers (last 30 days)
+ */
+export const getGetRoutersUptimeUrl = () => {
+  return `/api/routers/uptime`;
+};
+
+export const getRoutersUptime = async (
+  options?: RequestInit,
+): Promise<GetRoutersUptime200> => {
+  return customFetch<GetRoutersUptime200>(getGetRoutersUptimeUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRoutersUptimeQueryKey = () => {
+  return [`/api/routers/uptime`] as const;
+};
+
+export const getGetRoutersUptimeQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRoutersUptime>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRoutersUptime>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRoutersUptimeQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRoutersUptime>>
+  > = ({ signal }) => getRoutersUptime({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRoutersUptime>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRoutersUptimeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRoutersUptime>>
+>;
+export type GetRoutersUptimeQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get current uptime % for all routers (last 30 days)
+ */
+
+export function useGetRoutersUptime<
+  TData = Awaited<ReturnType<typeof getRoutersUptime>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRoutersUptime>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRoutersUptimeQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Detect vendor and OS version via SSH
+ */
+export const getFingerprintRouterUrl = (id: number) => {
+  return `/api/routers/${id}/fingerprint`;
+};
+
+export const fingerprintRouter = async (
+  id: number,
+  options?: RequestInit,
+): Promise<FingerprintResult> => {
+  return customFetch<FingerprintResult>(getFingerprintRouterUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getFingerprintRouterMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof fingerprintRouter>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof fingerprintRouter>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["fingerprintRouter"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof fingerprintRouter>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return fingerprintRouter(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type FingerprintRouterMutationResult = NonNullable<
+  Awaited<ReturnType<typeof fingerprintRouter>>
+>;
+
+export type FingerprintRouterMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Detect vendor and OS version via SSH
+ */
+export const useFingerprintRouter = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof fingerprintRouter>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof fingerprintRouter>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getFingerprintRouterMutationOptions(options));
+};
+
+/**
+ * @summary Detect vendor/OS for all routers in parallel
+ */
+export const getFingerprintAllRoutersUrl = () => {
+  return `/api/routers/fingerprint-all`;
+};
+
+export const fingerprintAllRouters = async (
+  options?: RequestInit,
+): Promise<FingerprintAllRouters200> => {
+  return customFetch<FingerprintAllRouters200>(getFingerprintAllRoutersUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getFingerprintAllRoutersMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof fingerprintAllRouters>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof fingerprintAllRouters>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["fingerprintAllRouters"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof fingerprintAllRouters>>,
+    void
+  > = () => {
+    return fingerprintAllRouters(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type FingerprintAllRoutersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof fingerprintAllRouters>>
+>;
+
+export type FingerprintAllRoutersMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Detect vendor/OS for all routers in parallel
+ */
+export const useFingerprintAllRouters = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof fingerprintAllRouters>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof fingerprintAllRouters>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getFingerprintAllRoutersMutationOptions(options));
+};
+
+/**
+ * @summary Preview a job without executing it
+ */
+export const getDryRunJobUrl = () => {
+  return `/api/jobs/dry-run`;
+};
+
+export const dryRunJob = async (
+  createJobRequest: CreateJobRequest,
+  options?: RequestInit,
+): Promise<DryRunEntry[]> => {
+  return customFetch<DryRunEntry[]>(getDryRunJobUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createJobRequest),
+  });
+};
+
+export const getDryRunJobMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dryRunJob>>,
+    TError,
+    { data: BodyType<CreateJobRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof dryRunJob>>,
+  TError,
+  { data: BodyType<CreateJobRequest> },
+  TContext
+> => {
+  const mutationKey = ["dryRunJob"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof dryRunJob>>,
+    { data: BodyType<CreateJobRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return dryRunJob(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DryRunJobMutationResult = NonNullable<
+  Awaited<ReturnType<typeof dryRunJob>>
+>;
+export type DryRunJobMutationBody = BodyType<CreateJobRequest>;
+export type DryRunJobMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Preview a job without executing it
+ */
+export const useDryRunJob = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dryRunJob>>,
+    TError,
+    { data: BodyType<CreateJobRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof dryRunJob>>,
+  TError,
+  { data: BodyType<CreateJobRequest> },
+  TContext
+> => {
+  return useMutation(getDryRunJobMutationOptions(options));
+};
+
+/**
+ * @summary Export job task results in csv, txt, or zip format
+ */
+export const getExportJobUrl = (id: number, params: ExportJobParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/jobs/${id}/export?${stringifiedParams}`
+    : `/api/jobs/${id}/export`;
+};
+
+export const exportJob = async (
+  id: number,
+  params: ExportJobParams,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getExportJobUrl(id, params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getExportJobQueryKey = (id: number, params?: ExportJobParams) => {
+  return [`/api/jobs/${id}/export`, ...(params ? [params] : [])] as const;
+};
+
+export const getExportJobQueryOptions = <
+  TData = Awaited<ReturnType<typeof exportJob>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  params: ExportJobParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportJob>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getExportJobQueryKey(id, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof exportJob>>> = ({
+    signal,
+  }) => exportJob(id, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof exportJob>>, TError, TData> & {
+    queryKey: QueryKey;
+  };
+};
+
+export type ExportJobQueryResult = NonNullable<
+  Awaited<ReturnType<typeof exportJob>>
+>;
+export type ExportJobQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Export job task results in csv, txt, or zip format
+ */
+
+export function useExportJob<
+  TData = Awaited<ReturnType<typeof exportJob>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  params: ExportJobParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportJob>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getExportJobQueryOptions(id, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

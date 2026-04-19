@@ -4,3 +4,6 @@ export * from "./groups";
 export * from "./snippets";
 export * from "./jobs";
 export * from "./schedules";
+export * from "./credential_profiles";
+export * from "./device_reachability";
+export * from "./saved_views";

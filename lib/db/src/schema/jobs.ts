@@ -45,6 +45,9 @@ export const batchJobsTable = pgTable("batch_jobs", {
   targetGroupIds: json("target_group_ids").$type<number[]>().notNull().default([]),    // Selected groups (resolved at runtime)
   excelData: json("excel_data").$type<Record<string, string>[]>(),  // Per-router variable rows from CSV/Excel upload
   autoConfirm: boolean("auto_confirm").notNull().default(true),     // If false, prompts pause for user input (interactive mode)
+  timeoutSeconds: integer("timeout_seconds").notNull().default(30), // Per-device SSH timeout
+  retryCount: integer("retry_count").notNull().default(0),          // Retries on connection failure
+  retryBackoffSeconds: integer("retry_backoff_seconds").notNull().default(5),
   totalTasks: integer("total_tasks").notNull().default(0),
   completedTasks: integer("completed_tasks").notNull().default(0),  // Running counters updated as tasks finish
   failedTasks: integer("failed_tasks").notNull().default(0),
@@ -70,6 +73,7 @@ export const jobTasksTable = pgTable("job_tasks", {
   connectionLog: text("connection_log"),        // Timestamped SSH handshake/connection log
   resolvedScript: text("resolved_script"),      // Script after {{TAG}} substitution
   promptText: text("prompt_text"),              // Current interactive prompt text (cleared on resume)
+  attemptCount: integer("attempt_count").notNull().default(0), // How many SSH attempts were made
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
 }, (table) => [

@@ -12,6 +12,32 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.7.0] - 2026-04-19
+
+### Added
+- **Per-job timeout** — every job has a configurable Timeout (seconds) that hard-limits each device's SSH session (1–3600s, default 30s). Surfaced as a badge on the job detail page.
+- **Automatic retry on connection failure** — set Retries (0–10) and Retry back-off (seconds) on each job. Only network/connection-level errors are retried; auth failures and post-success command errors are never retried, so destructive scripts cannot fire twice. Each task on the job detail page shows a `Retried N×` badge when more than one attempt was used.
+- **Device uptime tracking** — a background reachability poller runs every 5 minutes against every device's SSH port (TCP probe) and aggregates results per device per day in a new `device_reachability` table. The Devices page now has a 30-day uptime % column with a sparkline. New endpoints `GET /api/routers/uptime` (bulk current %) and `GET /api/routers/:id/uptime?days=N` (daily history).
+
+- **Credential profiles** — define a named SSH credential (username, password, optional enable/sudo password, optional jump host) once on the new `/credentials` page and attach it to any device with a dropdown. Inline username/password on the device row remain as overrides. Profiles never expose secret values to the frontend; the API returns `hasPassword` / `hasEnablePassword` booleans instead.
+- **Bastion / jump host** — credential profiles can reference another profile as a jump host. SSH (and the interactive session machinery) opens the jump connection first and `forwardOut`s to the target, so internal-only devices can be reached through a published gateway without VPN.
+- **Per-device enable / sudo password** — a separate `enablePassword` field on profiles (and inline override on devices). When the device prompts for a `Password:` mid-session it is auto-supplied; loops are prevented by refusing to send the same value twice.
+- **Vendor / OS auto-detection** — new `Fingerprint` action per device and `Fingerprint All` bulk action probe each device with vendor-specific commands (MikroTik `/system resource print`, Cisco `show version`, Linux `uname` / `os-release`) and persist `vendor` / `osVersion` / `lastFingerprintAt` on the router. Surfaced as a new column on the Devices page.
+- **Dry-run / preview mode** — new `Preview` button on the job creation page resolves all targeted devices and applies tag substitution without executing anything. Shows the exact script that would run on each device side-by-side; any unresolved `{{TAG}}` is highlighted in red so missing data is obvious before you fire.
+- **Schedule calendar view** — new `/scheduler/calendar` route shows a month grid with all scheduled runs (one-time / interval / daily / weekly / monthly recurrences expanded). Click a date to see every run that day with its job and schedule name.
+- **Saved filters / views** — every list page can save its current search + sort + filter state under a name and recall it instantly. Wired on Devices page; component is reusable for Jobs and Scheduler. Views are scoped per user.
+- **Job result export** — new `Export` menu on completed and failed jobs offers CSV (one row per device with status / duration / output), TXT (single concatenated report) and ZIP (one file per device output) downloads.
+- **Dark / light theme toggle** — sidebar toggle persists the chosen theme to localStorage and applies via `:root.light` CSS variables. Defaults to dark.
+- **Per-device terminal** — new `/routers/:id/terminal` route opens a server-side persistent SSH shell streamed over Server-Sent Events. Reuses the interactive-session machinery scoped to a single device. Reachable from the new terminal icon on every device row.
+
+### Backend
+- New `executeSSH()` wrapper in `lib/ssh.ts` consolidating timeout / retry / jump-host / enable-password options.
+- New `lib/reachability-loop.ts` 5-minute poller with bounded concurrency and `ON CONFLICT` upserts.
+- New tables: `credential_profiles`, `saved_views`. `routers` gained `vendor`, `osVersion`, `lastFingerprintAt`, `credentialProfileId`. `batch_jobs` schema gained `timeoutSeconds`, `retryCount`, `retryBackoffSeconds`. `job_tasks` gained `attemptCount`.
+- New routes: credential profile CRUD, saved-view CRUD, fingerprint (single + bulk), dry-run, schedule calendar, job export (csv/txt/zip), per-device terminal SSE.
+
+---
+
 ## [1.4.1] - 2026-04-19
 
 ### Added

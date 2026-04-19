@@ -15,6 +15,9 @@ export interface BatchJob {
   targetRouterIds: number[];
   targetGroupIds: number[];
   autoConfirm: boolean;
+  timeoutSeconds: number;
+  retryCount: number;
+  retryBackoffSeconds: number;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;

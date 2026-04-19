@@ -1,10 +1,12 @@
 import { useState, useRef, useMemo } from "react";
-import { useListRouters, useImportRouters } from "@workspace/api-client-react";
+import { useListRouters, useImportRouters, useGetRoutersUptime, useGetRouterUptime, useFingerprintRouter, useFingerprintAllRouters, useListCredentialProfiles } from "@workspace/api-client-react";
+import { Link } from "wouter";
 import { useRoutersMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
 import { useConfirm } from "@/components/confirm-dialog";
 import { SelectionBar } from "@/components/selection-bar";
 import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
+import { SavedViews } from "@/components/saved-views";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +14,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Server, Edit2, Trash2, Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { Plus, Server, Edit2, Trash2, Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, Activity, Fingerprint, Terminal as TerminalIcon, Loader2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -27,6 +31,7 @@ const routerSchema = z.object({
   sshUsername: z.string().min(1, "Username is required"),
   sshPassword: z.string().optional(),
   description: z.string().optional(),
+  credentialProfileId: z.number().nullable().optional(),
 });
 
 type FormData = z.infer<typeof routerSchema>;
@@ -119,8 +124,50 @@ function parseFileData(rawRows: Record<string, string>[]): { rows: ParsedRow[]; 
   return { rows, columnMap };
 }
 
+function UptimeSparkline({ routerId }: { routerId: number }) {
+  const { data } = useGetRouterUptime(routerId, { days: 30 });
+  const points = data?.days ?? [];
+  if (points.length === 0) {
+    return <span className="text-xs text-muted-foreground/40">no data</span>;
+  }
+  const w = 80, h = 20;
+  const step = points.length > 1 ? w / (points.length - 1) : w;
+  const path = points
+    .map((p, i) => {
+      const pct = p.totalChecks > 0 ? (p.successCount / p.totalChecks) * 100 : 0;
+      const x = i * step;
+      const y = h - (pct / 100) * h;
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <svg width={w} height={h} className="inline-block align-middle">
+          <path d={path} stroke="currentColor" strokeWidth={1.5} fill="none" className="text-emerald-400" />
+        </svg>
+      </TooltipTrigger>
+      <TooltipContent>
+        <span className="text-xs">{points.length}-day reachability history</span>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function UptimeCell({ routerId, percent }: { routerId: number; percent: number | undefined }) {
+  const pct = typeof percent === "number" ? percent : null;
+  const color = pct === null ? "text-muted-foreground/40" : pct >= 99 ? "text-emerald-400" : pct >= 90 ? "text-amber-400" : "text-destructive";
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`text-xs font-mono w-12 ${color}`}>{pct === null ? "—" : `${pct.toFixed(1)}%`}</span>
+      <UptimeSparkline routerId={routerId} />
+    </div>
+  );
+}
+
 export default function Routers() {
   const { data: routers = [], isLoading } = useListRouters();
+  const { data: uptimeMap } = useGetRoutersUptime();
   const { createRouter, updateRouter, deleteRouter } = useRoutersMutations();
   const importRouters = useImportRouters();
   const queryClient = useQueryClient();
@@ -169,10 +216,11 @@ export default function Routers() {
         sshPort: router.sshPort,
         sshUsername: router.sshUsername,
         description: router.description || "",
+        credentialProfileId: router.credentialProfileId ?? null,
       });
     } else {
       setEditingRouter(null);
-      form.reset({ name: "", ipAddress: "", sshPort: 22, sshUsername: "admin", description: "" });
+      form.reset({ name: "", ipAddress: "", sshPort: 22, sshUsername: "admin", description: "", credentialProfileId: null });
     }
     setIsDialogOpen(true);
   };
@@ -310,6 +358,7 @@ export default function Routers() {
   const invalidCount = parsedRows.filter(r => !r.valid).length;
 
   return (
+    <TooltipProvider>
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -317,6 +366,7 @@ export default function Routers() {
           <p className="text-muted-foreground mt-1">Manage your SSH-enabled devices for batch jobs.</p>
         </div>
         <div className="flex gap-2">
+          <FingerprintAllButton />
           <Button variant="outline" onClick={openImportDialog} className="gap-2">
             <Upload className="w-4 h-4" /> Import
           </Button>
@@ -326,18 +376,30 @@ export default function Routers() {
         </div>
       </div>
 
-      <FilterSortBar
-        searchValue={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search by name or IP..."
-        sortOptions={[
-          { key: "name", label: "Name" },
-          { key: "ip", label: "IP" },
-          { key: "date", label: "Added" },
-        ]}
-        activeSort={sort}
-        onSortChange={setSort}
-      />
+      <div className="flex items-start gap-2">
+        <div className="flex-1">
+          <FilterSortBar
+            searchValue={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Search by name or IP..."
+            sortOptions={[
+              { key: "name", label: "Name" },
+              { key: "ip", label: "IP" },
+              { key: "date", label: "Added" },
+            ]}
+            activeSort={sort}
+            onSortChange={setSort}
+          />
+        </div>
+        <SavedViews
+          pageKey="devices"
+          currentState={{ search, sort }}
+          onApply={(s: any) => {
+            if (typeof s?.search === "string") setSearch(s.search);
+            if (s?.sort) setSort(s.sort);
+          }}
+        />
+      </div>
 
       <SelectionBar count={selection.count} label="devices" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 
@@ -380,6 +442,10 @@ export default function Routers() {
                     <th className="px-6 py-4 font-medium">Name</th>
                     <th className="px-6 py-4 font-medium">IP Address</th>
                     <th className="px-6 py-4 font-medium">SSH Config</th>
+                    <th className="px-6 py-4 font-medium">Vendor / OS</th>
+                    <th className="px-6 py-4 font-medium">
+                      <span className="inline-flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> Uptime (30d)</span>
+                    </th>
                     <th className="px-6 py-4 font-medium">Added</th>
                     <th className="px-6 py-4 text-right font-medium">Actions</th>
                   </tr>
@@ -408,12 +474,41 @@ export default function Routers() {
                       <td className="px-6 py-4 font-mono text-muted-foreground">{router.ipAddress}</td>
                       <td className="px-6 py-4">
                         <span className="text-muted-foreground">{router.sshUsername}</span>
-                        <span className="text-white/20 mx-2">@</span>
+                        <span className="text-foreground/20 mx-2">@</span>
                         <span className="font-mono text-muted-foreground">port {router.sshPort}</span>
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        {(router as any).vendor ? (
+                          <div>
+                            <div className="font-medium text-foreground capitalize">{(router as any).vendor}</div>
+                            {(router as any).osVersion && (
+                              <div className="text-xs text-muted-foreground truncate max-w-[160px]">{(router as any).osVersion}</div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground/60 text-xs italic">unknown</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <UptimeCell
+                          routerId={router.id}
+                          percent={(uptimeMap as any)?.[String(router.id)]?.uptimePercent}
+                        />
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">{formatDate(router.createdAt).split(' ')[0]}</td>
                       <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end gap-1">
+                          <FingerprintRowButton routerId={router.id} />
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Link href={`/routers/${router.id}/terminal`}>
+                                <Button variant="ghost" size="icon" data-testid={`terminal-button-${router.id}`}>
+                                  <TerminalIcon className="w-4 h-4" />
+                                </Button>
+                              </Link>
+                            </TooltipTrigger>
+                            <TooltipContent>Open terminal</TooltipContent>
+                          </Tooltip>
                           <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(router)}>
                             <Edit2 className="w-4 h-4" />
                           </Button>
@@ -459,6 +554,10 @@ export default function Routers() {
               <Label>SSH Password {editingRouter && <span className="text-muted-foreground text-xs">(Leave blank to keep unchanged)</span>}</Label>
               <Input type="password" {...form.register("sshPassword")} placeholder="••••••••" />
             </div>
+            <CredentialProfileField
+              value={(form.watch as any)("credentialProfileId") ?? null}
+              onChange={(v) => (form.setValue as any)("credentialProfileId", v)}
+            />
             <div className="space-y-2">
               <Label>Description (Optional)</Label>
               <Input {...form.register("description")} placeholder="Datacenter rack 4" />
@@ -660,6 +759,115 @@ export default function Routers() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+    </TooltipProvider>
+  );
+}
+
+// Per-row Fingerprint button. Triggers `POST /routers/:id/fingerprint`,
+// shows a spinner while in flight, and refreshes the list on success so the
+// new vendor/OS values appear immediately.
+function FingerprintRowButton({ routerId }: { routerId: number }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const mut = useFingerprintRouter();
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={mut.isPending}
+          onClick={async () => {
+            try {
+              const res: any = await mut.mutateAsync({ id: routerId } as any);
+              toast({
+                title: res?.vendor ? `Detected ${res.vendor}` : "Fingerprint complete",
+                description: res?.osVersion || "Device probed",
+              });
+              await queryClient.invalidateQueries({ queryKey: ["/routers"] });
+            } catch (err: any) {
+              toast({ title: "Fingerprint failed", description: String(err?.message || err), variant: "destructive" });
+            }
+          }}
+          data-testid={`fingerprint-button-${routerId}`}
+        >
+          {mut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Fingerprint className="w-4 h-4" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>Detect vendor / OS</TooltipContent>
+    </Tooltip>
+  );
+}
+
+// Header-level "Fingerprint All" button. Hits the bulk endpoint that probes
+// every device server-side and returns a summary count. We invalidate the
+// device list so all the new vendor/OS columns repaint at once.
+function FingerprintAllButton() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const mut = useFingerprintAllRouters();
+  return (
+    <Button
+      variant="outline"
+      className="gap-2"
+      disabled={mut.isPending}
+      onClick={async () => {
+        try {
+          const res: any = await mut.mutateAsync({} as any);
+          const ok = res?.successCount ?? res?.detected ?? 0;
+          const bad = res?.failedCount ?? res?.failed ?? 0;
+          toast({
+            title: "Fingerprint complete",
+            description: `${ok} detected, ${bad} failed`,
+          });
+          await queryClient.invalidateQueries({ queryKey: ["/routers"] });
+        } catch (err: any) {
+          toast({ title: "Fingerprint failed", description: String(err?.message || err), variant: "destructive" });
+        }
+      }}
+      data-testid="fingerprint-all-button"
+    >
+      {mut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Fingerprint className="w-4 h-4" />}
+      Fingerprint All
+    </Button>
+  );
+}
+
+// Credential profile selector inside the device dialog. Lists profiles defined
+// on /credentials and lets the operator attach one to this device. Picking
+// "None" clears the FK and the inline username/password on this row become the
+// effective credentials.
+function CredentialProfileField({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  const { data: profiles = [] } = useListCredentialProfiles();
+  return (
+    <div className="space-y-2">
+      <Label>Credential Profile (Optional)</Label>
+      <Select
+        value={value == null ? "none" : String(value)}
+        onValueChange={(v) => onChange(v === "none" ? null : Number(v))}
+      >
+        <SelectTrigger data-testid="credential-profile-select">
+          <SelectValue placeholder="Use inline credentials" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">Use inline credentials</SelectItem>
+          {profiles.map((p: any) => (
+            <SelectItem key={p.id} value={String(p.id)}>
+              {p.name} ({p.sshUsername})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        When a profile is selected, its credentials are used and the inline username/password below act as overrides only if filled in.
+      </p>
     </div>
   );
 }

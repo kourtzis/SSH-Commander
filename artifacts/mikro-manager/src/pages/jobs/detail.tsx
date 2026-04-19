@@ -17,6 +17,44 @@ import {
 import { formatDate } from "@/lib/utils";
 import { SnippetViewer } from "@/components/snippet-viewer";
 import { useToast } from "@/hooks/use-toast";
+import { Download } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+// Export job results in CSV / TXT / ZIP. We open the URL via window.location
+// (with credentials carried by the cookie) rather than the generated useExportJob
+// hook because the response is a binary download, not JSON.
+function ExportMenu({ jobId, jobName }: { jobId: number; jobName: string }) {
+  const baseUrl = import.meta.env.BASE_URL || "/";
+  const apiPrefix = baseUrl.replace(/\/$/, "");
+  const handleExport = (format: "csv" | "txt" | "zip") => {
+    const url = `${apiPrefix}/api/jobs/${jobId}/export?format=${format}`;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${jobName.replace(/[^a-zA-Z0-9._-]+/g, "_")}.${format}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" className="gap-2" data-testid="export-menu-trigger">
+          <Download className="w-4 h-4" /> Export
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => handleExport("csv")}>CSV (spreadsheet)</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => handleExport("txt")}>TXT (single file)</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => handleExport("zip")}>ZIP (one file per device)</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 interface LiveEvent {
   type: "task_status" | "task_output" | "input_required" | "input_sent" | "job_complete";
@@ -280,14 +318,29 @@ export default function JobDetail() {
             {job.completedAt && ` • Finished ${formatDate(job.completedAt)}`}
             {job.autoConfirm && <Badge variant="outline" className="ml-2 text-xs gap-1"><ShieldCheck className="w-3 h-3" />Auto-confirm</Badge>}
             {!job.autoConfirm && <Badge variant="outline" className="ml-2 text-xs gap-1 border-amber-500/30 text-amber-400"><MessageSquare className="w-3 h-3" />Interactive</Badge>}
+            {(job as any).timeoutSeconds && (
+              <Badge variant="outline" className="ml-1 text-xs gap-1">
+                <Clock className="w-3 h-3" /> Timeout {(job as any).timeoutSeconds}s
+              </Badge>
+            )}
+            {((job as any).retryCount ?? 0) > 0 && (
+              <Badge variant="outline" className="ml-1 text-xs gap-1 border-blue-500/30 text-blue-400">
+                Retries: {(job as any).retryCount} (back-off {(job as any).retryBackoffSeconds ?? 5}s)
+              </Badge>
+            )}
           </p>
         </div>
         
-        {(job.status === 'running' || job.status === 'scheduled') && (
-          <Button variant="destructive" onClick={handleCancel} className="gap-2 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
-            <Ban className="w-4 h-4" /> {job.status === 'running' ? 'Stop Job' : 'Cancel Job'}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {(job.status === "completed" || job.status === "failed") && (
+            <ExportMenu jobId={job.id} jobName={job.name} />
+          )}
+          {(job.status === 'running' || job.status === 'scheduled') && (
+            <Button variant="destructive" onClick={handleCancel} className="gap-2 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
+              <Ban className="w-4 h-4" /> {job.status === 'running' ? 'Stop Job' : 'Cancel Job'}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -492,6 +545,11 @@ export default function JobDetail() {
                       <div className="flex-1 min-w-0">
                         <span className="font-medium text-sm text-foreground">{task.routerName}</span>
                         <span className="text-xs text-muted-foreground font-mono ml-2">{task.routerIp}</span>
+                        {((task as any).attemptCount ?? 1) > 1 && (
+                          <Badge variant="outline" className="ml-2 text-[10px] border-blue-500/30 text-blue-400">
+                            Retried {((task as any).attemptCount as number) - 1}×
+                          </Badge>
+                        )}
                       </div>
                       {isWaiting && waitingInfo && (
                         <div className="shrink-0">

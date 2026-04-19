@@ -79,6 +79,11 @@ export interface Router {
   sshPort: number;
   sshUsername: string;
   description?: string;
+  credentialProfileId?: number | null;
+  vendor?: string | null;
+  osVersion?: string | null;
+  lastFingerprintAt?: string | null;
+  hasEnablePassword: boolean;
   createdAt: string;
 }
 
@@ -88,7 +93,9 @@ export interface CreateRouterRequest {
   sshPort: number;
   sshUsername: string;
   sshPassword?: string;
+  enablePassword?: string;
   description?: string;
+  credentialProfileId?: number | null;
 }
 
 export interface UpdateRouterRequest {
@@ -97,7 +104,9 @@ export interface UpdateRouterRequest {
   sshPort?: number;
   sshUsername?: string;
   sshPassword?: string;
+  enablePassword?: string;
   description?: string;
+  credentialProfileId?: number | null;
 }
 
 export type ImportRoutersRequestRoutersItem = {
@@ -235,6 +244,9 @@ export interface BatchJob {
   targetRouterIds: number[];
   targetGroupIds: number[];
   autoConfirm: boolean;
+  timeoutSeconds: number;
+  retryCount: number;
+  retryBackoffSeconds: number;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;
@@ -279,6 +291,7 @@ export interface JobTask {
   connectionLog?: string | null;
   resolvedScript?: string | null;
   promptText?: string | null;
+  attemptCount?: number;
   startedAt?: string | null;
   completedAt?: string | null;
 }
@@ -292,6 +305,9 @@ export interface BatchJobWithTasks {
   targetGroupIds: number[];
   excelData?: BatchJobWithTasksExcelDataItem[] | null;
   autoConfirm: boolean;
+  timeoutSeconds: number;
+  retryCount: number;
+  retryBackoffSeconds: number;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;
@@ -325,6 +341,12 @@ export interface CreateJobRequest {
   mode?: CreateJobRequestMode;
   /** Automatically answer yes to SSH confirmation prompts (default true) */
   autoConfirm?: boolean;
+  /** Per-device SSH timeout in seconds (1-3600, default 30) */
+  timeoutSeconds?: number;
+  /** Number of retries on connection failure (0-10, default 0) */
+  retryCount?: number;
+  /** Seconds to wait between retries (default 5) */
+  retryBackoffSeconds?: number;
 }
 
 export type ScheduleType = (typeof ScheduleType)[keyof typeof ScheduleType];
@@ -409,6 +431,83 @@ export interface UpdateScheduleRequest {
   nthWeekday?: number | null;
 }
 
+export interface CredentialProfile {
+  id: number;
+  name: string;
+  sshUsername: string;
+  hasPassword: boolean;
+  hasEnablePassword: boolean;
+  jumpHostId?: number | null;
+  jumpHost?: string | null;
+  jumpPort?: number | null;
+  description?: string | null;
+  createdAt: string;
+}
+
+export interface CredentialProfileRequest {
+  name: string;
+  sshUsername: string;
+  sshPassword?: string;
+  enablePassword?: string;
+  jumpHostId?: number | null;
+  jumpHost?: string | null;
+  jumpPort?: number | null;
+  description?: string;
+}
+
+export type SavedViewViewState = { [key: string]: unknown };
+
+export interface SavedView {
+  id: number;
+  userId: number;
+  pageKey: string;
+  name: string;
+  viewState: SavedViewViewState;
+  createdAt: string;
+}
+
+export type SavedViewRequestViewState = { [key: string]: unknown };
+
+export interface SavedViewRequest {
+  pageKey: string;
+  name: string;
+  viewState: SavedViewRequestViewState;
+}
+
+export type RouterUptimeDaysItem = {
+  day: string;
+  totalChecks: number;
+  successCount: number;
+};
+
+export interface RouterUptime {
+  routerId: number;
+  uptimePercent: number;
+  days: RouterUptimeDaysItem[];
+}
+
+export interface FingerprintResult {
+  success: boolean;
+  vendor?: string | null;
+  osVersion?: string | null;
+  errorMessage?: string | null;
+}
+
+export interface DryRunEntry {
+  routerId: number;
+  routerName: string;
+  routerIp: string;
+  resolvedScript: string;
+  missingTags: string[];
+}
+
+export interface ScheduleCalendarEntry {
+  scheduleId: number;
+  scheduleName: string;
+  jobName: string;
+  datetime: string;
+}
+
 export type GetGroupsCounts200 = {
   [key: string]: {
     subgroups: number;
@@ -419,3 +518,44 @@ export type GetGroupsCounts200 = {
 export type ListSnippetsParams = {
   tag?: string;
 };
+
+export type GetScheduleCalendarParams = {
+  year: number;
+  /**
+   * @minimum 1
+   * @maximum 12
+   */
+  month: number;
+};
+
+export type ListSavedViewsParams = {
+  pageKey?: string;
+};
+
+export type GetRouterUptimeParams = {
+  /**
+   * @minimum 1
+   * @maximum 365
+   */
+  days?: number;
+};
+
+export type GetRoutersUptime200 = { [key: string]: number };
+
+export type FingerprintAllRouters200 = {
+  successCount: number;
+  failedCount: number;
+};
+
+export type ExportJobParams = {
+  format: ExportJobFormat;
+};
+
+export type ExportJobFormat =
+  (typeof ExportJobFormat)[keyof typeof ExportJobFormat];
+
+export const ExportJobFormat = {
+  csv: "csv",
+  txt: "txt",
+  zip: "zip",
+} as const;

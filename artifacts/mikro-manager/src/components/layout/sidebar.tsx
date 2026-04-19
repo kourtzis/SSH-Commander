@@ -10,12 +10,17 @@ import {
   Users,
   LogOut,
   Clock,
+  CalendarDays,
+  KeyRound,
   Menu,
+  Moon,
+  Sun,
   X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 import { ChangelogDialog } from "@/components/changelog-dialog";
+import { useTheme } from "@/contexts/theme-context";
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -24,6 +29,7 @@ const navItems = [
   { name: "Snippets", href: "/snippets", icon: Code2 },
   { name: "Batch Jobs", href: "/jobs", icon: PlaySquare },
   { name: "Scheduler", href: "/scheduler", icon: Clock },
+  { name: "Calendar", href: "/scheduler/calendar", icon: CalendarDays },
 ];
 
 export function AppSidebar() {
@@ -44,8 +50,10 @@ export function AppSidebar() {
     return () => document.removeEventListener("keydown", handleKey);
   }, [mobileOpen]);
 
+  const { theme, toggle: toggleTheme } = useTheme();
   const items = [...navItems];
   if (user?.role === "admin") {
+    items.push({ name: "Credentials", href: "/credentials", icon: KeyRound });
     items.push({ name: "Users", href: "/users", icon: Users });
   }
 
@@ -108,7 +116,15 @@ export function AppSidebar() {
             <span className="text-xs text-muted-foreground mt-1 capitalize">{user?.role}</span>
           </div>
         </div>
-        <button 
+        <button
+          onClick={toggleTheme}
+          className="w-full flex items-center gap-2 px-3 py-2 mb-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+          data-testid="theme-toggle"
+        >
+          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          {theme === "dark" ? "Light Theme" : "Dark Theme"}
+        </button>
+        <button
           onClick={() => logout()}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
         >

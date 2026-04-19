@@ -5,7 +5,7 @@
 
 import { db, schedulesTable, batchJobsTable, jobTasksTable, routersTable } from "@workspace/db";
 import { eq, lte, and, inArray } from "drizzle-orm";
-import { executeSSHCommand, applyTagSubstitution } from "./ssh.js";
+import { executeSSH, applyTagSubstitution } from "./ssh.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "./resolve-routers.js";
 
 // ─── Template Job Execution ─────────────────────────────────────────
@@ -35,6 +35,9 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
     targetGroupIds: templateJob.targetGroupIds,
     excelData: templateJob.excelData,
     autoConfirm: templateJob.autoConfirm,
+    timeoutSeconds: templateJob.timeoutSeconds,
+    retryCount: templateJob.retryCount,
+    retryBackoffSeconds: templateJob.retryBackoffSeconds,
     totalTasks: routers.length,
     completedTasks: 0,
     failedTasks: 0,
@@ -78,16 +81,22 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
       }).where(eq(jobTasksTable.id, taskId));
     } else {
       try {
-        const result = await executeSSHCommand(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, 30000, templateJob.autoConfirm);
+        const result = await executeSSH(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, {
+          timeoutMs: (templateJob.timeoutSeconds || 30) * 1000,
+          autoConfirm: templateJob.autoConfirm,
+          enablePassword: r.enablePassword ?? undefined,
+          retryCount: templateJob.retryCount || 0,
+          retryBackoffSeconds: templateJob.retryBackoffSeconds || 5,
+        });
         if (result.success) {
           completedCount++;
           await db.update(jobTasksTable).set({
-            status: "success", output: result.output, connectionLog: result.connectionLog, completedAt: new Date(),
+            status: "success", output: result.output, connectionLog: result.connectionLog, attemptCount: result.attemptCount, completedAt: new Date(),
           }).where(eq(jobTasksTable.id, taskId));
         } else {
           failedCount++;
           await db.update(jobTasksTable).set({
-            status: "failed", output: result.output, errorMessage: result.errorMessage, connectionLog: result.connectionLog, completedAt: new Date(),
+            status: "failed", output: result.output, errorMessage: result.errorMessage, connectionLog: result.connectionLog, attemptCount: result.attemptCount, completedAt: new Date(),
           }).where(eq(jobTasksTable.id, taskId));
         }
       } catch (err: any) {
@@ -270,9 +279,15 @@ async function tick() {
             }
 
             try {
-              const result = await executeSSHCommand(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, 30000, templateJob.autoConfirm);
-              if (result.success) { completedCount++; await db.update(jobTasksTable).set({ status: "success", output: result.output, connectionLog: result.connectionLog, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id)); }
-              else { failedCount++; await db.update(jobTasksTable).set({ status: "failed", output: result.output, errorMessage: result.errorMessage, connectionLog: result.connectionLog, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id)); }
+              const result = await executeSSH(r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript, {
+                timeoutMs: (templateJob.timeoutSeconds || 30) * 1000,
+                autoConfirm: templateJob.autoConfirm,
+                enablePassword: r.enablePassword ?? undefined,
+                retryCount: templateJob.retryCount || 0,
+                retryBackoffSeconds: templateJob.retryBackoffSeconds || 5,
+              });
+              if (result.success) { completedCount++; await db.update(jobTasksTable).set({ status: "success", output: result.output, connectionLog: result.connectionLog, attemptCount: result.attemptCount, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id)); }
+              else { failedCount++; await db.update(jobTasksTable).set({ status: "failed", output: result.output, errorMessage: result.errorMessage, connectionLog: result.connectionLog, attemptCount: result.attemptCount, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id)); }
             } catch (err: any) {
               failedCount++;
               await db.update(jobTasksTable).set({ status: "failed", errorMessage: err.message, completedAt: new Date() }).where(eq(jobTasksTable.id, task.id));

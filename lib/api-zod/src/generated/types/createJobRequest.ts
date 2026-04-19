@@ -19,4 +19,10 @@ export interface CreateJobRequest {
   mode?: CreateJobRequestMode;
   /** Automatically answer yes to SSH confirmation prompts (default true) */
   autoConfirm?: boolean;
+  /** Per-device SSH timeout in seconds (1-3600, default 30) */
+  timeoutSeconds?: number;
+  /** Number of retries on connection failure (0-10, default 0) */
+  retryCount?: number;
+  /** Seconds to wait between retries (default 5) */
+  retryBackoffSeconds?: number;
 }

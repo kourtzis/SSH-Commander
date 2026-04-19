@@ -131,6 +131,11 @@ export const ListRoutersResponseItem = zod.object({
   sshPort: zod.number(),
   sshUsername: zod.string(),
   description: zod.string().optional(),
+  credentialProfileId: zod.number().nullish(),
+  vendor: zod.string().nullish(),
+  osVersion: zod.string().nullish(),
+  lastFingerprintAt: zod.date().nullish(),
+  hasEnablePassword: zod.boolean(),
   createdAt: zod.date(),
 });
 export const ListRoutersResponse = zod.array(ListRoutersResponseItem);
@@ -144,7 +149,9 @@ export const CreateRouterBody = zod.object({
   sshPort: zod.number(),
   sshUsername: zod.string(),
   sshPassword: zod.string().optional(),
+  enablePassword: zod.string().optional(),
   description: zod.string().optional(),
+  credentialProfileId: zod.number().nullish(),
 });
 
 /**
@@ -161,6 +168,11 @@ export const GetRouterResponse = zod.object({
   sshPort: zod.number(),
   sshUsername: zod.string(),
   description: zod.string().optional(),
+  credentialProfileId: zod.number().nullish(),
+  vendor: zod.string().nullish(),
+  osVersion: zod.string().nullish(),
+  lastFingerprintAt: zod.date().nullish(),
+  hasEnablePassword: zod.boolean(),
   createdAt: zod.date(),
 });
 
@@ -177,7 +189,9 @@ export const UpdateRouterBody = zod.object({
   sshPort: zod.number().optional(),
   sshUsername: zod.string().optional(),
   sshPassword: zod.string().optional(),
+  enablePassword: zod.string().optional(),
   description: zod.string().optional(),
+  credentialProfileId: zod.number().nullish(),
 });
 
 export const UpdateRouterResponse = zod.object({
@@ -187,6 +201,11 @@ export const UpdateRouterResponse = zod.object({
   sshPort: zod.number(),
   sshUsername: zod.string(),
   description: zod.string().optional(),
+  credentialProfileId: zod.number().nullish(),
+  vendor: zod.string().nullish(),
+  osVersion: zod.string().nullish(),
+  lastFingerprintAt: zod.date().nullish(),
+  hasEnablePassword: zod.boolean(),
   createdAt: zod.date(),
 });
 
@@ -284,6 +303,11 @@ export const GetGroupResponse = zod.object({
       sshPort: zod.number(),
       sshUsername: zod.string(),
       description: zod.string().optional(),
+      credentialProfileId: zod.number().nullish(),
+      vendor: zod.string().nullish(),
+      osVersion: zod.string().nullish(),
+      lastFingerprintAt: zod.date().nullish(),
+      hasEnablePassword: zod.boolean(),
       createdAt: zod.date(),
     }),
   ),
@@ -460,6 +484,9 @@ export const ListJobsResponseItem = zod.object({
   targetRouterIds: zod.array(zod.number()),
   targetGroupIds: zod.array(zod.number()),
   autoConfirm: zod.boolean(),
+  timeoutSeconds: zod.number(),
+  retryCount: zod.number(),
+  retryBackoffSeconds: zod.number(),
   totalTasks: zod.number(),
   completedTasks: zod.number(),
   failedTasks: zod.number(),
@@ -495,6 +522,18 @@ export const CreateJobBody = zod.object({
     .describe(
       "Automatically answer yes to SSH confirmation prompts (default true)",
     ),
+  timeoutSeconds: zod
+    .number()
+    .optional()
+    .describe("Per-device SSH timeout in seconds (1-3600, default 30)"),
+  retryCount: zod
+    .number()
+    .optional()
+    .describe("Number of retries on connection failure (0-10, default 0)"),
+  retryBackoffSeconds: zod
+    .number()
+    .optional()
+    .describe("Seconds to wait between retries (default 5)"),
 });
 
 /**
@@ -520,6 +559,9 @@ export const GetJobResponse = zod.object({
   targetGroupIds: zod.array(zod.number()),
   excelData: zod.array(zod.record(zod.string(), zod.string())).nullish(),
   autoConfirm: zod.boolean(),
+  timeoutSeconds: zod.number(),
+  retryCount: zod.number(),
+  retryBackoffSeconds: zod.number(),
   totalTasks: zod.number(),
   completedTasks: zod.number(),
   failedTasks: zod.number(),
@@ -545,6 +587,7 @@ export const GetJobResponse = zod.object({
       connectionLog: zod.string().nullish(),
       resolvedScript: zod.string().nullish(),
       promptText: zod.string().nullish(),
+      attemptCount: zod.number().optional(),
       startedAt: zod.date().nullish(),
       completedAt: zod.date().nullish(),
     }),
@@ -581,6 +624,18 @@ export const UpdateJobBody = zod.object({
     .describe(
       "Automatically answer yes to SSH confirmation prompts (default true)",
     ),
+  timeoutSeconds: zod
+    .number()
+    .optional()
+    .describe("Per-device SSH timeout in seconds (1-3600, default 30)"),
+  retryCount: zod
+    .number()
+    .optional()
+    .describe("Number of retries on connection failure (0-10, default 0)"),
+  retryBackoffSeconds: zod
+    .number()
+    .optional()
+    .describe("Seconds to wait between retries (default 5)"),
 });
 
 export const UpdateJobResponse = zod.object({
@@ -598,6 +653,9 @@ export const UpdateJobResponse = zod.object({
   targetRouterIds: zod.array(zod.number()),
   targetGroupIds: zod.array(zod.number()),
   autoConfirm: zod.boolean(),
+  timeoutSeconds: zod.number(),
+  retryCount: zod.number(),
+  retryBackoffSeconds: zod.number(),
   totalTasks: zod.number(),
   completedTasks: zod.number(),
   failedTasks: zod.number(),
@@ -757,4 +815,248 @@ export const DeleteScheduleParams = zod.object({
 
 export const DeleteScheduleResponse = zod.object({
   message: zod.string(),
+});
+
+/**
+ * @summary Get all scheduled runs in a given month
+ */
+export const getScheduleCalendarQueryMonthMax = 12;
+
+export const GetScheduleCalendarQueryParams = zod.object({
+  year: zod.coerce.number(),
+  month: zod.coerce.number().min(1).max(getScheduleCalendarQueryMonthMax),
+});
+
+export const GetScheduleCalendarResponseItem = zod.object({
+  scheduleId: zod.number(),
+  scheduleName: zod.string(),
+  jobName: zod.string(),
+  datetime: zod.date(),
+});
+export const GetScheduleCalendarResponse = zod.array(
+  GetScheduleCalendarResponseItem,
+);
+
+/**
+ * @summary List all credential profiles
+ */
+export const ListCredentialProfilesResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  sshUsername: zod.string(),
+  hasPassword: zod.boolean(),
+  hasEnablePassword: zod.boolean(),
+  jumpHostId: zod.number().nullish(),
+  jumpHost: zod.string().nullish(),
+  jumpPort: zod.number().nullish(),
+  description: zod.string().nullish(),
+  createdAt: zod.date(),
+});
+export const ListCredentialProfilesResponse = zod.array(
+  ListCredentialProfilesResponseItem,
+);
+
+/**
+ * @summary Create a credential profile (admin only)
+ */
+export const CreateCredentialProfileBody = zod.object({
+  name: zod.string(),
+  sshUsername: zod.string(),
+  sshPassword: zod.string().optional(),
+  enablePassword: zod.string().optional(),
+  jumpHostId: zod.number().nullish(),
+  jumpHost: zod.string().nullish(),
+  jumpPort: zod.number().nullish(),
+  description: zod.string().optional(),
+});
+
+/**
+ * @summary Update a credential profile (admin only)
+ */
+export const UpdateCredentialProfileParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateCredentialProfileBody = zod.object({
+  name: zod.string(),
+  sshUsername: zod.string(),
+  sshPassword: zod.string().optional(),
+  enablePassword: zod.string().optional(),
+  jumpHostId: zod.number().nullish(),
+  jumpHost: zod.string().nullish(),
+  jumpPort: zod.number().nullish(),
+  description: zod.string().optional(),
+});
+
+export const UpdateCredentialProfileResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  sshUsername: zod.string(),
+  hasPassword: zod.boolean(),
+  hasEnablePassword: zod.boolean(),
+  jumpHostId: zod.number().nullish(),
+  jumpHost: zod.string().nullish(),
+  jumpPort: zod.number().nullish(),
+  description: zod.string().nullish(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Delete a credential profile (admin only)
+ */
+export const DeleteCredentialProfileParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteCredentialProfileResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary List saved views for the current user
+ */
+export const ListSavedViewsQueryParams = zod.object({
+  pageKey: zod.coerce.string().optional(),
+});
+
+export const ListSavedViewsResponseItem = zod.object({
+  id: zod.number(),
+  userId: zod.number(),
+  pageKey: zod.string(),
+  name: zod.string(),
+  viewState: zod.record(zod.string(), zod.unknown()),
+  createdAt: zod.date(),
+});
+export const ListSavedViewsResponse = zod.array(ListSavedViewsResponseItem);
+
+/**
+ * @summary Create a saved view
+ */
+export const CreateSavedViewBody = zod.object({
+  pageKey: zod.string(),
+  name: zod.string(),
+  viewState: zod.record(zod.string(), zod.unknown()),
+});
+
+/**
+ * @summary Delete a saved view
+ */
+export const DeleteSavedViewParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteSavedViewResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Get daily uptime history for a router
+ */
+export const GetRouterUptimeParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const getRouterUptimeQueryDaysMax = 365;
+
+export const GetRouterUptimeQueryParams = zod.object({
+  days: zod.coerce.number().min(1).max(getRouterUptimeQueryDaysMax).optional(),
+});
+
+export const GetRouterUptimeResponse = zod.object({
+  routerId: zod.number(),
+  uptimePercent: zod.number(),
+  days: zod.array(
+    zod.object({
+      day: zod.string(),
+      totalChecks: zod.number(),
+      successCount: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary Get current uptime % for all routers (last 30 days)
+ */
+export const GetRoutersUptimeResponse = zod.record(zod.string(), zod.number());
+
+/**
+ * @summary Detect vendor and OS version via SSH
+ */
+export const FingerprintRouterParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const FingerprintRouterResponse = zod.object({
+  success: zod.boolean(),
+  vendor: zod.string().nullish(),
+  osVersion: zod.string().nullish(),
+  errorMessage: zod.string().nullish(),
+});
+
+/**
+ * @summary Detect vendor/OS for all routers in parallel
+ */
+export const FingerprintAllRoutersResponse = zod.object({
+  successCount: zod.number(),
+  failedCount: zod.number(),
+});
+
+/**
+ * @summary Preview a job without executing it
+ */
+export const DryRunJobBody = zod.object({
+  name: zod.string(),
+  scriptCode: zod.string(),
+  targetRouterIds: zod.array(zod.number()),
+  targetGroupIds: zod.array(zod.number()),
+  excelData: zod
+    .array(zod.record(zod.string(), zod.string()))
+    .optional()
+    .describe(
+      "Rows from Excel file for tag substitution, each row is applied per router",
+    ),
+  mode: zod
+    .enum(["run", "schedule"])
+    .optional()
+    .describe(
+      "Run executes immediately (default), schedule saves as template for scheduling",
+    ),
+  autoConfirm: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Automatically answer yes to SSH confirmation prompts (default true)",
+    ),
+  timeoutSeconds: zod
+    .number()
+    .optional()
+    .describe("Per-device SSH timeout in seconds (1-3600, default 30)"),
+  retryCount: zod
+    .number()
+    .optional()
+    .describe("Number of retries on connection failure (0-10, default 0)"),
+  retryBackoffSeconds: zod
+    .number()
+    .optional()
+    .describe("Seconds to wait between retries (default 5)"),
+});
+
+export const DryRunJobResponseItem = zod.object({
+  routerId: zod.number(),
+  routerName: zod.string(),
+  routerIp: zod.string(),
+  resolvedScript: zod.string(),
+  missingTags: zod.array(zod.string()),
+});
+export const DryRunJobResponse = zod.array(DryRunJobResponseItem);
+
+/**
+ * @summary Export job task results in csv, txt, or zip format
+ */
+export const ExportJobParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ExportJobQueryParams = zod.object({
+  format: zod.enum(["csv", "txt", "zip"]),
 });

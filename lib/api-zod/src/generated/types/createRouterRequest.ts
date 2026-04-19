@@ -12,5 +12,7 @@ export interface CreateRouterRequest {
   sshPort: number;
   sshUsername: string;
   sshPassword?: string;
+  enablePassword?: string;
   description?: string;
+  credentialProfileId?: number | null;
 }

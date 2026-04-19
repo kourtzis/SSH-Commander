@@ -13,5 +13,10 @@ export interface Router {
   sshPort: number;
   sshUsername: string;
   description?: string;
+  credentialProfileId?: number | null;
+  vendor?: string | null;
+  osVersion?: string | null;
+  lastFingerprintAt?: Date | null;
+  hasEnablePassword: boolean;
   createdAt: Date;
 }

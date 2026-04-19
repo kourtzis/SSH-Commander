@@ -363,6 +363,297 @@ export async function executeSSHCommand(
   });
 }
 
+// ─── Jump host / enable password / retry wrappers ──────────────────
+
+export interface JumpHostConfig {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+}
+
+export interface SSHExecOptions {
+  timeoutMs?: number;
+  autoConfirm?: boolean;
+  enablePassword?: string;
+  jumpHost?: JumpHostConfig;
+  retryCount?: number;
+  retryBackoffSeconds?: number;
+  /** Called for each attempt with attemptIndex (1-based). */
+  onAttempt?: (attemptIndex: number) => void;
+}
+
+// Detect transient/connection-level failures that are worth retrying.
+// We don't retry auth failures, missing-password, post-success, or timeouts caused by hung shells.
+function isRetryableError(msg?: string): boolean {
+  if (!msg) return false;
+  const m = msg.toLowerCase();
+  if (m.includes("auth")) return false;
+  if (m.includes("password")) return false;
+  return (
+    m.includes("connect") ||
+    m.includes("timed out") ||
+    m.includes("timeout") ||
+    m.includes("ehostunreach") ||
+    m.includes("econnrefused") ||
+    m.includes("econnreset") ||
+    m.includes("enetunreach") ||
+    m.includes("eai_again") ||
+    m.includes("etimedout") ||
+    m.includes("handshake")
+  );
+}
+
+// Open an SSH connection that goes through a jump host using ssh2's forwardOut.
+async function connectViaJumpHost(
+  target: { host: string; port: number; username: string; password: string },
+  jump: JumpHostConfig,
+  timeoutMs: number,
+  log: string[],
+): Promise<Client> {
+  return new Promise((resolve, reject) => {
+    const jumpConn = new Client();
+    log.push(`[${ts()}] Jump host: ${jump.username}@${jump.host}:${jump.port}`);
+
+    jumpConn.on("ready", () => {
+      log.push(`[${ts()}] Jump host authenticated, forwarding to ${target.host}:${target.port}`);
+      jumpConn.forwardOut("127.0.0.1", 0, target.host, target.port, (err, stream) => {
+        if (err) {
+          jumpConn.end();
+          reject(new Error(`forwardOut failed: ${err.message}`));
+          return;
+        }
+        const targetConn = new Client();
+        targetConn.on("ready", () => {
+          // Keep the jump connection alive for the lifetime of the target one.
+          targetConn.once("end", () => jumpConn.end());
+          targetConn.once("close", () => jumpConn.end());
+          resolve(targetConn);
+        });
+        targetConn.on("error", (e) => {
+          jumpConn.end();
+          reject(e);
+        });
+        try {
+          targetConn.connect({
+            sock: stream as any,
+            username: target.username,
+            password: target.password,
+            readyTimeout: timeoutMs,
+            algorithms: SSH_ALGORITHMS,
+          });
+        } catch (e: any) {
+          jumpConn.end();
+          reject(e);
+        }
+      });
+    });
+
+    jumpConn.on("error", (err) => reject(err));
+
+    try {
+      jumpConn.connect({
+        host: jump.host,
+        port: jump.port,
+        username: jump.username,
+        password: jump.password,
+        readyTimeout: timeoutMs,
+        algorithms: SSH_ALGORITHMS,
+      });
+    } catch (e: any) {
+      reject(e);
+    }
+  });
+}
+
+// Run executeSSHCommand once with a custom Client factory, supporting jump host
+// and an optional enable-password handler. This is the primary single-attempt path.
+async function executeOnce(
+  host: string,
+  port: number,
+  username: string,
+  password: string,
+  command: string,
+  options: SSHExecOptions,
+): Promise<SSHResult> {
+  const timeoutMs = options.timeoutMs ?? 30000;
+  const autoConfirm = options.autoConfirm ?? true;
+  const enablePassword = options.enablePassword;
+  const jumpHost = options.jumpHost;
+  const log: string[] = [];
+  let output = "";
+  let stderr = "";
+  let timedOut = false;
+
+  log.push(`[${ts()}] SSH session initiated`);
+  log.push(`[${ts()}] Target: ${username}@${host}:${port}`);
+  log.push(`[${ts()}] Timeout: ${timeoutMs}ms`);
+  log.push(`[${ts()}] Auto-confirm: ${autoConfirm ? "enabled" : "disabled"}`);
+  if (enablePassword) log.push(`[${ts()}] Enable-password handler: armed`);
+  if (jumpHost) log.push(`[${ts()}] Routing through jump host`);
+
+  let conn: Client;
+  try {
+    conn = jumpHost
+      ? await connectViaJumpHost({ host, port, username, password }, jumpHost, timeoutMs, log)
+      : await new Promise<Client>((resolve, reject) => {
+          const c = new Client();
+          c.once("ready", () => resolve(c));
+          c.once("error", (e) => reject(e));
+          try {
+            c.connect({ host, port, username, password, readyTimeout: timeoutMs, algorithms: SSH_ALGORITHMS });
+          } catch (e: any) { reject(e); }
+        });
+  } catch (err: any) {
+    log.push(`[${ts()}] ERROR: ${err.message}`);
+    return { success: false, output: "", errorMessage: err.message, connectionLog: log.join("\n") };
+  }
+
+  return new Promise<SSHResult>((resolve) => {
+    log.push(`[${ts()}] Authentication successful`);
+    log.push(`[${ts()}] Mode: ${autoConfirm ? "interactive shell (auto-confirm)" : "exec"}`);
+    log.push(`[${ts()}] Executing command...`);
+    log.push(`[${ts()}] ──────────────────────────────────`);
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      log.push(`[${ts()}] ERROR: Connection timed out after ${timeoutMs}ms`);
+      try { conn.end(); } catch {}
+      resolve({ success: false, output: output, errorMessage: "Connection timed out", connectionLog: log.join("\n") });
+    }, timeoutMs);
+
+    if (autoConfirm) {
+      conn.shell((err, stream) => {
+        if (err) {
+          clearTimeout(timer);
+          log.push(`[${ts()}] ERROR: shell failed — ${err.message}`);
+          try { conn.end(); } catch {}
+          resolve({ success: false, output: "", errorMessage: err.message, connectionLog: log.join("\n") });
+          return;
+        }
+        let shellBuffer = "";
+        let commandSent = false;
+        let autoConfirmCount = 0;
+        let lastPromptChecked = "";
+        let enableSent = false;
+        const idleTimer = { ref: null as ReturnType<typeof setTimeout> | null };
+        const resetIdleTimer = () => {
+          if (idleTimer.ref) clearTimeout(idleTimer.ref);
+          idleTimer.ref = setTimeout(() => {
+            clearTimeout(timer);
+            log.push(`[${ts()}] ──────────────────────────────────`);
+            log.push(`[${ts()}] Shell session idle — closing`);
+            if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
+            log.push(`[${ts()}] Session closed`);
+            try { conn.end(); } catch {}
+            if (!timedOut) resolve({ success: true, output: shellBuffer.trim(), connectionLog: log.join("\n") });
+          }, 3000);
+        };
+        stream.on("close", () => {
+          clearTimeout(timer);
+          if (idleTimer.ref) clearTimeout(idleTimer.ref);
+          log.push(`[${ts()}] ──────────────────────────────────`);
+          if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
+          log.push(`[${ts()}] Session closed`);
+          try { conn.end(); } catch {}
+          if (!timedOut) resolve({ success: true, output: shellBuffer.trim(), connectionLog: log.join("\n") });
+        });
+        stream.on("data", (data: Buffer) => {
+          const chunk = data.toString();
+          shellBuffer += chunk;
+          output += chunk;
+          resetIdleTimer();
+          if (!commandSent) return;
+          const tail = shellBuffer.slice(-200);
+          // Enable password handler: respond once, only when we have a password and it differs from the SSH one
+          if (
+            enablePassword && !enableSent && enablePassword !== password &&
+            /password\s*:?\s*$/i.test(tail)
+          ) {
+            enableSent = true;
+            log.push(`[${ts()}] Enable-password prompt detected, sending stored secret`);
+            stream.write(enablePassword + "\n");
+            return;
+          }
+          if (tail !== lastPromptChecked && looksLikeConfirmPrompt(shellBuffer)) {
+            lastPromptChecked = tail;
+            autoConfirmCount++;
+            log.push(`[${ts()}] Auto-confirm #${autoConfirmCount}: detected prompt, sending "y"`);
+            stream.write("y\n");
+          }
+        });
+        stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+        setTimeout(() => {
+          commandSent = true;
+          writeCommandWithControlChars(stream, command);
+          resetIdleTimer();
+        }, 500);
+      });
+    } else {
+      conn.exec(command, (err, stream) => {
+        if (err) {
+          clearTimeout(timer);
+          log.push(`[${ts()}] ERROR: exec failed — ${err.message}`);
+          try { conn.end(); } catch {}
+          resolve({ success: false, output: "", errorMessage: err.message, connectionLog: log.join("\n") });
+          return;
+        }
+        stream.on("close", (code: number) => {
+          clearTimeout(timer);
+          log.push(`[${ts()}] ──────────────────────────────────`);
+          log.push(`[${ts()}] Command exited with code: ${code}`);
+          if (stderr.trim()) log.push(`[${ts()}] STDERR: ${stderr.trim()}`);
+          log.push(`[${ts()}] Session closed`);
+          try { conn.end(); } catch {}
+          if (!timedOut) {
+            resolve({
+              success: code === 0,
+              output: output.trim(),
+              errorMessage: code !== 0 ? (stderr.trim() || `Exit code: ${code}`) : undefined,
+              connectionLog: log.join("\n"),
+            });
+          }
+        });
+        stream.on("data", (data: Buffer) => { output += data.toString(); });
+        stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      });
+    }
+
+    conn.on("error", (err) => {
+      clearTimeout(timer);
+      log.push(`[${ts()}] ERROR: ${err.message}`);
+      if (!timedOut) {
+        resolve({ success: false, output: "", errorMessage: err.message, connectionLog: log.join("\n") });
+      }
+    });
+  });
+}
+
+// Public entry point with retry + jump host + enable password support.
+export async function executeSSH(
+  host: string,
+  port: number,
+  username: string,
+  password: string,
+  command: string,
+  options: SSHExecOptions = {},
+): Promise<SSHResult & { attemptCount: number }> {
+  const retryCount = Math.max(0, Math.min(10, options.retryCount ?? 0));
+  const backoffMs = Math.max(0, options.retryBackoffSeconds ?? 5) * 1000;
+  let last: SSHResult = { success: false, output: "", errorMessage: "no attempt", connectionLog: "" };
+  let attempts = 0;
+  for (let i = 0; i <= retryCount; i++) {
+    attempts++;
+    options.onAttempt?.(attempts);
+    last = await executeOnce(host, port, username, password, command, options);
+    if (last.success) break;
+    if (i >= retryCount) break;
+    if (!isRetryableError(last.errorMessage)) break;
+    if (backoffMs > 0) await new Promise((r) => setTimeout(r, backoffMs));
+  }
+  return { ...last, attemptCount: attempts };
+}
+
 // ─── Tag Substitution ───────────────────────────────────────────────
 // Replace {{TAG_NAME}} placeholders in a script with values from an Excel/CSV row.
 // Whitespace inside braces is tolerated: {{ TAG }} works the same as {{TAG}}.

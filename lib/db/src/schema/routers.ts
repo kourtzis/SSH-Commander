@@ -10,7 +10,12 @@ export const routersTable = pgTable("routers", {
   sshPort: integer("ssh_port").notNull().default(22),
   sshUsername: text("ssh_username").notNull(),
   sshPassword: text("ssh_password"),        // Stored in plaintext — encrypted at rest via DB-level encryption
+  enablePassword: text("enable_password"),  // Optional sudo / enable mode password
   description: text("description"),         // Optional notes about the device
+  credentialProfileId: integer("credential_profile_id"), // Optional — preferred over inline credentials when set
+  vendor: text("vendor"),                   // Auto-detected: e.g. "MikroTik", "Cisco", "Linux"
+  osVersion: text("os_version"),            // Auto-detected: e.g. "RouterOS 7.10.2"
+  lastFingerprintAt: timestamp("last_fingerprint_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
