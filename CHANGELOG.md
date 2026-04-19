@@ -12,6 +12,16 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.12] - 2026-04-19
+
+### Fixed
+- **Operators were getting `HTTP 401 Unauthorized` toasts mid-action** when running many fingerprint requests (or any other long-running SSH endpoint) in quick succession, then had to log in again. Root cause was pg connection-pool starvation between the session store and the rest of the app:
+  - `connect-pg-simple` was being initialised with `conString`, which makes it open its **own** internal `pg.Pool` with the default of 10 connections — completely separate from Drizzle's 10-connection pool.
+  - Every authenticated `/api` request reads + touches the session (2 store ops). When 10+ long-running fingerprint requests are inflight at once, the session-store pool exhausts. Subsequent session reads hang and eventually fail silently; `express-session` treats a failed read as "no session", so `userId` is undefined, and `requireAuth` throws 401 even though the cookie is still perfectly valid.
+- **Fixes:**
+  - The express-session store now reuses the shared Drizzle pg pool (passed via `pool:` instead of `conString:`). Session ops and app queries compete for the same pool, so a single session store can no longer be starved by a separate internal pool.
+  - The shared pool's max is bumped from the default 10 to **20**, with an explicit `connectionTimeoutMillis: 10_000` and `idleTimeoutMillis: 30_000`. Bursts of parallel SSH activity no longer exhaust the pool, and if they ever do the failure is loud (a thrown error in the logs) instead of silent (a phantom 401).
+
 ## [1.8.11] - 2026-04-19
 
 ### Fixed

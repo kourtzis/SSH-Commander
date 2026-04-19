@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
+import { pool as dbPool } from "@workspace/db";
 import router from "./routes/index.js";
 
 const app: Express = express();
@@ -159,11 +160,21 @@ const sessionConfig: session.SessionOptions = {
 if (process.env.DATABASE_URL) {
   try {
     const PgStore = connectPgSimple(session);
+    // Reuse the shared Drizzle pg pool instead of letting connect-pg-simple
+    // open its own internal Pool from `conString`. Two separate pools meant
+    // session reads/writes had only the default 10 connections to themselves
+    // and could be starved on bursts of long-running SSH requests — the
+    // store would silently fail, express-session would treat the session as
+    // empty, and the operator would see "HTTP 401 Unauthorized" mid-action
+    // even though their cookie was still valid. With a single shared pool
+    // (max 20, see lib/db) all DB ops compete for the same connections and
+    // the explicit `connectionTimeoutMillis` ensures failures are loud
+    // instead of silent.
     sessionConfig.store = new PgStore({
-      conString: process.env.DATABASE_URL,
+      pool: dbPool,
       createTableIfMissing: true,
     });
-    console.log("Using PostgreSQL session store");
+    console.log("Using PostgreSQL session store (shared pool)");
   } catch (err) {
     console.warn("Failed to initialize PostgreSQL session store, using memory store:", err);
   }

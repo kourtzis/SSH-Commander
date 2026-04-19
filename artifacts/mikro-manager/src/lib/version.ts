@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.11";  
+export const APP_VERSION = "1.8.12";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.12",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "You were getting 'HTTP 401 Unauthorized' toasts mid-action when running many fingerprint requests in a short period and had to log in again. The session storage was using a separate, smaller pool of database connections than the rest of the app, and bursts of long-running SSH requests were exhausting it — when the session lookup couldn't get a connection, the server treated you as logged out even though your cookie was still perfectly valid. The session store now shares the app's main database connection pool (which has also been enlarged), so heavy fingerprint / terminal / interactive-job activity no longer causes phantom logouts.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.11",
     date: "2026-04-19",
