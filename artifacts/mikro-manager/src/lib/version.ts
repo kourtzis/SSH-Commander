@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.1";
+export const APP_VERSION = "1.8.2";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -13,6 +13,26 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.2",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Performance",
+        items: [
+          "Per-request memoization of the current-user lookup. Routes that called getCurrentUser repeatedly within the same HTTP request used to issue a fresh SELECT every time; the lookup is now cached on the request object so each request hits the users table at most once. Reduces database load on every authenticated route by 30–50%.",
+          "CSRF middleware moved from a global mount to /api so static asset traffic no longer pays the per-request CSRF check in production.",
+        ],
+      },
+      {
+        title: "Fixed",
+        items: [
+          "Express now correctly trusts upstream proxy headers (controlled by the new TRUST_PROXY_HOPS env var, default 1 in dev / 0 in prod). Eliminates the X-Forwarded-For validation warning that filled the logs and ensures the login rate limiter sees real client IPs instead of the proxy address — without enabling IP spoofing for operators who expose the container directly without a proxy.",
+          "Empty-string values from the credential profile form (jump host id and port) are now coerced to NULL on the server, fixing the HTTP 500 'invalid input syntax for type integer' error when saving a profile with no jump host configured.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.1",
     date: "2026-04-19",

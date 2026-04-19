@@ -12,6 +12,16 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.2] - 2026-04-19
+
+### Performance
+- Per-request memoization of the current-user lookup in `lib/auth.ts`. Many routes called `getCurrentUser(req)` two or three times in the course of handling one request (auth check, then admin check, then ownership check); each call hit the database. The result is now cached on the `req` object via a Symbol-keyed property, so a single request issues at most one `SELECT` against the `users` table.
+- CSRF middleware moved from `app.use((req,res,next) => req.path.startsWith('/api/'))` to `app.use('/api', ...)`. Static-asset traffic in production no longer runs the CSRF check at all, and the per-request `path.startsWith` test is gone.
+
+### Fixed
+- Express `trust proxy` is now configured via the new `TRUST_PROXY_HOPS` environment variable (default 1 in development, 0 in production). This eliminates the noisy `X-Forwarded-For` validation warning from `express-rate-limit` and ensures the login rate limiter sees real client IPs when behind a reverse proxy. The default is 0 in production so operators who expose the container directly without a proxy aren't silently exposed to IP-spoofing via forged `X-Forwarded-For` — they must opt in.
+- Credential profile create/update now coerces empty-string values for the integer `jumpHostId` and `jumpPort` fields to NULL. The previous code passed them straight through, causing Postgres to fail with `invalid input syntax for type integer` and a 500 response when saving a profile with no jump host.
+
 ## [1.8.1] - 2026-04-19
 
 ### Security

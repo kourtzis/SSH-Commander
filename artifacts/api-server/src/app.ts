@@ -10,6 +10,40 @@ const app: Express = express();
 
 const isProd = process.env.NODE_ENV === "production";
 
+// ─── Trust proxy ────────────────────────────────────────────────────
+// Whether to trust the X-Forwarded-For header from upstream proxies, and
+// how many hops to honor. This is deployment-topology-specific:
+//
+//   * In Replit dev and Replit Deployments we sit behind exactly one
+//     proxy hop (the Replit edge), so we trust 1 hop.
+//   * Operators who deploy with a reverse proxy in front (nginx, Caddy,
+//     Traefik, Cloudflare, k8s ingress) should set TRUST_PROXY_HOPS to
+//     the number of trusted hops.
+//   * Operators who expose the container's port directly to the public
+//     internet (e.g. `docker run -p 3000:3000` with no proxy) MUST leave
+//     TRUST_PROXY_HOPS at 0, otherwise a hostile client can spoof their
+//     source IP via a forged X-Forwarded-For header and slip past the
+//     login rate limiter.
+//
+// Default: 1 hop in development (we know we're behind the Replit proxy),
+// 0 hops in production (operator must opt in by setting the env var) so
+// a missing or incorrect deployment config fails closed rather than
+// silently allowing IP spoofing.
+const trustProxyEnv = process.env.TRUST_PROXY_HOPS;
+const trustProxyHops = trustProxyEnv !== undefined
+  ? Math.max(0, parseInt(trustProxyEnv, 10) || 0)
+  : (isProd ? 0 : 1);
+if (trustProxyHops > 0) {
+  app.set("trust proxy", trustProxyHops);
+  console.log(`[app] Trusting ${trustProxyHops} proxy hop(s) for X-Forwarded-* headers`);
+} else if (isProd) {
+  // Helpful nudge: most production deployments sit behind a proxy and
+  // will hit the express-rate-limit `X-Forwarded-For` validation error
+  // until TRUST_PROXY_HOPS is set. Print this once at startup so the
+  // operator knows what to do.
+  console.log("[app] trust proxy disabled (set TRUST_PROXY_HOPS=1 if behind a single reverse proxy)");
+}
+
 // ─── Middleware Stack ───────────────────────────────────────────────
 // CORS: in production we restrict to the configured origin(s) so that a
 // logged-in user visiting another site can't issue authenticated requests
@@ -111,11 +145,16 @@ app.use("/api/auth/login", authLimiter);
 // probes, login because it's the bootstrap step that establishes the
 // session in the first place (the rate-limiter and password check
 // already protect login).
-const CSRF_EXEMPT_PATHS = new Set(["/api/healthz", "/api/auth/login"]);
-app.use((req, res, next) => {
+//
+// The middleware is mounted under `/api` rather than at the root so
+// that static-asset traffic in production never even runs the check —
+// the prior global mount paid `req.path.startsWith("/api/")` on every
+// JS/CSS/image request. With the mount under /api, `req.path` is the
+// portion *after* /api, so the exempt-set entries also drop the prefix.
+const CSRF_EXEMPT_PATHS = new Set(["/healthz", "/auth/login"]);
+app.use("/api", (req, res, next) => {
   const method = req.method.toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
-  if (!req.path.startsWith("/api/")) return next();
   if (CSRF_EXEMPT_PATHS.has(req.path)) return next();
   if (req.get("X-Requested-With") !== "XMLHttpRequest") {
     res.status(403).json({ error: "Missing X-Requested-With header (CSRF protection)" });
