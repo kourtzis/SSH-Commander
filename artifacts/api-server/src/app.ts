@@ -100,12 +100,43 @@ if (isProd && (!SESSION_SECRET || SESSION_SECRET.length < 16)) {
   );
 }
 
+// Whether the session cookie should carry the `Secure` flag. The `Secure`
+// flag tells the browser to send the cookie only over HTTPS, AND tells
+// express-session to refuse to issue the Set-Cookie header at all unless
+// it believes the request itself was secure (`req.secure === true`).
+//
+// That second behavior is the trap: if the operator runs SSH Commander
+// behind a reverse proxy that terminates TLS but does NOT forward the
+// `X-Forwarded-Proto: https` header (or sits in front of the container
+// over plain HTTP), `req.secure` is false and the session cookie is
+// silently dropped. The user logs in successfully, the server creates
+// the session, but the browser never receives the cookie, so the next
+// request looks unauthenticated and the login dialog reappears.
+//
+// Resolution order:
+//   1. If COOKIE_SECURE is explicitly set to "true" or "false", honor it.
+//   2. Otherwise, default to true in production and false in development.
+// The explicit env override is the escape hatch for HTTPS-terminating
+// proxies that don't set X-Forwarded-Proto, and for plain-HTTP intranet
+// deployments. Set COOKIE_SECURE=false in those cases.
+const cookieSecureEnv = process.env.COOKIE_SECURE?.toLowerCase();
+const cookieSecure = cookieSecureEnv === "true" ? true
+  : cookieSecureEnv === "false" ? false
+  : isProd;
+if (isProd && !cookieSecure) {
+  console.log("[app] Session cookie 'Secure' flag DISABLED (COOKIE_SECURE=false). Only safe behind a trusted reverse proxy on a private network.");
+}
+
 const sessionConfig: session.SessionOptions = {
   secret: SESSION_SECRET ?? "ssh-commander-dev-only-secret-change-in-prod",
   resave: false,
   saveUninitialized: false,
+  // express-session relies on `req.secure` to decide whether to emit a
+  // Secure cookie. With `trust proxy` set above, `req.secure` correctly
+  // reflects the upstream proxy's `X-Forwarded-Proto` header.
+  proxy: true,
   cookie: {
-    secure: isProd,    // HTTPS-only cookies in production (set to false if you terminate TLS in front of the app and need HTTP)
+    secure: cookieSecure, // overridable via COOKIE_SECURE env var (see comment above)
     httpOnly: true,    // Prevent client-side JS from reading the session cookie
     sameSite: "lax",   // CSRF protection while allowing normal navigation; "strict" can break login flows from external links
     maxAge: 7 * 24 * 60 * 60 * 1000,  // 7-day session lifetime

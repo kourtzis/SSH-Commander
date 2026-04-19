@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.5] - 2026-04-19
+
+### Fixed
+- Continued login-loop fix for installations behind an HTTPS-terminating reverse proxy that does **not** forward the `X-Forwarded-Proto` header (some custom nginx configs, some Docker compose setups, plain-HTTP intranet deployments). The 1.8.4 trust-proxy default fixes the common case where the proxy *does* forward the header, but if it doesn't, `req.secure` is still false and `express-session` still drops the Secure cookie.
+- New `COOKIE_SECURE` environment variable (`true` / `false`) overrides the auto-detection. Set `COOKIE_SECURE=false` if your reverse proxy strips proto headers, or if you're running on plain HTTP. Default behavior unchanged: secure in production, not in development.
+- Added `proxy: true` to the `express-session` config so it correctly consults `X-Forwarded-Proto` when deciding whether to issue a Secure cookie (previously it relied solely on `req.secure`, which the Express trust-proxy setting populates — `proxy: true` belt-and-braces the same path).
+
 ## [1.8.4] - 2026-04-19
 
 ### Fixed

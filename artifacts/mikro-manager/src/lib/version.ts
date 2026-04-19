@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.4";
+export const APP_VERSION = "1.8.5";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -13,6 +13,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.5",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Login dialog reappearing after a successful login on installations whose reverse proxy doesn't forward the X-Forwarded-Proto header. Added explicit COOKIE_SECURE env var: set COOKIE_SECURE=false to disable the Secure flag on the session cookie when your proxy terminates HTTPS but doesn't tell the app. Also added session.proxy=true so express-session correctly trusts forwarded protocol headers when present.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.4",
     date: "2026-04-19",
