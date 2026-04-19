@@ -447,7 +447,7 @@ export default function Routers() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[1100px] w-full text-sm text-left">
+              <table className="min-w-[1500px] w-full text-sm text-left">
                 <thead className="text-xs text-muted-foreground uppercase bg-black/40 border-b border-border/50">
                   <tr>
                     <th className="px-4 py-4 w-10">
@@ -518,8 +518,8 @@ export default function Routers() {
                         />
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">{formatDate(router.createdAt).split(' ')[0]}</td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-1">
+                      <td className="px-6 py-4 text-right whitespace-nowrap">
+                        <div className="flex justify-end gap-1 flex-nowrap">
                           <FingerprintRowButton routerId={router.id} />
                           {(user?.role === "admin" || (user as any)?.canTerminal) && (
                             <Tooltip>
