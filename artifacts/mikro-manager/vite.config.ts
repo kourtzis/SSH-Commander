@@ -53,6 +53,50 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // React core — rarely changes, big win for browser cache reuse
+          "react-vendor": ["react", "react-dom", "react/jsx-runtime"],
+          // Routing
+          "router-vendor": ["wouter"],
+          // Data fetching / forms / validation
+          "data-vendor": [
+            "@tanstack/react-query",
+            "react-hook-form",
+            "@hookform/resolvers",
+            "zod",
+          ],
+          // Radix UI primitives — heavy collection of accessible components
+          "radix-vendor": [
+            "@radix-ui/react-alert-dialog",
+            "@radix-ui/react-avatar",
+            "@radix-ui/react-checkbox",
+            "@radix-ui/react-dialog",
+            "@radix-ui/react-dropdown-menu",
+            "@radix-ui/react-label",
+            "@radix-ui/react-popover",
+            "@radix-ui/react-scroll-area",
+            "@radix-ui/react-select",
+            "@radix-ui/react-separator",
+            "@radix-ui/react-slot",
+            "@radix-ui/react-switch",
+            "@radix-ui/react-tabs",
+            "@radix-ui/react-toast",
+            "@radix-ui/react-tooltip",
+          ],
+          // Charts — recharts is heavy and only used on a few pages
+          "charts-vendor": ["recharts"],
+          // Animations — framer-motion is large
+          "motion-vendor": ["framer-motion"],
+          // Date utilities
+          "date-vendor": ["date-fns"],
+          // Icons
+          "icons-vendor": ["lucide-react"],
+        },
+      },
+    },
   },
   server: {
     port,
