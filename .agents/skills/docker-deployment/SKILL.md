@@ -92,6 +92,45 @@ export const jobTasksTable = pgTable("job_tasks", {
 - Periodically audit `components/ui/` for unused shadcn components — removed 18 in one pass.
 - Remove boilerplate scripts (e.g., `scripts/src/hello.ts`).
 
+#### Hook Declaration Order — Temporal Dead Zone Trap
+- `const`/`let` are hoisted but live in the TDZ until their declaration line. Any Hook (`useQuery`, `useMemo`, `useEffect`, etc.) that references a `const` declared later in the function body will compile fine and even render fine — **until** the conditional that gated the read flips truthy on a user interaction. Then it throws `ReferenceError: Cannot access 'X' before initialization` and the whole component is torn down by the error boundary.
+- Real example (v1.8.18 fix):
+  ```tsx
+  const [expandedTask, setExpandedTask] = useState<number | null>(null);
+
+  // ❌ References `job` before it's declared. Works while expandedTask is null
+  // (short-circuits), crashes the moment the user clicks a row.
+  const expandedTaskStatus = expandedTask
+    ? job?.tasks?.find(t => t.id === expandedTask)?.status ?? null
+    : null;
+  const { data: full } = useQuery({ /* uses expandedTaskStatus */ });
+
+  const { data: job } = useGetJob(jobId, { ... });
+  ```
+- Fix: place every Hook **after** every `const` it reads from. When you must keep a logical block together, leave a comment near it explaining the ordering constraint so future refactors don't undo it.
+- Detection rule: any Hook body or Hook argument that names a non-state variable should sit below that variable's declaration. State setters and `useState` returns are safe (declared on their own line); query/mutation results from `useGetX(...)` are not.
+
+#### React Query `queryKey` Stability — Don't Pass Fresh Arrays/Objects
+- React Query hashes the `queryKey` to find cached data. Passing a freshly-constructed array or object on every render produces a new hash → cache miss → in-flight request gets discarded by the next render → the hook returns its default value forever (or flickers). Pages with polling, SSE, or background fetches re-render frequently and turn this from "slow" into "completely broken".
+- Real example (v1.8.19 fix): `selectedRouterIds = targets.filter(...).map(...)` was rebuilt every render. Reachability polls re-rendered the page every few seconds. The unique-device counter stuck at `0` because its query was constantly invalidated before it could resolve.
+- Fix: derive any list/object that ends up in a `queryKey` (or in `useEffect`/`useMemo` deps) inside `useMemo`. Sort lists when order is semantically irrelevant so `[1,2]` and `[2,1]` hash to the same key:
+  ```tsx
+  const ids = useMemo(
+    () => targets.filter(t => t.type === "router").map(t => t.id).sort((a, b) => a - b),
+    [targets],
+  );
+  ```
+- Same rule applies to objects in `queryKey` — wrap in `useMemo` or compose the key from primitives.
+- Detection rule: scan every `queryKey: [...]` and ask "is every element either a primitive or a memoized reference?" If a `.filter()`, `.map()`, `.slice()`, object literal, or `new Date()` appears inline, it's a bug.
+
+#### Pre-Edit Checklist for React Components
+Before editing any non-trivial component, walk these five lenses (added after the v1.8.18/v1.8.19 regressions):
+1. **Declaration order** — does any Hook body reference a `const` declared later? If so, reorder.
+2. **Reference stability** — is every value in a `queryKey`, `useEffect`/`useMemo` deps array, or `useCallback` deps array either a primitive or memoized? Inline `.filter()`/`.map()`/object literals are the usual culprits.
+3. **Re-render triggers on this page** — if the page has `refetchInterval`, an `EventSource`, or background reachability/polling, treat #2 as catastrophic, not cosmetic. Test under polling, not just on first load.
+4. **Call sites** — if you're changing a function or component's contract, grep every caller. Don't fix the one in front of you and ship.
+5. **Backend response shape** — if you add or rename an optional field, grep every consumer in the FE and the API client codegen output.
+
 ---
 
 ### Backend Reliability
