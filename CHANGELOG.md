@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.16] - 2026-04-19
+
+### Improved
+- Devices table now fits a normal laptop screen with no horizontal scroll — delete/edit icons are no longer cut off. Cell padding reduced (`px-6` → `px-3`), action icon buttons shrunk to 28px, and the "Added" date column was removed from the grid and moved into a tooltip on the device name. Table minimum width dropped from 1100px to 900px.
+
+---
+
 ## [1.8.15] - 2026-04-19
 
 ### Improved

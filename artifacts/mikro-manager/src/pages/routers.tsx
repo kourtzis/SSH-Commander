@@ -450,10 +450,15 @@ export default function Routers() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[1100px] w-full text-sm text-left">
+              {/* Tightened layout (1.8.16): smaller min-w (was 1100, now 900),
+                  cell padding dropped from px-6 to px-3, "Added" column moved
+                  into a tooltip on the Name cell to free ~110px, action icons
+                  shrunk to 28px (h-7 w-7) so the full button row fits on a
+                  ~1280px viewport without horizontal scroll. */}
+              <table className="min-w-[900px] w-full text-sm text-left">
                 <thead className="text-xs text-muted-foreground uppercase bg-black/40 border-b border-border/50">
                   <tr>
-                    <th className="px-4 py-4 w-10">
+                    <th className="px-2 py-3 w-8">
                       <Checkbox
                         checked={selection.isAllSelected}
                         onCheckedChange={selection.toggleAll}
@@ -461,79 +466,84 @@ export default function Routers() {
                         {...(selection.isSomeSelected ? { "data-state": "indeterminate" as any } : {})}
                       />
                     </th>
-                    <th className="px-6 py-4 font-medium">Name</th>
-                    <th className="px-6 py-4 font-medium">IP Address</th>
-                    <th className="px-6 py-4 font-medium">SSH Config</th>
-                    <th className="px-6 py-4 font-medium">Vendor / Model / OS</th>
-                    <th className="px-6 py-4 font-medium">
+                    <th className="px-3 py-3 font-medium">Name</th>
+                    <th className="px-3 py-3 font-medium">IP</th>
+                    <th className="px-3 py-3 font-medium">SSH</th>
+                    <th className="px-3 py-3 font-medium">Vendor / OS</th>
+                    <th className="px-3 py-3 font-medium">
                       <span className="inline-flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> Uptime (30d)</span>
                     </th>
-                    <th className="px-6 py-4 font-medium">Added</th>
-                    <th className="px-6 py-4 text-right font-medium">Actions</th>
+                    <th className="px-3 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {filteredRouters.map((router) => (
                     <tr key={router.id} className={`hover:bg-white/5 transition-colors ${selection.selected.has(router.id) ? "bg-primary/10" : ""}`}>
-                      <td className="px-4 py-4">
+                      <td className="px-2 py-3">
                         <Checkbox
                           checked={selection.selected.has(router.id)}
                           onCheckedChange={() => selection.toggle(router.id)}
                           aria-label={`Select ${router.name}`}
                         />
                       </td>
-                      <td className="px-6 py-4 font-medium text-foreground">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                            <Server className="w-4 h-4" />
+                      <td className="px-3 py-3 font-medium text-foreground">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                            <Server className="w-3.5 h-3.5" />
                           </div>
-                          <div>
-                            {router.name}
-                            {router.description && <p className="text-xs text-muted-foreground font-normal mt-0.5">{router.description}</p>}
-                          </div>
+                          {/* Added-date moved into the name tooltip — saves a
+                              whole column without losing the info. */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="min-w-0">
+                                <div className="truncate max-w-[180px]">{router.name}</div>
+                                {router.description && <p className="text-xs text-muted-foreground font-normal mt-0.5 truncate max-w-[180px]">{router.description}</p>}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="text-xs">Added {formatDate(router.createdAt).split(' ')[0]}</div>
+                              {router.description && <div className="text-xs text-muted-foreground mt-1 max-w-[280px]">{router.description}</div>}
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
                       </td>
-                      <td className="px-6 py-4 font-mono text-muted-foreground whitespace-nowrap">{router.ipAddress}</td>
-                      <td className="px-6 py-4">
-                        {/* Stack username over port so the column is narrow.
-                            Was a single line "user @ port 22" that ate ~180px
-                            of horizontal space; this fits in ~100px. */}
+                      <td className="px-3 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{router.ipAddress}</td>
+                      <td className="px-3 py-3">
                         <div className="flex flex-col leading-tight">
-                          <span className="text-muted-foreground truncate max-w-[140px]">{router.sshUsername}</span>
+                          <span className="text-xs text-muted-foreground truncate max-w-[110px]">{router.sshUsername}</span>
                           <span className="font-mono text-muted-foreground/70 text-xs">:{router.sshPort}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-sm">
+                      <td className="px-3 py-3 text-sm">
                         {(router as any).vendor ? (
-                          <div>
-                            <div className="font-medium text-foreground capitalize">{(router as any).vendor}</div>
+                          <div className="leading-tight">
+                            <div className="text-xs font-medium text-foreground capitalize truncate max-w-[150px]">{(router as any).vendor}</div>
                             {(router as any).model && (
-                              <div className="text-xs text-foreground/80 font-mono truncate max-w-[180px]">{(router as any).model}</div>
+                              <div className="text-xs text-foreground/70 font-mono truncate max-w-[150px]">{(router as any).model}</div>
                             )}
                             {(router as any).osVersion && (
-                              <div className="text-xs text-muted-foreground truncate max-w-[180px]">{(router as any).osVersion}</div>
+                              <div className="text-xs text-muted-foreground truncate max-w-[150px]">{(router as any).osVersion}</div>
                             )}
                           </div>
                         ) : (
                           <span className="text-muted-foreground/60 text-xs italic">unknown</span>
                         )}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-3">
                         <UptimeCell
                           percent={(uptimeMap as any)?.[String(router.id)]?.uptimePercent}
                           days={(uptimeMap as any)?.[String(router.id)]?.days}
                         />
                       </td>
-                      <td className="px-6 py-4 text-muted-foreground text-xs whitespace-nowrap">{formatDate(router.createdAt).split(' ')[0]}</td>
-                      <td className="px-6 py-4 text-right whitespace-nowrap">
-                        <div className="flex justify-end gap-1 flex-nowrap">
+                      <td className="px-2 py-3 text-right whitespace-nowrap">
+                        <div className="flex justify-end gap-0.5 flex-nowrap">
                           <FingerprintRowButton routerId={router.id} />
                           {(user?.role === "admin" || (user as any)?.canTerminal) && (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Link href={`/routers/${router.id}/terminal`}>
-                                  <Button variant="ghost" size="icon" data-testid={`terminal-button-${router.id}`}>
-                                    <TerminalIcon className="w-4 h-4" />
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" data-testid={`terminal-button-${router.id}`}>
+                                    <TerminalIcon className="w-3.5 h-3.5" />
                                   </Button>
                                 </Link>
                               </TooltipTrigger>
@@ -543,11 +553,11 @@ export default function Routers() {
                           {user?.role === "admin" && (
                             <RepinHostKeyButton routerId={router.id} pinnedFingerprint={(router as any).sshHostKeyFingerprint ?? null} />
                           )}
-                          <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(router)}>
-                            <Edit2 className="w-4 h-4" />
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleOpenDialog(router)}>
+                            <Edit2 className="w-3.5 h-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(router.id)}>
-                            <Trash2 className="w-4 h-4" />
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(router.id)}>
+                            <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </td>

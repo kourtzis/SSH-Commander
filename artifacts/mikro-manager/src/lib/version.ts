@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.15";  
+export const APP_VERSION = "1.8.16";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.16",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Improved",
+        items: [
+          "The devices table now fits a normal laptop screen with no horizontal scroll — the delete and edit icons are visible without scrolling. Cell padding was reduced, the action icon buttons are smaller, the 'Added' date moved into a tooltip on the device name (hover the name to see when the device was added), and the table's minimum width dropped from 1100px to 900px.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.15",
     date: "2026-04-19",
