@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.3";
+export const APP_VERSION = "1.8.4";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -13,6 +13,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.4",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Login was succeeding (HTTP 200) but the session cookie never reached the browser, so the login dialog kept reappearing. The 1.8.2 trust-proxy default of 0 in production meant that behind any HTTPS reverse proxy, Express saw the request as plain HTTP and express-session refused to issue the secure session cookie. Default is now 1 hop everywhere; operators exposing the container directly without a proxy can opt out with TRUST_PROXY_HOPS=0.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.3",
     date: "2026-04-19",

@@ -12,6 +12,11 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.4] - 2026-04-19
+
+### Fixed
+- Login appeared to succeed (HTTP 200 with the user object in the body) but the session cookie was never persisted in the browser, so the login dialog reappeared on the next request. The 1.8.2 default of `TRUST_PROXY_HOPS=0` in production meant that behind any HTTPS reverse proxy (Replit edge, nginx, Caddy, Traefik, Cloudflare, k8s ingress) Express saw `req.protocol === "http"` and `req.secure === false`. With `cookie.secure: true` (the production default), `express-session` then silently refused to emit the `Set-Cookie` header. The default is now `1` hop everywhere — the overwhelmingly common deployment topology. Operators who genuinely expose the container's port directly to the internet without any proxy must opt out with `TRUST_PROXY_HOPS=0` to avoid IP-spoofing of the rate limiter.
+
 ## [1.8.3] - 2026-04-19
 
 ### Fixed

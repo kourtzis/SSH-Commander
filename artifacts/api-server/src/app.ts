@@ -25,23 +25,31 @@ const isProd = process.env.NODE_ENV === "production";
 //     source IP via a forged X-Forwarded-For header and slip past the
 //     login rate limiter.
 //
-// Default: 1 hop in development (we know we're behind the Replit proxy),
-// 0 hops in production (operator must opt in by setting the env var) so
-// a missing or incorrect deployment config fails closed rather than
-// silently allowing IP spoofing.
+// Default: 1 hop everywhere. The overwhelmingly common deployment is
+// behind a single HTTPS reverse proxy (Replit edge, nginx, Caddy,
+// Traefik, Cloudflare, k8s ingress). Defaulting to 0 in production
+// silently breaks login: when `cookie.secure` is true (HTTPS-only
+// cookies, the default below in prod), express-session refuses to
+// emit a Set-Cookie header unless `req.secure === true`. With trust
+// proxy at 0 behind an HTTPS proxy, `req.protocol` is "http" and
+// `req.secure` is false, so the session cookie never reaches the
+// browser even though the login response is 200. Trust proxy = 1
+// fixes this. Operators who genuinely expose the container's port
+// directly to the internet without any proxy in front MUST set
+// TRUST_PROXY_HOPS=0 to avoid IP-spoofing of the rate limiter via
+// forged X-Forwarded-For. That is the rare case; opt out, don't opt in.
 const trustProxyEnv = process.env.TRUST_PROXY_HOPS;
 const trustProxyHops = trustProxyEnv !== undefined
   ? Math.max(0, parseInt(trustProxyEnv, 10) || 0)
-  : (isProd ? 0 : 1);
+  : 1;
 if (trustProxyHops > 0) {
   app.set("trust proxy", trustProxyHops);
   console.log(`[app] Trusting ${trustProxyHops} proxy hop(s) for X-Forwarded-* headers`);
-} else if (isProd) {
-  // Helpful nudge: most production deployments sit behind a proxy and
-  // will hit the express-rate-limit `X-Forwarded-For` validation error
-  // until TRUST_PROXY_HOPS is set. Print this once at startup so the
-  // operator knows what to do.
-  console.log("[app] trust proxy disabled (set TRUST_PROXY_HOPS=1 if behind a single reverse proxy)");
+} else {
+  // Operator explicitly opted out (TRUST_PROXY_HOPS=0). Warn once so
+  // it's obvious in logs why client IPs all look like the loopback or
+  // proxy address.
+  console.log("[app] trust proxy disabled (TRUST_PROXY_HOPS=0). Only correct if the container is exposed directly without a reverse proxy.");
 }
 
 // ─── Middleware Stack ───────────────────────────────────────────────
