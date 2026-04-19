@@ -20,7 +20,9 @@ import {
   applyTagSubstitution,
   writeCommandWithControlChars,
   makeHostKeyVerifier,
+  connectViaJumpHost,
 } from "./ssh.js";
+import { resolveEffectiveCreds } from "./effective-creds.js";
 
 // Event types emitted via SSE to the frontend
 export interface LiveEvent {
@@ -164,7 +166,7 @@ class InteractiveSessionManager {
   // Each device connects independently. All emit events through the shared emitter.
   async startInteractiveJob(
     jobId: number,
-    routers: { id: number; name: string; ipAddress: string; sshPort: number; sshUsername: string; sshPassword: string | null }[],
+    routers: { id: number; name: string; ipAddress: string; sshPort: number; sshUsername: string; sshPassword: string | null; enablePassword?: string | null; credentialProfileId?: number | null; sshHostKeyFingerprint?: string | null }[],
     scriptCode: string,
     excelData: Record<string, string>[] | undefined,
     autoConfirm: boolean,
@@ -202,12 +204,17 @@ class InteractiveSessionManager {
         .set({ resolvedScript: finalScript })
         .where(eq(jobTasksTable.id, task.id));
 
+      // Resolve effective creds (credential profile + bastion). We pass
+      // through the resolved values so connectDevice doesn't need to hit
+      // the DB again for every device.
+      const creds = await resolveEffectiveCreds(r as any);
+
       // Handle missing password upfront
-      if (!r.sshPassword) {
+      if (!creds.password) {
         const noPassLog = [
           `[${ts()}] SSH session initiated`,
-          `[${ts()}] Target: ${r.sshUsername}@${r.ipAddress}:${r.sshPort}`,
-          `[${ts()}] ERROR: No SSH password configured for this router`,
+          `[${ts()}] Target: ${creds.username || r.sshUsername}@${r.ipAddress}:${r.sshPort}`,
+          `[${ts()}] ERROR: No SSH password configured (check the credential profile or set an inline password)`,
           `[${ts()}] Session aborted`,
         ].join("\n");
         await db.update(jobTasksTable)
@@ -226,8 +233,8 @@ class InteractiveSessionManager {
 
       emitter.emit("event", { type: "task_status", taskId: task.id, routerId: r.id, routerName: r.name, routerIp: r.ipAddress, status: "running" } as LiveEvent);
 
-      // Start the SSH connection for this device
-      this.connectDevice(jobId, task.id, r, finalScript, autoConfirm);
+      // Start the SSH connection for this device using resolved creds
+      this.connectDevice(jobId, task.id, { ...r, sshUsername: creds.username, sshPassword: creds.password, jumpHost: creds.jumpHost }, finalScript, autoConfirm);
     });
 
     await Promise.all(promises);
@@ -239,7 +246,7 @@ class InteractiveSessionManager {
   private connectDevice(
     jobId: number,
     taskId: number,
-    router: { id: number; name: string; ipAddress: string; sshPort: number; sshUsername: string; sshPassword: string | null; sshHostKeyFingerprint?: string | null },
+    router: { id: number; name: string; ipAddress: string; sshPort: number; sshUsername: string; sshPassword: string | null; sshHostKeyFingerprint?: string | null; jumpHost?: { host: string; port: number; username: string; password: string } },
     command: string,
     autoConfirm: boolean
   ): void {
@@ -393,21 +400,54 @@ class InteractiveSessionManager {
     });
 
     try {
-      const cfg: any = {
-        host: router.ipAddress,
-        port: router.sshPort,
-        username: router.sshUsername,
-        password: router.sshPassword!,
-        readyTimeout: 30000,
-        algorithms: SSH_ALGORITHMS,
-      };
-      cfg.hostVerifier = makeHostKeyVerifier(
-        { routerId: router.id, expectedFingerprint: router.sshHostKeyFingerprint ?? null },
-        (presented, expected) => {
-          log.push(`[${ts()}] ERROR: Host key MISMATCH for ${router.ipAddress} (presented ${presented}, expected ${expected})`);
-        },
-      );
-      conn.connect(cfg);
+      if (router.jumpHost) {
+        // Bastion path. connectViaJumpHost returns a fully authenticated
+        // Client; we then attach the same handlers we'd use for a direct
+        // connection by re-emitting the "ready" event ourselves so the
+        // shell-open code path runs identically.
+        log.push(`[${ts()}] Routing through jump host ${router.jumpHost.username}@${router.jumpHost.host}:${router.jumpHost.port}`);
+        connectViaJumpHost(
+          {
+            host: router.ipAddress,
+            port: router.sshPort,
+            username: router.sshUsername,
+            password: router.sshPassword!,
+            hostKeyTrust: { routerId: router.id, expectedFingerprint: router.sshHostKeyFingerprint ?? null },
+          },
+          router.jumpHost,
+          30000,
+          log,
+        ).then((readyConn) => {
+          // Swap conn references so cleanup paths still close the real one.
+          dev.conn = readyConn;
+          readyConn.on("error", (err) => {
+            log.push(`[${ts()}] ERROR: ${err.message}`);
+            this.finalizeDevice(jobId, taskId, false, err.message);
+          });
+          // Manually trigger the "ready" handler we pre-attached to the
+          // original placeholder — it knows how to open the shell.
+          readyConn.emit("ready");
+        }).catch((err: any) => {
+          log.push(`[${ts()}] ERROR: jump host connect failed — ${err.message}`);
+          this.finalizeDevice(jobId, taskId, false, err.message);
+        });
+      } else {
+        const cfg: any = {
+          host: router.ipAddress,
+          port: router.sshPort,
+          username: router.sshUsername,
+          password: router.sshPassword!,
+          readyTimeout: 30000,
+          algorithms: SSH_ALGORITHMS,
+        };
+        cfg.hostVerifier = makeHostKeyVerifier(
+          { routerId: router.id, expectedFingerprint: router.sshHostKeyFingerprint ?? null },
+          (presented, expected) => {
+            log.push(`[${ts()}] ERROR: Host key MISMATCH for ${router.ipAddress} (presented ${presented}, expected ${expected})`);
+          },
+        );
+        conn.connect(cfg);
+      }
     } catch (err: any) {
       log.push(`[${ts()}] ERROR: Failed to initiate — ${err.message}`);
       this.finalizeDevice(jobId, taskId, false, err.message);

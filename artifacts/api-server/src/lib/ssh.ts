@@ -459,7 +459,9 @@ function isRetryableError(msg?: string): boolean {
 }
 
 // Open an SSH connection that goes through a jump host using ssh2's forwardOut.
-async function connectViaJumpHost(
+// Exported so interactive sessions (which don't go through executeSSH) can
+// also route through a bastion.
+export async function connectViaJumpHost(
   target: { host: string; port: number; username: string; password: string; hostKeyTrust?: HostKeyTrust },
   jump: JumpHostConfig,
   timeoutMs: number,

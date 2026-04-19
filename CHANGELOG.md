@@ -12,6 +12,15 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.7] - 2026-04-19
+
+### Fixed
+- Credential profiles are now honoured by **every** SSH code path — fingerprint probes, ad-hoc batch jobs, scheduled jobs, and interactive jobs. Previously only the ad-hoc batch runner read the profile; the other three paths read the device's inline `sshUsername` / `sshPassword` columns directly, so any device managed via a credential profile would attempt to connect with whatever (often empty) inline values happened to be on the row, producing `authentication methods failed` errors with no obvious cause.
+- A new shared `resolveEffectiveCreds(router)` helper centralises the resolution rules: profile takes precedence per field with the inline column as fallback, and the bastion is pulled from `profile.jumpHostId` → another profile's `jumpHost` / `jumpPort` fields. All four call sites now use it.
+- Per-device enable/sudo password (auto-respond on mid-session prompts) is now applied in scheduled jobs, interactive jobs, and fingerprint probes — previously only ad-hoc batch runs picked it up from the profile.
+- Bastion / jump host routing is now applied in scheduled jobs, interactive jobs, and fingerprint probes. Interactive jobs previously connected straight to the target IP regardless of the profile's `jumpHostId`. The new path uses the same `connectViaJumpHost` helper as ad-hoc runs.
+- When a device has no resolvable SSH password at all (no inline value and no profile password), the error message is now explicit — *"No SSH password configured (check the credential profile or set an inline password)"* — instead of the generic *"All configured authentication methods failed"* that previously made misconfigured profiles look like network or credential problems.
+
 ## [1.8.6] - 2026-04-19
 
 ### Changed

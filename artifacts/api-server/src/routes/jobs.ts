@@ -21,6 +21,7 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import { CreateJobBody } from "@workspace/api-zod";
 import { getCurrentUser, requireAuth } from "../lib/auth.js";
 import { executeSSH, applyTagSubstitution } from "../lib/ssh.js";
+import { resolveEffectiveCreds } from "../lib/effective-creds.js";
 import { interactiveSessions, type LiveEvent } from "../lib/interactive-session.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "../lib/resolve-routers.js";
 
@@ -162,7 +163,9 @@ router.post("/jobs", async (req, res) => {
     // Interactive mode: parallel SSH sessions with live SSE streaming
     interactiveSessions.startInteractiveJob(
       job.id,
-      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword, sshHostKeyFingerprint: r.sshHostKeyFingerprint })),
+      // Pass enablePassword + credentialProfileId so startInteractiveJob can
+      // resolve effective credentials (profile + jump host) per device.
+      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword, sshHostKeyFingerprint: r.sshHostKeyFingerprint, enablePassword: r.enablePassword, credentialProfileId: r.credentialProfileId })),
       scriptCode,
       excelData as Record<string, string>[] | undefined,
       false,
@@ -246,18 +249,22 @@ async function runJobInBackground(
       .set({ status: "running", startedAt: new Date(), resolvedScript: finalScript })
       .where(eq(jobTasksTable.id, taskId));
 
-    if (!r.sshPassword) {
+    // Resolve effective creds (credential profile + bastion) so that
+    // devices managed via profiles aren't run with whatever empty inline
+    // values happen to be on the router row.
+    const creds = await resolveEffectiveCreds(r);
+    if (!creds.password) {
       const noPassLog = [
         `[${new Date().toISOString()}] SSH session initiated`,
-        `[${new Date().toISOString()}] Target: ${r.sshUsername}@${r.ipAddress}:${r.sshPort}`,
-        `[${new Date().toISOString()}] ERROR: No SSH password configured for this router`,
+        `[${new Date().toISOString()}] Target: ${creds.username || r.sshUsername}@${r.ipAddress}:${r.sshPort}`,
+        `[${new Date().toISOString()}] ERROR: No SSH password configured (check the credential profile or set an inline password)`,
         `[${new Date().toISOString()}] Session aborted`,
       ].join("\n");
       await db
         .update(jobTasksTable)
         .set({
           status: "failed",
-          errorMessage: "No SSH password configured for this router",
+          errorMessage: "No SSH password configured (check the credential profile or set an inline password)",
           connectionLog: noPassLog,
           completedAt: new Date(),
         })
@@ -267,13 +274,14 @@ async function runJobInBackground(
       const result = await executeSSH(
         r.ipAddress,
         r.sshPort,
-        r.sshUsername,
-        r.sshPassword,
+        creds.username,
+        creds.password,
         finalScript,
         {
           timeoutMs: reliability.timeoutSeconds * 1000,
           autoConfirm,
-          enablePassword: r.enablePassword ?? undefined,
+          enablePassword: creds.enablePassword,
+          jumpHost: creds.jumpHost,
           retryCount: reliability.retryCount,
           retryBackoffSeconds: reliability.retryBackoffSeconds,
           hostKeyTrust: { routerId: r.id, expectedFingerprint: r.sshHostKeyFingerprint ?? null },
@@ -641,7 +649,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
   if (useInteractive) {
     interactiveSessions.startInteractiveJob(
       newJob.id,
-      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword, sshHostKeyFingerprint: r.sshHostKeyFingerprint })),
+      routers.map(r => ({ id: r.id, name: r.name, ipAddress: r.ipAddress, sshPort: r.sshPort, sshUsername: r.sshUsername, sshPassword: r.sshPassword, sshHostKeyFingerprint: r.sshHostKeyFingerprint, enablePassword: r.enablePassword, credentialProfileId: r.credentialProfileId })),
       sourceJob.scriptCode,
       sourceJob.excelData as Record<string, string>[] | undefined,
       false,

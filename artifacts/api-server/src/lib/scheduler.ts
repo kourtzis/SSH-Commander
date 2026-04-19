@@ -7,6 +7,7 @@ import { db, schedulesTable, batchJobsTable, jobTasksTable, routersTable } from 
 import { eq, lte, and, inArray } from "drizzle-orm";
 import { executeSSH, applyTagSubstitution } from "./ssh.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "./resolve-routers.js";
+import { resolveEffectiveCreds } from "./effective-creds.js";
 
 // ─── Shared SSH execution helper ────────────────────────────────────
 // Runs the SSH commands for every router of a job in parallel (bounded
@@ -46,21 +47,25 @@ async function executeJobTasks(
       resolvedScript: finalScript,
     }).where(eq(jobTasksTable.id, taskId));
 
-    if (!r.sshPassword) {
+    // Resolve creds via the shared helper so scheduled jobs honour
+    // credential profiles + bastion routing the same as ad-hoc runs.
+    const creds = await resolveEffectiveCreds(r as any);
+    if (!creds.password) {
       failedCount++;
       await db.update(jobTasksTable).set({
         status: "failed",
-        errorMessage: "No SSH password configured",
+        errorMessage: "No SSH password configured (check the credential profile or set an inline password)",
         completedAt: new Date(),
       }).where(eq(jobTasksTable.id, taskId));
     } else {
       try {
         const result = await executeSSH(
-          r.ipAddress, r.sshPort ?? 22, r.sshUsername, r.sshPassword, finalScript,
+          r.ipAddress, r.sshPort ?? 22, creds.username, creds.password, finalScript,
           {
             timeoutMs: (options.timeoutSeconds || 30) * 1000,
             autoConfirm: options.autoConfirm,
-            enablePassword: r.enablePassword ?? undefined,
+            enablePassword: creds.enablePassword,
+            jumpHost: creds.jumpHost,
             retryCount: options.retryCount || 0,
             retryBackoffSeconds: options.retryBackoffSeconds || 5,
             hostKeyTrust: { routerId: r.id, expectedFingerprint: (r as any).sshHostKeyFingerprint ?? null },
@@ -118,6 +123,10 @@ const SSH_ROUTER_COLUMNS = {
   enablePassword: routersTable.enablePassword,
   // Needed for TOFU host-key verification on every connection.
   sshHostKeyFingerprint: routersTable.sshHostKeyFingerprint,
+  // Required so resolveEffectiveCreds() can pull profile + jump-host data
+  // for scheduled runs — without this, scheduler bypasses credential
+  // profiles entirely and only inline creds work.
+  credentialProfileId: routersTable.credentialProfileId,
 } as const;
 
 // ─── Template Job Execution ─────────────────────────────────────────

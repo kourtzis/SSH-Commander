@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.6";
+export const APP_VERSION = "1.8.7";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -13,6 +13,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.7",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Credential profiles are now honoured everywhere SSH is opened. Fingerprint, batch jobs, scheduled jobs, and interactive jobs were previously reading the inline username/password columns directly off the device row, which meant devices managed via a credential profile were attempted with whatever (often empty) inline values were on the row — producing spurious 'authentication failed' errors. All four code paths now resolve the effective credentials (profile takes precedence, inline columns as fallback) and pull the bastion / jump host from the profile chain.",
+          "Per-device enable/sudo password and bastion routing are now applied in scheduled and interactive jobs as well — previously only ad-hoc batch runs picked them up.",
+          "When a device has no resolvable SSH password (no inline value and no profile password), the error message now says so explicitly instead of returning a generic 'authentication methods failed'.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.6",
     date: "2026-04-19",
