@@ -119,6 +119,13 @@
   @apply inline-block bg-primary/20 text-primary px-1.5 rounded text-[0.85em] font-mono font-bold border border-primary/30 shadow-[0_0_8px_rgba(45,212,191,0.2)];
 }
 
+/* Always reserve space for the vertical scrollbar so content doesn't shift
+   horizontally when a page grows tall enough to need scrolling (e.g. the
+   devices list after data loads). */
+html {
+  scrollbar-gutter: stable;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
