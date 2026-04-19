@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.16";  
+export const APP_VERSION = "1.8.17";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.17",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Improved",
+        items: [
+          "Devices table column swap: 'Added' is back as its own column (you asked for it) and 'SSH Config' was dropped from the grid instead. The SSH user/port info is now shown in a tooltip when you hover the device name (along with the IP, in copy-friendly user@ip:port form).",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.16",
     date: "2026-04-19",

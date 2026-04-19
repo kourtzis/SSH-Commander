@@ -468,11 +468,11 @@ export default function Routers() {
                     </th>
                     <th className="px-3 py-3 font-medium">Name</th>
                     <th className="px-3 py-3 font-medium">IP</th>
-                    <th className="px-3 py-3 font-medium">SSH</th>
                     <th className="px-3 py-3 font-medium">Vendor / OS</th>
                     <th className="px-3 py-3 font-medium">
                       <span className="inline-flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> Uptime (30d)</span>
                     </th>
+                    <th className="px-3 py-3 font-medium">Added</th>
                     <th className="px-3 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -491,8 +491,8 @@ export default function Routers() {
                           <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center text-primary shrink-0">
                             <Server className="w-3.5 h-3.5" />
                           </div>
-                          {/* Added-date moved into the name tooltip — saves a
-                              whole column without losing the info. */}
+                          {/* SSH user/port moved into the name tooltip —
+                              "Added" is back as its own column. */}
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className="min-w-0">
@@ -501,19 +501,13 @@ export default function Routers() {
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <div className="text-xs">Added {formatDate(router.createdAt).split(' ')[0]}</div>
+                              <div className="text-xs font-mono">SSH: {router.sshUsername}@{router.ipAddress}:{router.sshPort}</div>
                               {router.description && <div className="text-xs text-muted-foreground mt-1 max-w-[280px]">{router.description}</div>}
                             </TooltipContent>
                           </Tooltip>
                         </div>
                       </td>
                       <td className="px-3 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{router.ipAddress}</td>
-                      <td className="px-3 py-3">
-                        <div className="flex flex-col leading-tight">
-                          <span className="text-xs text-muted-foreground truncate max-w-[110px]">{router.sshUsername}</span>
-                          <span className="font-mono text-muted-foreground/70 text-xs">:{router.sshPort}</span>
-                        </div>
-                      </td>
                       <td className="px-3 py-3 text-sm">
                         {(router as any).vendor ? (
                           <div className="leading-tight">
@@ -535,6 +529,7 @@ export default function Routers() {
                           days={(uptimeMap as any)?.[String(router.id)]?.days}
                         />
                       </td>
+                      <td className="px-3 py-3 text-muted-foreground text-xs whitespace-nowrap">{formatDate(router.createdAt).split(' ')[0]}</td>
                       <td className="px-2 py-3 text-right whitespace-nowrap">
                         <div className="flex justify-end gap-0.5 flex-nowrap">
                           <FingerprintRowButton routerId={router.id} />

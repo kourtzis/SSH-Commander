@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.17] - 2026-04-19
+
+### Improved
+- Devices table: restored the "Added" column and dropped "SSH Config" instead. SSH user/port now appears in a tooltip when hovering the device name (in `user@ip:port` form for easy copy).
+
+---
+
 ## [1.8.16] - 2026-04-19
 
 ### Improved
