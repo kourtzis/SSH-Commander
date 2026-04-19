@@ -1007,13 +1007,27 @@ paths:
       summary: Get current uptime % for all routers (last 30 days)
       responses:
         "200":
-          description: Map of router id to uptime percentage
+          description: Map of router id to uptime aggregate (with daily series)
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties:
-                  type: number
+                  type: object
+                  properties:
+                    uptimePercent: { type: number }
+                    totalChecks: { type: integer }
+                    successCount: { type: integer }
+                    days:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          day: { type: string }
+                          totalChecks: { type: integer }
+                          successCount: { type: integer }
+                        required: [day, totalChecks, successCount]
+                  required: [uptimePercent, totalChecks, successCount, days]
 
   /routers/{id}/fingerprint:
     post:

@@ -977,7 +977,21 @@ export const GetRouterUptimeResponse = zod.object({
 /**
  * @summary Get current uptime % for all routers (last 30 days)
  */
-export const GetRoutersUptimeResponse = zod.record(zod.string(), zod.number());
+export const GetRoutersUptimeResponse = zod.record(
+  zod.string(),
+  zod.object({
+    uptimePercent: zod.number(),
+    totalChecks: zod.number(),
+    successCount: zod.number(),
+    days: zod.array(
+      zod.object({
+        day: zod.string(),
+        totalChecks: zod.number(),
+        successCount: zod.number(),
+      }),
+    ),
+  }),
+);
 
 /**
  * @summary Detect vendor and OS version via SSH

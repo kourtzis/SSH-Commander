@@ -295,23 +295,39 @@ router.get("/routers/uptime", async (req, res) => {
   const sinceDate = new Date();
   sinceDate.setDate(sinceDate.getDate() - (days - 1));
   const sinceIso = sinceDate.toISOString().slice(0, 10);
+  // Single query for the daily rows across every router so the Devices page
+  // can render every sparkline + percent without firing one HTTP request per
+  // device row (which was the v1.7.0 page-load slowdown).
   const rows = await db
     .select({
       routerId: deviceReachabilityTable.routerId,
-      total: sql<number>`SUM(${deviceReachabilityTable.totalChecks})::int`,
-      success: sql<number>`SUM(${deviceReachabilityTable.successCount})::int`,
+      day: deviceReachabilityTable.day,
+      totalChecks: deviceReachabilityTable.totalChecks,
+      successCount: deviceReachabilityTable.successCount,
     })
     .from(deviceReachabilityTable)
-    .where(gte(deviceReachabilityTable.day, sinceIso))
-    .groupBy(deviceReachabilityTable.routerId);
-  const out: Record<number, { uptimePercent: number; totalChecks: number; successCount: number }> = {};
+    .where(gte(deviceReachabilityTable.day, sinceIso));
+
+  const dayList = lastNDays(days);
+  const byRouter = new Map<number, Map<string, { total: number; success: number }>>();
   for (const r of rows) {
-    const total = Number(r.total) || 0;
-    const success = Number(r.success) || 0;
-    out[r.routerId] = {
+    let m = byRouter.get(r.routerId);
+    if (!m) { m = new Map(); byRouter.set(r.routerId, m); }
+    m.set(r.day, { total: r.totalChecks, success: r.successCount });
+  }
+  const out: Record<number, { uptimePercent: number; totalChecks: number; successCount: number; days: Array<{ day: string; totalChecks: number; successCount: number }> }> = {};
+  for (const [rid, dayMap] of byRouter.entries()) {
+    let total = 0, success = 0;
+    const series = dayList.map((d) => {
+      const v = dayMap.get(d) ?? { total: 0, success: 0 };
+      total += v.total; success += v.success;
+      return { day: d, totalChecks: v.total, successCount: v.success };
+    });
+    out[rid] = {
       uptimePercent: total === 0 ? 0 : Math.round((success / total) * 1000) / 10,
       totalChecks: total,
       successCount: success,
+      days: series,
     };
   }
   res.json(out);

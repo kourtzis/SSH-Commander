@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.7.0";
+export const APP_VERSION = "1.7.1";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -13,6 +13,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.7.1",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Devices page slow to load (Docker / production) — the uptime sparkline was firing one separate API request per device row, multiplying page load time on installs with many devices. The bulk uptime endpoint now returns the daily series for every device in a single round-trip; the page renders all sparklines from that one response.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.7.0",
     date: "2026-04-19",

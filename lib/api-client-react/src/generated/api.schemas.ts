@@ -540,7 +540,20 @@ export type GetRouterUptimeParams = {
   days?: number;
 };
 
-export type GetRoutersUptime200 = { [key: string]: number };
+export type GetRoutersUptime200DaysItem = {
+  day: string;
+  totalChecks: number;
+  successCount: number;
+};
+
+export type GetRoutersUptime200 = {
+  [key: string]: {
+    uptimePercent: number;
+    totalChecks: number;
+    successCount: number;
+    days: GetRoutersUptime200DaysItem[];
+  };
+};
 
 export type FingerprintAllRouters200 = {
   successCount: number;

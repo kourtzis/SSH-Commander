@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.7.1] - 2026-04-19
+
+### Fixed
+- **Devices page slow to load in Docker / production** — the uptime sparkline rendered for every device row was firing its own `GET /routers/:id/uptime` request, so a Devices page with N devices triggered N parallel API calls (each hitting the database). The bulk endpoint `GET /routers/uptime` now returns the full daily series per device in a single round-trip, and the page consumes all sparklines from that one response. Restores pre-1.7.0 page-load speed.
+
+---
+
 ## [1.7.0] - 2026-04-19
 
 ### Added

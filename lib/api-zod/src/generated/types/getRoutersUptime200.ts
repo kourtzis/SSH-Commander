@@ -5,5 +5,13 @@
  * SSH Commander API
  * OpenAPI spec version: 0.1.0
  */
+import type { GetRoutersUptime200DaysItem } from "./getRoutersUptime200DaysItem";
 
-export type GetRoutersUptime200 = { [key: string]: number };
+export type GetRoutersUptime200 = {
+  [key: string]: {
+    uptimePercent: number;
+    totalChecks: number;
+    successCount: number;
+    days: GetRoutersUptime200DaysItem[];
+  };
+};

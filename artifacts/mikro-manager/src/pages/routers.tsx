@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo } from "react";
-import { useListRouters, useImportRouters, useGetRoutersUptime, useGetRouterUptime, useFingerprintRouter, useFingerprintAllRouters, useListCredentialProfiles } from "@workspace/api-client-react";
+import { useListRouters, useImportRouters, useGetRoutersUptime, useFingerprintRouter, useFingerprintAllRouters, useListCredentialProfiles } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { useRoutersMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
@@ -124,9 +124,10 @@ function parseFileData(rawRows: Record<string, string>[]): { rows: ParsedRow[]; 
   return { rows, columnMap };
 }
 
-function UptimeSparkline({ routerId }: { routerId: number }) {
-  const { data } = useGetRouterUptime(routerId, { days: 30 });
-  const points = data?.days ?? [];
+// Sparkline now reads its daily series from the prop populated by the bulk
+// /routers/uptime call instead of firing its own per-row HTTP request. Avoids
+// N parallel API calls on the Devices page (v1.7.1 perf fix).
+function UptimeSparkline({ points }: { points: Array<{ totalChecks: number; successCount: number }> }) {
   if (points.length === 0) {
     return <span className="text-xs text-muted-foreground/40">no data</span>;
   }
@@ -154,13 +155,13 @@ function UptimeSparkline({ routerId }: { routerId: number }) {
   );
 }
 
-function UptimeCell({ routerId, percent }: { routerId: number; percent: number | undefined }) {
+function UptimeCell({ percent, days }: { percent: number | undefined; days: Array<{ totalChecks: number; successCount: number }> | undefined }) {
   const pct = typeof percent === "number" ? percent : null;
   const color = pct === null ? "text-muted-foreground/40" : pct >= 99 ? "text-emerald-400" : pct >= 90 ? "text-amber-400" : "text-destructive";
   return (
     <div className="flex items-center gap-2">
       <span className={`text-xs font-mono w-12 ${color}`}>{pct === null ? "—" : `${pct.toFixed(1)}%`}</span>
-      <UptimeSparkline routerId={routerId} />
+      <UptimeSparkline points={days ?? []} />
     </div>
   );
 }
@@ -491,8 +492,8 @@ export default function Routers() {
                       </td>
                       <td className="px-6 py-4">
                         <UptimeCell
-                          routerId={router.id}
                           percent={(uptimeMap as any)?.[String(router.id)]?.uptimePercent}
+                          days={(uptimeMap as any)?.[String(router.id)]?.days}
                         />
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">{formatDate(router.createdAt).split(' ')[0]}</td>

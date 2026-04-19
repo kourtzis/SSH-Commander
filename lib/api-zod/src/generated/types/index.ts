@@ -34,6 +34,7 @@ export * from "./fingerprintAllRouters200";
 export * from "./fingerprintResult";
 export * from "./getGroupsCounts200";
 export * from "./getRoutersUptime200";
+export * from "./getRoutersUptime200DaysItem";
 export * from "./getRouterUptimeParams";
 export * from "./getScheduleCalendarParams";
 export * from "./healthStatus";
