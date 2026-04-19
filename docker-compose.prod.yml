@@ -28,6 +28,18 @@ services:
       PORT: 3000
       NODE_ENV: production
       PUBLIC_DIR: /app/public
+      # Session cookie's `Secure` flag. Defaults to `true` (correct when a
+      # real HTTPS reverse proxy sits in front and forwards
+      # `X-Forwarded-Proto: https`). Set COOKIE_SECURE=false in your .env
+      # if you're accessing the app over plain HTTP — otherwise the
+      # browser will reject the session cookie and login will loop.
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # Number of trusted reverse-proxy hops in front of the container.
+      # 1 is correct for the typical "single nginx/Caddy/Traefik in front"
+      # topology. Set to 0 only if you expose the container directly to
+      # the internet with no proxy at all (rare; also disables IP-based
+      # rate limiting accuracy).
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
 
 volumes:
   pgdata:

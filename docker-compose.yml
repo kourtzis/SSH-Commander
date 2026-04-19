@@ -30,6 +30,18 @@ services:
       PORT: 3000
       NODE_ENV: production
       PUBLIC_DIR: /app/public
+      # Session cookie's `Secure` flag. Set to `false` when accessing the
+      # app over plain HTTP (e.g. http://localhost:3000 with no reverse
+      # proxy in front). Without this, the browser silently rejects the
+      # session cookie and the login dialog reappears after a successful
+      # sign-in. If you put a real reverse proxy with HTTPS in front
+      # (nginx, Caddy, Traefik, Cloudflare), remove this line — secure
+      # cookies are the right default for production.
+      COOKIE_SECURE: "false"
+      # Number of trusted reverse-proxy hops in front of the container.
+      # Default 1 already covers most setups; only change if you know
+      # you have a different topology.
+      # TRUST_PROXY_HOPS: "1"
 
 volumes:
   pgdata:
