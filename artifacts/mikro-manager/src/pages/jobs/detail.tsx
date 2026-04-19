@@ -90,28 +90,6 @@ export default function JobDetail() {
   const confirmDialog = useConfirm();
   const { cancelJob } = useJobsMutations();
   const [expandedTask, setExpandedTask] = useState<number | null>(null);
-
-  // Lazy-fetch the heavyweight per-task fields (output + connectionLog) only
-  // when the user expands a task. The polled /jobs/:id response strips these
-  // by default so the 2s poll stays small even with many devices / large
-  // outputs. While the task is running we keep refetching every 2s to mirror
-  // the live SSE-streamed output the user already sees inline.
-  const baseUrl = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
-  const expandedTaskStatus = expandedTask
-    ? (job?.tasks?.find((t) => t.id === expandedTask)?.status ?? null)
-    : null;
-  const { data: expandedTaskFull } = useQuery({
-    queryKey: ["job-task-full", jobId, expandedTask],
-    queryFn: async () => {
-      const r = await fetch(`${baseUrl}/api/jobs/${jobId}/tasks/${expandedTask}`, {
-        credentials: "include",
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json() as Promise<{ output: string | null; connectionLog: string | null }>;
-    },
-    enabled: !!expandedTask,
-    refetchInterval: expandedTaskStatus === "running" ? 2000 : false,
-  });
   const [waitingDevices, setWaitingDevices] = useState<WaitingDevice[]>([]);
   const [liveOutputs, setLiveOutputs] = useState<Map<number, string>>(new Map());
   const [responseText, setResponseText] = useState("");
@@ -129,6 +107,34 @@ export default function JobDetail() {
         return (status === 'running' || status === 'pending') ? 2000 : false;
       }
     }
+  });
+
+  // Lazy-fetch the heavyweight per-task fields (output + connectionLog) only
+  // when the user expands a task. The polled /jobs/:id response strips these
+  // by default so the 2s poll stays small even with many devices / large
+  // outputs. While the task is running we keep refetching every 2s to mirror
+  // the live SSE-streamed output the user already sees inline.
+  //
+  // IMPORTANT: this block must come *after* `useGetJob(...)` above, otherwise
+  // referencing `job` here trips JavaScript's `const` temporal-dead-zone the
+  // moment a user clicks a row (`expandedTask` flips truthy → `job?.tasks…`
+  // is evaluated → ReferenceError → React error boundary fires the "Something
+  // went wrong" page). Discovered as the v1.8.18 fix.
+  const baseUrl = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  const expandedTaskStatus = expandedTask
+    ? (job?.tasks?.find((t) => t.id === expandedTask)?.status ?? null)
+    : null;
+  const { data: expandedTaskFull } = useQuery({
+    queryKey: ["job-task-full", jobId, expandedTask],
+    queryFn: async () => {
+      const r = await fetch(`${baseUrl}/api/jobs/${jobId}/tasks/${expandedTask}`, {
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json() as Promise<{ output: string | null; connectionLog: string | null }>;
+    },
+    enabled: !!expandedTask,
+    refetchInterval: expandedTaskStatus === "running" ? 2000 : false,
   });
 
   useEffect(() => {

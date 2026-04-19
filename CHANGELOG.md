@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.18] - 2026-04-19
+
+### Fixed
+- **Job status page crashed on row click.** Expanding a task triggered a temporal-dead-zone `ReferenceError` because the lazy `useQuery` for full task data referenced `job` before the `useGetJob(...)` declaration. Initial render worked (short-circuit on `expandedTask = null`), but the click that flipped `expandedTask` truthy crashed the component and bounced the user to the global error boundary. Moved the expanded-task block below `useGetJob` and added a comment so it can't drift back.
+
+---
+
 ## [1.8.17] - 2026-04-19
 
 ### Improved

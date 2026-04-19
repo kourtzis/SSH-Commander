@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.17";  
+export const APP_VERSION = "1.8.18";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.18",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Clicking a device row on the job status page no longer crashes the page with a 'Something went wrong / Refresh Page' error. The expand-task code was reading the job data variable before it was declared, which is fine in JavaScript right up until the click that actually causes the read — at which point the whole page tears down. Reordered so the job data is loaded first.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.17",
     date: "2026-04-19",
