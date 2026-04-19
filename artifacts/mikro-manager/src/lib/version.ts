@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.18";  
+export const APP_VERSION = "1.8.19";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.19",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "The 'unique devices' counter on the New Job page no longer sticks at 0. The list of selected device IDs was being rebuilt as a brand-new array on every render (and this page re-renders frequently due to background reachability checks), which constantly invalidated the counter's cache before it could finish loading. The list is now stable, so the counter updates correctly as you add/remove devices and groups.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.18",
     date: "2026-04-19",

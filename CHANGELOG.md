@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.19] - 2026-04-19
+
+### Fixed
+- **Unique device count on New Job page stuck at 0.** `selectedRouterIds` and `selectedGroupIds` were derived inline (`targets.filter(...).map(...)`) on every render, producing a fresh array reference each time. The `useResolvedDeviceCount` query keyed on those arrays, so its cache key changed every render — every background reachability tick or polling re-render invalidated the in-flight result before it could resolve, and the hook fell back to its `0` default. Wrapped both lists in `useMemo` (and sorted them so `[1,2]` and `[2,1]` hash identically) to stabilize the key.
+
+---
+
 ## [1.8.18] - 2026-04-19
 
 ### Fixed

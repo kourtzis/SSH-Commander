@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useListRouters, useListGroups, useListSnippets, useGetJob, useDryRunJob } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
@@ -140,8 +140,20 @@ export default function NewJob() {
     }
   }, [sourceJob, populated, routers, groups, routersLoaded, groupsLoaded, copyFromId]);
 
-  const selectedRouterIds = targets.filter(t => t.type === "router").map(t => t.id);
-  const selectedGroupIds = targets.filter(t => t.type === "group").map(t => t.id);
+  // Sort + memoize so the array reference is stable when the contents are
+  // stable. Without this the `useResolvedDeviceCount` query key changes on
+  // every render (re-renders happen on every poll/reachability tick), the
+  // cached result is invalidated, the hook keeps returning its default `0`,
+  // and the "X unique devices" badge sticks at "0 unique devices". Sorting
+  // also makes [1,2] and [2,1] hash to the same key.
+  const selectedRouterIds = useMemo(
+    () => targets.filter(t => t.type === "router").map(t => t.id).sort((a, b) => a - b),
+    [targets],
+  );
+  const selectedGroupIds = useMemo(
+    () => targets.filter(t => t.type === "group").map(t => t.id).sort((a, b) => a - b),
+    [targets],
+  );
 
   const allRouterIdsForReachability = routers.map(r => r.id);
   const { data: reachability = {}, isFetching: isCheckingReachability } = useReachability(allRouterIdsForReachability);
