@@ -244,7 +244,13 @@ class InteractiveSessionManager {
     scriptCode: string,
     excelData: Record<string, string>[] | undefined,
     autoConfirm: boolean,
-    tasks: { id: number; routerId: number }[]
+    tasks: { id: number; routerId: number }[],
+    // Per-job global timeout in seconds. The interactive runner used to
+    // hardcode 120s, which clipped any script using long <<SLEEP>>/<<WAIT>>
+    // pauses. Now respects the value the operator picked on the New Job
+    // page; fall back to 120 if not provided so legacy callers behave as
+    // before.
+    timeoutSeconds: number = 120
   ): Promise<void> {
     const emitter = new EventEmitter();
     emitter.setMaxListeners(50);
@@ -308,7 +314,7 @@ class InteractiveSessionManager {
       emitter.emit("event", { type: "task_status", taskId: task.id, routerId: r.id, routerName: r.name, routerIp: r.ipAddress, status: "running" } as LiveEvent);
 
       // Start the SSH connection for this device using resolved creds
-      this.connectDevice(jobId, task.id, { ...r, sshUsername: creds.username, sshPassword: creds.password, jumpHost: creds.jumpHost }, finalScript, autoConfirm);
+      this.connectDevice(jobId, task.id, { ...r, sshUsername: creds.username, sshPassword: creds.password, jumpHost: creds.jumpHost }, finalScript, autoConfirm, timeoutSeconds);
     });
 
     await Promise.all(promises);
@@ -322,14 +328,17 @@ class InteractiveSessionManager {
     taskId: number,
     router: { id: number; name: string; ipAddress: string; sshPort: number; sshUsername: string; sshPassword: string | null; sshHostKeyFingerprint?: string | null; jumpHost?: { host: string; port: number; username: string; password: string } },
     command: string,
-    autoConfirm: boolean
+    autoConfirm: boolean,
+    timeoutSeconds: number = 120
   ): void {
     const job = this.jobs.get(jobId);
     if (!job) return;
 
     const conn = new Client();
     const log: string[] = [];
-    const timeoutMs = 120000;  // 2 minute hard limit per device
+    // Per-device global timeout. Honors the per-job value chosen on the New
+    // Job page; clamped to 5s..2h for sanity.
+    const timeoutMs = Math.max(5_000, Math.min(7_200_000, timeoutSeconds * 1000));
 
     const dev: DeviceSession = {
       taskId,

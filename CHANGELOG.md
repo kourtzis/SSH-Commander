@@ -24,7 +24,7 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
   
   Implementation: `parseScriptDirectives` (in `lib/interactive-session.ts`) splits the script into a list of `{kind: 'text' | 'sleep' | 'wait', ...}` segments. If any non-text segment is present the runner switches from a single `writeCommandWithControlChars` call to a sequenced `for...of` loop that sends one text chunk, awaits the sleep/wait, then sends the next. Directives are stripped before reaching the wire, so they don't appear in the device's command history. Both directives are logged in the connection log with start/end markers (`Pausing 5.0s before next segment (<<SLEEP>>)` / `Waiting for shell to go idle (<<WAIT>>)` / `Shell idle, resuming script`).
   
-  Caveat: the per-device global timeout in interactive-session is currently a hardcoded 120s. Long sleeps near or over that ceiling will be cut off. Plumbing the per-job `timeoutSeconds` value into interactive-session will be a follow-up patch — for now operators using long pauses should keep total script duration under ~110s.
+  The per-job `timeoutSeconds` value chosen on the New Job page is now plumbed all the way through to the interactive runner (it was previously hardcoded to 120s, which would clip any script using long pauses). `startInteractiveJob` and the per-device `connectDevice` both accept the timeout, clamped to 5s..2h. Both new-job code paths (fresh job + re-run-existing job) pass it through, and the connection log shows `Timeout: Nms` at the top of every session.
 
 ---
 

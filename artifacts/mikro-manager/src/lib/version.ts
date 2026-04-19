@@ -27,7 +27,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       {
         title: "Added",
         items: [
-          "Two new script directives for long-running multi-step jobs: place '<<SLEEP 5>>' on its own (or anywhere) in your script to make the job runner pause 5 seconds before sending the next chunk (decimals like 1.5 also work, max 10 minutes per directive). Place '<<WAIT>>' to make the runner wait until the device shell stops talking — useful between commands like 'apt update' and 'apt upgrade -y' where the first one's runtime is unpredictable. The directives are stripped from the script before it's sent to the device, so they never reach the wire. The connection log shows when each pause/wait starts and ends.",
+          "Two new script directives for long-running multi-step jobs: place '<<SLEEP 5>>' on its own (or anywhere) in your script to make the job runner pause 5 seconds before sending the next chunk (decimals like 1.5 also work, max 10 minutes per directive). Place '<<WAIT>>' to make the runner wait until the device shell stops talking — useful between commands like 'apt update' and 'apt upgrade -y' where the first one's runtime is unpredictable. The directives are stripped from the script before it's sent to the device, so they never reach the wire. The connection log shows when each pause/wait starts and ends. The per-job timeout you set on the New Job page now controls how long the whole script is allowed to run — previously it was hardcoded to 2 minutes, which would cut off scripts with long pauses.",
         ],
       },
     ],

@@ -169,7 +169,8 @@ router.post("/jobs", async (req, res) => {
       scriptCode,
       excelData as Record<string, string>[] | undefined,
       false,
-      insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
+      insertedTasks.map(t => ({ id: t.id, routerId: t.routerId })),
+      timeoutSeconds ?? 120
     );
   } else {
     // Auto-confirm mode: sequential background execution
@@ -653,7 +654,8 @@ router.post("/jobs/:id/rerun", async (req, res) => {
       sourceJob.scriptCode,
       sourceJob.excelData as Record<string, string>[] | undefined,
       false,
-      insertedTasks.map(t => ({ id: t.id, routerId: t.routerId }))
+      insertedTasks.map(t => ({ id: t.id, routerId: t.routerId })),
+      sourceJob.timeoutSeconds ?? 120
     );
   } else {
     runJobInBackground(newJob.id, routers, sourceJob.scriptCode, sourceJob.excelData as Record<string, string>[] | undefined, sourceJob.autoConfirm, insertedTasks.map(t => t.id), { timeoutSeconds: sourceJob.timeoutSeconds, retryCount: sourceJob.retryCount, retryBackoffSeconds: sourceJob.retryBackoffSeconds })
