@@ -23,6 +23,7 @@ import {
   connectViaJumpHost,
   appendWireLog,
   flushWireLog,
+  stripAnsi,
 } from "./ssh.js";
 import { resolveEffectiveCreds } from "./effective-creds.js";
 
@@ -358,15 +359,20 @@ class InteractiveSessionManager {
           recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
           resetIdleTimer();
 
-          // Stream output to SSE subscribers in real-time
-          job.emitter.emit("event", {
-            type: "task_output",
-            taskId,
-            routerId: router.id,
-            routerName: router.name,
-            routerIp: router.ipAddress,
-            output: chunk,
-          } as LiveEvent);
+          // Stream output to SSE subscribers in real-time. Strip ANSI/control
+          // bytes so the live "Output" pane stays readable — raw bytes still
+          // go to the wire log via appendWireLog above for debugging.
+          const cleanChunk = stripAnsi(chunk);
+          if (cleanChunk) {
+            job.emitter.emit("event", {
+              type: "task_output",
+              taskId,
+              routerId: router.id,
+              routerName: router.name,
+              routerIp: router.ipAddress,
+              output: cleanChunk,
+            } as LiveEvent);
+          }
 
           if (!dev.commandSent) return;
 
@@ -525,7 +531,7 @@ class InteractiveSessionManager {
     // Persist final task state to the database
     const dbUpdate: any = {
       status: success ? "success" : "failed",
-      output: dev.shellBuffer.trim() || null,
+      output: stripAnsi(dev.shellBuffer).trim() || null,
       connectionLog: dev.log.join("\n"),
       completedAt: new Date(),
       promptText: null,

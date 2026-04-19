@@ -57,6 +57,35 @@ export function appendWireLog(
   return newBuffer;
 }
 
+// Strip ANSI escape sequences and stray control bytes from terminal output
+// before persisting/displaying it. Real-world devices send things like:
+//   \x1b[6n            (Device Status Report — terminal queries cursor pos)
+//   \x1b[9999B         (move cursor down — used to detect terminal height)
+//   \x1b[?2004h        (bracketed paste mode toggle)
+//   \x07               (BEL)
+//   \x00               (NUL — appears as a box glyph in the UI)
+// These are noise to a network operator reading job output. We keep newlines,
+// tabs, and carriage returns but drop everything else in C0/C1 + all CSI/OSC
+// escape sequences. Applied at output-persist time and at SSE emit time so
+// both the saved record and the live stream are clean. The connection log
+// (>>/<<) is left raw on purpose — it's the "what actually went over the
+// wire" view and stripping it would defeat its diagnostic purpose.
+const ANSI_CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;            // CSI: ESC [ ... letter
+const ANSI_OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;    // OSC: ESC ] ... BEL or ST
+const ANSI_OTHER = /\x1b[()#][0-9A-Za-z]/g;               // charset selectors
+const ANSI_SS = /\x1b[NOPVWXZ\\^_=>]/g;                   // single-shift / misc
+const CTRL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;   // C0 except \t \n \r
+
+export function stripAnsi(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(ANSI_CSI, "")
+    .replace(ANSI_OSC, "")
+    .replace(ANSI_OTHER, "")
+    .replace(ANSI_SS, "")
+    .replace(CTRL_CHARS, "");
+}
+
 // Flush whatever is left in a wire-log buffer when a stream closes — captures
 // the final line of output that didn't end in a newline (common with prompts
 // like `[admin@router] > `).
@@ -369,7 +398,7 @@ export async function executeSSHCommand(
               log.push(`[${ts()}] Session closed`);
               conn.end();
               if (!timedOut) {
-                resolve({ success: true, output: shellBuffer.trim(), connectionLog: log.join("\n") });
+                resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
               }
             }, 3000);
           };
@@ -388,7 +417,7 @@ export async function executeSSHCommand(
             log.push(`[${ts()}] Session closed`);
             conn.end();
             if (!timedOut) {
-              resolve({ success: true, output: shellBuffer.trim(), connectionLog: log.join("\n") });
+              resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
             }
           });
 
@@ -458,7 +487,7 @@ export async function executeSSHCommand(
             if (!timedOut) {
               resolve({
                 success: code === 0,
-                output: output.trim(),
+                output: stripAnsi(output).trim(),
                 errorMessage: code !== 0 ? (stderr.trim() || `Exit code: ${code}`) : undefined,
                 connectionLog: log.join("\n"),
               });
@@ -705,7 +734,7 @@ async function executeOnce(
             if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
             log.push(`[${ts()}] Session closed`);
             try { conn.end(); } catch {}
-            if (!timedOut) resolve({ success: true, output: shellBuffer.trim(), connectionLog: log.join("\n") });
+            if (!timedOut) resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
           }, 3000);
         };
         stream.on("close", () => {
@@ -717,7 +746,7 @@ async function executeOnce(
           if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
           log.push(`[${ts()}] Session closed`);
           try { conn.end(); } catch {}
-          if (!timedOut) resolve({ success: true, output: shellBuffer.trim(), connectionLog: log.join("\n") });
+          if (!timedOut) resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
         });
         stream.on("data", (data: Buffer) => {
           const chunk = data.toString();
@@ -781,7 +810,7 @@ async function executeOnce(
           if (!timedOut) {
             resolve({
               success: code === 0,
-              output: output.trim(),
+              output: stripAnsi(output).trim(),
               errorMessage: code !== 0 ? (stderr.trim() || `Exit code: ${code}`) : undefined,
               connectionLog: log.join("\n"),
             });
