@@ -198,13 +198,25 @@ export default function Routers() {
   });
 
   const filteredRouters = useMemo(() => {
-    let result = routers.filter(r =>
-      r.name.toLowerCase().includes(search.toLowerCase()) ||
-      r.ipAddress.includes(search)
-    );
+    const q = search.toLowerCase();
+    let result = routers.filter((r) => {
+      const vendor = ((r as any).vendor || "").toLowerCase();
+      const model = ((r as any).model || "").toLowerCase();
+      const osVersion = ((r as any).osVersion || "").toLowerCase();
+      return (
+        r.name.toLowerCase().includes(q) ||
+        r.ipAddress.includes(search) ||
+        vendor.includes(q) ||
+        model.includes(q) ||
+        osVersion.includes(q)
+      );
+    });
     return applySort(result, sort, {
       name: (r) => r.name,
       ip: (r) => r.ipAddress,
+      vendor: (r) => ((r as any).vendor || "").toLowerCase(),
+      model: (r) => ((r as any).model || "").toLowerCase(),
+      os: (r) => ((r as any).osVersion || "").toLowerCase(),
       date: (r) => new Date(r.createdAt),
     });
   }, [routers, search, sort]);
@@ -385,10 +397,13 @@ export default function Routers() {
           <FilterSortBar
             searchValue={search}
             onSearchChange={setSearch}
-            searchPlaceholder="Search by name or IP..."
+            searchPlaceholder="Search by name, IP, vendor, model, or OS..."
             sortOptions={[
               { key: "name", label: "Name" },
               { key: "ip", label: "IP" },
+              { key: "vendor", label: "Vendor" },
+              { key: "model", label: "Model" },
+              { key: "os", label: "OS" },
               { key: "date", label: "Added" },
             ]}
             activeSort={sort}

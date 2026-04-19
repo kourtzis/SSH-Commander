@@ -23,6 +23,8 @@ export const CHANGELOG: ChangelogEntry[] = [
         items: [
           "Device fingerprinting now also detects and stores the hardware model number (MikroTik board name like 'RB4011iGS+', Cisco model like 'WS-C2960-24TT-L', and DMI product name on Linux servers). The Devices table column has been renamed Vendor / Model / OS and now shows three lines per device: vendor, model, and OS version.",
           "MikroTik probe now fetches version and board-name in a single SSH session via combined `:put` calls, so detecting both fields costs no extra round-trip.",
+          "Devices page search now matches vendor, model, and OS version in addition to name and IP — type 'mikrotik', 'RB4011', or 'RouterOS 7' to filter.",
+          "Devices page sort has three new options: Vendor, Model, and OS.",
         ],
       },
     ],

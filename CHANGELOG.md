@@ -20,6 +20,8 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
   - **Cisco:** Model from `show version` — tries the explicit `Model number :` line first, then falls back to the `cisco <MODEL>` line near the top of the output (covers `WS-C2960-...`, `ISR4321/K9`, `C9300-24P`, etc.).
   - **Linux:** DMI product name from `/sys/class/dmi/id/product_name`. Common whitebox-hardware placeholder strings (`To be filled by O.E.M.`, `System Product Name`, `Default string`) are filtered out so the column stays blank rather than showing garbage.
 - New `model` column on the `routers` table. Existing rows have `model = NULL` until re-fingerprinted; click *Fingerprint* (or use *Fingerprint All*) to populate.
+- **Devices page search** now matches against vendor, model, and OS version in addition to name and IP. Type "mikrotik", "RB4011", or "RouterOS 7" into the search box to filter the list.
+- **Devices page sort** has three new options: *Vendor*, *Model*, and *OS*. Devices that haven't been fingerprinted yet (empty values) sort to the end in ascending order.
 
 ## [1.8.9] - 2026-04-19
 
