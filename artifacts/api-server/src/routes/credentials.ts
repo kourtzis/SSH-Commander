@@ -58,16 +58,28 @@ router.post("/credentials", async (req, res) => {
     res.status(400).json({ error: "name and sshUsername are required" });
     return;
   }
+  // Coerce empty strings (sent by HTML number inputs when blank) to null so
+  // Postgres doesn't reject them with "invalid input syntax for type integer".
+  const toIntOrNull = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = typeof v === "number" ? v : parseInt(String(v), 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const toStrOrNull = (v: unknown): string | null => {
+    if (v === null || v === undefined) return null;
+    const s = String(v);
+    return s.length === 0 ? null : s;
+  };
   const [created] = await db
     .insert(credentialProfilesTable)
     .values({
       name, sshUsername,
       sshPassword: sshPassword || null,
       enablePassword: enablePassword || null,
-      jumpHostId: jumpHostId ?? null,
-      jumpHost: jumpHost ?? null,
-      jumpPort: jumpPort ?? null,
-      description: description ?? null,
+      jumpHostId: toIntOrNull(jumpHostId),
+      jumpHost: toStrOrNull(jumpHost),
+      jumpPort: toIntOrNull(jumpPort),
+      description: toStrOrNull(description),
     })
     .returning();
   res.status(201).json(sanitize(created));
@@ -86,10 +98,20 @@ router.put("/credentials/:id", async (req, res) => {
   // re-enter passwords every edit.
   if (typeof b.sshPassword === "string" && b.sshPassword.length > 0) updates.sshPassword = b.sshPassword;
   if (typeof b.enablePassword === "string" && b.enablePassword.length > 0) updates.enablePassword = b.enablePassword;
-  if (b.jumpHostId !== undefined) updates.jumpHostId = b.jumpHostId;
-  if (b.jumpHost !== undefined) updates.jumpHost = b.jumpHost;
-  if (b.jumpPort !== undefined) updates.jumpPort = b.jumpPort;
-  if (b.description !== undefined) updates.description = b.description;
+  const toIntOrNull = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = typeof v === "number" ? v : parseInt(String(v), 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const toStrOrNull = (v: unknown): string | null => {
+    if (v === null || v === undefined) return null;
+    const s = String(v);
+    return s.length === 0 ? null : s;
+  };
+  if (b.jumpHostId !== undefined) updates.jumpHostId = toIntOrNull(b.jumpHostId);
+  if (b.jumpHost !== undefined) updates.jumpHost = toStrOrNull(b.jumpHost);
+  if (b.jumpPort !== undefined) updates.jumpPort = toIntOrNull(b.jumpPort);
+  if (b.description !== undefined) updates.description = toStrOrNull(b.description);
 
   const [updated] = await db
     .update(credentialProfilesTable)
