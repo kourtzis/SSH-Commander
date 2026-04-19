@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.14";  
+export const APP_VERSION = "1.8.15";  
 export const APP_VERSION_DATE = "2026-04-19";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.15",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Improved",
+        items: [
+          "The devices table no longer needs horizontal scroll to show every column. The SSH config column now stacks the username over the port (instead of putting them on one wide line), the uptime column stacks its percentage over the sparkline, and the date column uses a more compact font — together these shrink the table from a 1500px minimum to about 1100px, so on a normal laptop screen you can see Name, IP, SSH config, Vendor/Model/OS, Uptime, Added, and the action icons all at once.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.14",
     date: "2026-04-19",

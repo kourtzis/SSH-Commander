@@ -160,9 +160,12 @@ function UptimeSparkline({ points }: { points: Array<{ totalChecks: number; succ
 function UptimeCell({ percent, days }: { percent: number | undefined; days: Array<{ totalChecks: number; successCount: number }> | undefined }) {
   const pct = typeof percent === "number" ? percent : null;
   const color = pct === null ? "text-muted-foreground/40" : pct >= 99 ? "text-emerald-400" : pct >= 90 ? "text-amber-400" : "text-destructive";
+  // Two-line layout: % on top, sparkline below. Lets the column breathe at
+  // narrower table widths so the whole device list fits without horizontal
+  // scroll on a normal laptop screen.
   return (
-    <div className="flex items-center gap-2">
-      <span className={`text-xs font-mono w-12 ${color}`}>{pct === null ? "—" : `${pct.toFixed(1)}%`}</span>
+    <div className="flex flex-col gap-1 min-w-[80px]">
+      <span className={`text-xs font-mono ${color}`}>{pct === null ? "—" : `${pct.toFixed(1)}%`}</span>
       <UptimeSparkline points={days ?? []} />
     </div>
   );
@@ -447,7 +450,7 @@ export default function Routers() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[1500px] w-full text-sm text-left">
+              <table className="min-w-[1100px] w-full text-sm text-left">
                 <thead className="text-xs text-muted-foreground uppercase bg-black/40 border-b border-border/50">
                   <tr>
                     <th className="px-4 py-4 w-10">
@@ -490,11 +493,15 @@ export default function Routers() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 font-mono text-muted-foreground">{router.ipAddress}</td>
+                      <td className="px-6 py-4 font-mono text-muted-foreground whitespace-nowrap">{router.ipAddress}</td>
                       <td className="px-6 py-4">
-                        <span className="text-muted-foreground">{router.sshUsername}</span>
-                        <span className="text-foreground/20 mx-2">@</span>
-                        <span className="font-mono text-muted-foreground">port {router.sshPort}</span>
+                        {/* Stack username over port so the column is narrow.
+                            Was a single line "user @ port 22" that ate ~180px
+                            of horizontal space; this fits in ~100px. */}
+                        <div className="flex flex-col leading-tight">
+                          <span className="text-muted-foreground truncate max-w-[140px]">{router.sshUsername}</span>
+                          <span className="font-mono text-muted-foreground/70 text-xs">:{router.sshPort}</span>
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm">
                         {(router as any).vendor ? (
@@ -517,7 +524,7 @@ export default function Routers() {
                           days={(uptimeMap as any)?.[String(router.id)]?.days}
                         />
                       </td>
-                      <td className="px-6 py-4 text-muted-foreground">{formatDate(router.createdAt).split(' ')[0]}</td>
+                      <td className="px-6 py-4 text-muted-foreground text-xs whitespace-nowrap">{formatDate(router.createdAt).split(' ')[0]}</td>
                       <td className="px-6 py-4 text-right whitespace-nowrap">
                         <div className="flex justify-end gap-1 flex-nowrap">
                           <FingerprintRowButton routerId={router.id} />

@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.15] - 2026-04-19
+
+### Improved
+- Devices table no longer requires horizontal scroll on a normal laptop screen. SSH config column now stacks `username` over `:port` (was a single wide "user @ port 22" line), uptime column stacks the % over the sparkline, and the date column uses a compact font. Table minimum width dropped from 1500px to 1100px.
+
+---
+
 ## [1.8.14] - 2026-04-19
 
 ### Fixed
