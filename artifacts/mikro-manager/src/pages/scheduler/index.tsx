@@ -8,9 +8,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Clock, Calendar, Repeat, Trash2, CalendarClock, CalendarDays, Pencil } from "lucide-react";
+import { Plus, Clock, Calendar, Repeat, Trash2, CalendarClock, CalendarDays, Pencil, List } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
+import ScheduleCalendarView from "./calendar";
+
+// Persist the selected view across navigations within the session so the
+// user lands on whichever view they were last using when they come back.
+type SchedulerView = "list" | "calendar";
+const VIEW_STORAGE_KEY = "scheduler.view";
+function readInitialView(): SchedulerView {
+  if (typeof window === "undefined") return "list";
+  const v = window.localStorage.getItem(VIEW_STORAGE_KEY);
+  return v === "calendar" ? "calendar" : "list";
+}
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -69,6 +80,12 @@ export default function SchedulerList() {
   const [filterType, setFilterType] = useState("");
   const [filterEnabled, setFilterEnabled] = useState("");
   const [sort, setSort] = useState<ActiveSort>({ key: "name", dir: "asc" });
+  const [view, setView] = useState<SchedulerView>(readInitialView);
+
+  const switchView = (next: SchedulerView) => {
+    setView(next);
+    if (typeof window !== "undefined") window.localStorage.setItem(VIEW_STORAGE_KEY, next);
+  };
 
   const jobMap = new Map(jobs.map((j) => [j.id, j]));
 
@@ -112,15 +129,48 @@ export default function SchedulerList() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Scheduler</h1>
-          <p className="text-muted-foreground mt-1">Manage scheduled and recurring jobs.</p>
+          <p className="text-muted-foreground mt-1">
+            {view === "calendar"
+              ? "Projected schedule runs for the selected month."
+              : "Manage scheduled and recurring jobs."}
+          </p>
         </div>
-        <Link href="/scheduler/new">
-          <Button className="gap-2">
-            <Plus className="w-4 h-4" /> New Schedule
+        <div className="flex items-center gap-2">
+          {/* List ↔ Calendar toggle. Single button that flips to the other
+              view; the icon and label always describe the destination, not
+              the current state, so the user can predict what clicking it
+              will do. */}
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => switchView(view === "list" ? "calendar" : "list")}
+            data-testid="scheduler-view-toggle"
+            aria-pressed={view === "calendar"}
+          >
+            {view === "list"
+              ? (<><CalendarDays className="w-4 h-4" /> Calendar</>)
+              : (<><List className="w-4 h-4" /> List</>)}
           </Button>
-        </Link>
+          <Link href="/scheduler/new">
+            <Button className="gap-2">
+              <Plus className="w-4 h-4" /> New Schedule
+            </Button>
+          </Link>
+        </div>
       </div>
 
+      {view === "calendar" ? (
+        <ScheduleCalendarView />
+      ) : (
+        <ListView />
+      )}
+    </div>
+  );
+
+  // ─── List view (extracted as a closure to keep the toggle/header simple)
+  function ListView() {
+    return (
+      <>
       <FilterSortBar
         searchValue={search}
         onSearchChange={setSearch}
@@ -257,6 +307,7 @@ export default function SchedulerList() {
           })}
         </div>
       )}
-    </div>
-  );
+      </>
+    );
+  }
 }

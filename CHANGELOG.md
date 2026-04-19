@@ -12,6 +12,11 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.6] - 2026-04-19
+
+### Changed
+- Folded the schedule calendar into the Scheduler page. The standalone "Calendar" sidebar entry and the `/scheduler/calendar` route have been removed; the Scheduler page now has a single **List ↔ Calendar** toggle button next to **New Schedule** that switches between the two views in place. The selected view is persisted in `localStorage` so the user lands on whichever view they were last using.
+
 ## [1.8.5] - 2026-04-19
 
 ### Fixed

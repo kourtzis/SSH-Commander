@@ -10,7 +10,6 @@ import {
   Users,
   LogOut,
   Clock,
-  CalendarDays,
   KeyRound,
   Menu,
   Moon,
@@ -29,7 +28,6 @@ const navItems = [
   { name: "Snippets", href: "/snippets", icon: Code2 },
   { name: "Batch Jobs", href: "/jobs", icon: PlaySquare },
   { name: "Scheduler", href: "/scheduler", icon: Clock },
-  { name: "Calendar", href: "/scheduler/calendar", icon: CalendarDays },
 ];
 
 export function AppSidebar() {

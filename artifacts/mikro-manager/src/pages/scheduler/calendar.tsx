@@ -1,14 +1,19 @@
-// ─── Schedule Calendar Page ─────────────────────────────────────────
+// ─── Schedule Calendar View ─────────────────────────────────────────
 // Month-grid view of all enabled schedules. Each cell shows an indicator
 // for the runs falling on that day; clicking a day reveals the full list
 // of runs (schedule name → job name + time).
+//
+// This file used to be a stand-alone page mounted at /scheduler/calendar
+// with its own sidebar entry. It has been refactored into an embedded
+// view rendered inside the Scheduler page (toggled via a List/Calendar
+// button) so the scheduler module presents a single navigation item
+// rather than two near-duplicate ones.
 
 import { useMemo, useState } from "react";
-import { Link } from "wouter";
 import { useGetScheduleCalendar } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock } from "lucide-react";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = [
@@ -16,7 +21,7 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-export default function ScheduleCalendar() {
+export default function ScheduleCalendarView() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-12
@@ -64,19 +69,6 @@ export default function ScheduleCalendar() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-            <CalendarIcon className="w-7 h-7 text-primary" />
-            Schedule Calendar
-          </h1>
-          <p className="text-muted-foreground mt-1">Projected schedule runs for the selected month.</p>
-        </div>
-        <Link href="/scheduler">
-          <Button variant="outline">List view</Button>
-        </Link>
-      </div>
-
       <Card>
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">

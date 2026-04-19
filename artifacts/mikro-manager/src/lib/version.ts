@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.5";
+export const APP_VERSION = "1.8.6";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -13,6 +13,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.6",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Changed",
+        items: [
+          "Schedule calendar is no longer a separate sidebar entry. The Scheduler page now hosts both views with a List ↔ Calendar toggle button next to New Schedule, and the chosen view is remembered between visits. The /scheduler/calendar URL has been retired — bookmark /scheduler instead.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.5",
     date: "2026-04-19",
