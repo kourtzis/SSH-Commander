@@ -80,9 +80,77 @@ Automate recurring network tasks with flexible scheduling:
 - **Daily** — run at a specific time each day
 - **Weekly** — run on selected days of the week at a specific time
 - **Monthly** — run on a specific day of the month, or on the Nth weekday (e.g., 2nd Tuesday) at a specific time
+- **Calendar view** — toggle the Scheduler page between a list and a month-grid calendar that expands every recurrence (one-time / interval / daily / weekly / monthly) into individual run cells. Click any date to see every run that day with its job and schedule name. The selected view is remembered between sessions.
 - The scheduler engine checks for due jobs every 30 seconds
 - One-time schedules execute the template job directly; recurring schedules clone it as new batch jobs
 - Enable/disable schedules on the fly, track run counts, and view last/next execution times
+
+### Per-Job Timeout & Automatic Retry
+Make long-running batch jobs reliable on flaky links:
+- **Per-job timeout** — every job has a configurable Timeout (1–3600s, default 30s) that hard-limits each device's SSH session, surfaced as a badge on the job detail page.
+- **Retry on connection failure** — set Retries (0–10) and a back-off (seconds) per job. Only network and connection-level errors are retried; auth failures and post-success command errors are *never* retried, so destructive scripts cannot fire twice. Each task in the detail view shows a `Retried N×` badge when more than one attempt was used.
+
+### Credential Profiles & Bastion Hosts
+Stop pasting the same SSH credentials onto every device:
+- Define a named SSH credential (username, password, optional enable/sudo password, optional jump host) once on the new `/credentials` page and attach it to any device with a dropdown. Inline username/password on the device row remain as overrides.
+- **Profiles never leak secrets** — the API returns `hasPassword` / `hasEnablePassword` booleans instead of the actual values.
+- **Bastion / jump host support** — a credential profile can reference another profile as a jump host. SSH (and the interactive session and per-device terminal) opens the jump connection first and `forwardOut`s to the target, so internal-only devices can be reached through a published gateway without VPN. End-to-end encrypted, two-hop.
+- **Per-device enable / sudo password** — a separate `enablePassword` field (profile or inline override). When a device prompts for a `Password:` mid-session it is auto-supplied; loops are prevented by refusing to send the same value twice.
+- A single shared `resolveEffectiveCreds(router)` helper centralises the resolution rules so fingerprint probes, ad-hoc batch jobs, scheduled jobs, and interactive jobs all honour profiles identically.
+
+### Vendor / Model / OS Auto-Detection
+Know what's actually on the other end of every IP:
+- **Fingerprint** action per device and **Fingerprint All** bulk action probe each device with vendor-specific commands and persist `vendor`, `model`, `osVersion`, and `lastFingerprintAt`.
+- **MikroTik** — RouterOS version and board name (e.g. `RB4011iGS+`, `CCR2004-1G-12S+2XS`, `hAP ax³`) fetched in a single SSH session. The probe appends the `+cte` username suffix so RouterOS sends clean output without ANSI/VT100 escape sequences.
+- **Cisco** — model + IOS/NX-OS version parsed from `show version` (covers `WS-C2960-...`, `ISR4321/K9`, `C9300-24P`, etc.).
+- **Linux** — distro/version from `os-release` / `uname`, plus DMI product name from `/sys/class/dmi/id/product_name` (whitebox-hardware placeholder strings like `To be filled by O.E.M.` are filtered out).
+- The Devices page shows a three-line *Vendor / Model / OS* column. Search matches any of the three; the sort menu adds Vendor, Model, and OS options (un-fingerprinted devices sort to the end).
+- Failed probes show the first 300 characters of what the device actually sent back, so unsupported banners can be diagnosed without server logs.
+
+### Device Reachability & Uptime History
+Continuous health visibility, no extra agents:
+- A background reachability poller runs every 5 minutes and TCP-probes every device's SSH port, bulk-upserting one row per device per day in `device_reachability`.
+- Devices page shows a **30-day uptime %** column with a tiny inline sparkline.
+- Bulk endpoint `GET /api/routers/uptime` returns the full daily series for every device in a single round-trip (so an N-device page makes 1 request, not N).
+- Per-device endpoint `GET /api/routers/:id/uptime?days=N` returns the daily history.
+
+### Per-Device Terminal
+A real persistent SSH shell, in your browser:
+- Click the terminal icon on any device row to open `/routers/:id/terminal` — a server-side persistent SSH shell streamed over Server-Sent Events.
+- Reuses the interactive-session machinery scoped to a single device, so it inherits jump-host routing, host-key pinning, and enable-password auto-respond.
+- **Terminal access is gated by an explicit per-user grant.** Admins always have it; operators must have the new `canTerminal` flag enabled in the user editor before they can open a terminal — both the route and the UI button enforce this.
+- Terminal input length is capped at 4 KiB per request to prevent a misbehaving client from flooding a server-side SSH session.
+
+### Dry-Run / Preview Mode
+See exactly what's about to run, on every device:
+- The **Preview** button on the job creation page resolves all targeted devices and applies tag substitution **without executing anything**.
+- A side-by-side modal shows the resolved script per device. Any unresolved `{{TAG}}` is highlighted in red so missing data is obvious before you fire.
+
+### Job Result Export
+Hand off results without screenshotting:
+- **Export** menu on completed and failed jobs offers **CSV** (one row per device with status / duration / output), **TXT** (single concatenated report), and **ZIP** (one file per device output).
+
+### Saved Views
+Stop re-typing the same filters:
+- Every list page can save its current search + sort + filter state under a name and recall it instantly.
+- Views are scoped per user and stored in a `saved_views` table.
+
+### Dark / Light Theme
+- Sidebar toggle persists the chosen theme to localStorage and applies via `:root.light` CSS variables.
+- Defaults to dark.
+
+### Security Hardening
+SSH Commander treats production deployments seriously:
+- **SSH host-key TOFU pinning** — the first successful SSH connection to each device records its host-key SHA256 fingerprint. Every subsequent connection (interactive terminal, batch jobs, scheduled jobs, fingerprint probes, reachability checks via the SSH path, jump-host targets) refuses to authenticate if the device presents a different key. Admins can clear a pinned fingerprint from the device list (KeyRound icon) when a device legitimately rotates its key.
+- **CSRF protection** via the `X-Requested-With: XMLHttpRequest` header pattern. Every state-changing `/api` request must carry this header; the frontend wrapper sets it automatically. Combined with the CORS allow-list, cross-site forgery of authenticated state-changing requests is blocked.
+- **CORS allow-list** — production deployments require `ALLOWED_ORIGINS` (comma-separated). Unknown cross-origin browser requests are refused.
+- **Mandatory `SESSION_SECRET`** in production (min 16 chars) — the app refuses to start without one when `NODE_ENV=production`.
+- **Login rate limiting** — `/api/auth/login` is capped at 10 attempts per IP per 15-minute window.
+- **Session regenerated on login** (defence against session-fixation).
+- **PostgreSQL-backed sessions with rolling expiry** — sessions live in the database and survive API server restarts. The 7-day cookie window slides forward on every authenticated request, so an active operator is never logged out by timeout.
+- **Secure cookies in production** with `TRUST_PROXY_HOPS` and `COOKIE_SECURE` env knobs for proxies that don't forward `X-Forwarded-Proto`.
+- **bcrypt cost factor 12** for new and rotated user passwords.
+- Body-size limits, terminal-input length caps, admin-only user-by-id reads, and `isNaN` guards on every `DELETE /:id` route.
 
 ### Control Character Injection
 Scripts and snippets support inline control character tags using `<<NAME>>` syntax:
@@ -456,18 +524,30 @@ pnpm --filter @workspace/api-spec run codegen
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/auth/login` | User authentication |
+| `POST` | `/api/auth/login` | User authentication (rate-limited: 10/IP/15min) |
 | `GET` | `/api/routers` | List all routers |
 | `POST` | `/api/routers/import` | Mass import routers from file data |
+| `POST` | `/api/routers/:id/fingerprint` | Probe device for vendor / model / OS |
+| `POST` | `/api/routers/fingerprint-all` | Bulk vendor/model/OS probe |
+| `DELETE` | `/api/routers/:id/host-key` | Clear pinned SSH host-key fingerprint (re-pin on next connect) |
+| `GET` | `/api/routers/uptime` | Bulk current uptime % + sparkline series for every device |
+| `GET` | `/api/routers/:id/uptime?days=N` | Per-device daily uptime history |
+| `GET` | `/api/routers/:id/terminal` | Per-device terminal SSE stream (gated by `canTerminal`) |
+| `POST` | `/api/routers/:id/terminal/input` | Send input to per-device terminal (4 KiB cap) |
 | `GET/POST` | `/api/groups` | Group management |
 | `PUT` | `/api/groups/:id/move` | Move group to new parent (with circular ref protection) |
 | `POST` | `/api/groups/:id/members` | Add members to group (with circular ref protection) |
 | `DELETE` | `/api/groups/:id/members` | Remove member (sub-groups move one level up) |
 | `GET/POST` | `/api/snippets` | Script snippet library |
+| `GET/POST/PUT/DELETE` | `/api/credentials` | Credential profile CRUD (admin) |
 | `POST` | `/api/jobs` | Create and run a batch job |
+| `POST` | `/api/jobs/dry-run` | Resolve devices + tag substitution without executing |
 | `GET` | `/api/jobs/:id/live` | SSE stream for interactive jobs |
 | `POST` | `/api/jobs/:id/respond` | Send input to waiting devices |
+| `GET` | `/api/jobs/:id/export?format=csv\|txt\|zip` | Export job results |
 | `GET/POST` | `/api/schedules` | Job schedule management |
+| `GET` | `/api/schedules/calendar?year=&month=` | Expanded run cells for calendar view |
+| `GET/POST/PUT/DELETE` | `/api/saved-views` | Saved filter / sort / view state per user |
 
 ---
 
@@ -475,14 +555,18 @@ pnpm --filter @workspace/api-spec run codegen
 
 The application uses PostgreSQL with [Drizzle ORM](https://orm.drizzle.team/). Key tables:
 
-- **users** — Multi-user accounts with bcrypt-hashed passwords and admin/operator roles
-- **routers** — Device inventory with SSH connection details (IP, port, credentials)
+- **users** — Multi-user accounts with bcrypt-hashed (cost 12) passwords, admin/operator roles, and per-user `canTerminal` grant
+- **routers** — Device inventory with SSH connection details (IP, port, credentials), pinned host-key fingerprint, optional `credentialProfileId`, and detected `vendor` / `model` / `osVersion` / `lastFingerprintAt`
+- **credential_profiles** — Reusable named SSH credentials with optional `enablePassword` and self-referencing `jumpHostId` for bastion routing
 - **router_groups** — Hierarchical group definitions with self-referencing parent
 - **group_routers / group_subgroups** — Many-to-many join tables for group membership
 - **snippets** — Reusable script library with categories
-- **batch_jobs** — Job definitions with status tracking, target lists, and execution totals
-- **job_tasks** — Per-router execution results with output, errors, and connection logs
+- **batch_jobs** — Job definitions with status tracking, target lists, execution totals, `timeoutSeconds`, `retryCount`, `retryBackoffSeconds`
+- **job_tasks** — Per-router execution results with output, errors, connection logs, and `attemptCount`
 - **schedules** — Job scheduling with one-time, interval, daily, weekly, and monthly recurrence types
+- **device_reachability** — Per-device per-day TCP reachability rollups (`totalChecks` / `successCount`) feeding the 30-day uptime % column
+- **saved_views** — Per-user saved filter / sort / view state per page (devices, jobs, scheduler)
+- **session** — PostgreSQL-backed `express-session` store (managed by `connect-pg-simple`); survives API restarts
 
 ---
 
