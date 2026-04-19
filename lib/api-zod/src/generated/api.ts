@@ -715,6 +715,16 @@ export const UpdateScheduleParams = zod.object({
 export const UpdateScheduleBody = zod.object({
   name: zod.string().optional(),
   enabled: zod.boolean().optional(),
+  jobId: zod.number().optional(),
+  type: zod.enum(["once", "interval", "weekly", "daily", "monthly"]).optional(),
+  scheduledAt: zod.date().nullish(),
+  intervalMinutes: zod.number().nullish(),
+  daysOfWeek: zod.array(zod.number()).nullish(),
+  timeOfDay: zod.string().nullish(),
+  dayOfMonth: zod.number().nullish(),
+  monthlyMode: zod.string().nullish(),
+  nthWeek: zod.number().nullish(),
+  nthWeekday: zod.number().nullish(),
 });
 
 export const UpdateScheduleResponse = zod.object({

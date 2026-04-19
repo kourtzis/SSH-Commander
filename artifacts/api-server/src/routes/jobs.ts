@@ -15,6 +15,7 @@ import {
   routerGroupsTable,
   groupRoutersTable,
   groupSubgroupsTable,
+  schedulesTable,
 } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { CreateJobBody } from "@workspace/api-zod";
@@ -469,7 +470,10 @@ router.put("/jobs/:id", async (req, res) => {
   res.json({ ...updated, completedAt: updated.completedAt ?? null });
 });
 
-// DELETE /jobs/:id — Delete a job and all its tasks
+// DELETE /jobs/:id — Delete a job, its tasks, and any schedules referencing it
+// Cascading the schedule cleanup prevents orphan schedules pointing at a
+// non-existent job. The response includes deletedSchedules so the UI can show
+// a confirmation toast.
 router.delete("/jobs/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
@@ -482,10 +486,15 @@ router.delete("/jobs/:id", async (req, res) => {
     res.status(404).json({ error: "Job not found" });
     return;
   }
+  // Cascade: remove any schedules that reference this job
+  const removedSchedules = await db
+    .delete(schedulesTable)
+    .where(eq(schedulesTable.jobId, id))
+    .returning({ id: schedulesTable.id });
   // Delete tasks first (child records), then the parent job
   await db.delete(jobTasksTable).where(eq(jobTasksTable.jobId, id));
   await db.delete(batchJobsTable).where(eq(batchJobsTable.id, id));
-  res.json({ message: "Job deleted" });
+  res.json({ message: "Job deleted", deletedSchedules: removedSchedules.length });
 });
 
 // POST /jobs/:id/rerun — Clone a completed/failed job and re-execute it.

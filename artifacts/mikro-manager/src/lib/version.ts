@@ -1,5 +1,5 @@
-export const APP_VERSION = "1.4.0";
-export const APP_VERSION_DATE = "2026-04-11";
+export const APP_VERSION = "1.4.1";
+export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
   title: string;
@@ -13,6 +13,24 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.4.1",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Edit Schedule — schedules can now be fully edited from the Scheduler page (change job template, switch type, adjust timing); next run is automatically recomputed",
+        ],
+      },
+      {
+        title: "Fixed",
+        items: [
+          "Deleting a job now also removes any schedules that reference it — no more orphan schedules pointing at non-existent jobs; the delete confirmation warns you in advance, and the Scheduler page refreshes immediately so cascaded schedules disappear without a manual reload",
+        ],
+      },
+    ],
+  },
   {
     version: "1.4.0",
     date: "2026-04-11",

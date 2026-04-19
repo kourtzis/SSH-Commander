@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useListJobs } from "@workspace/api-client-react";
+import { useListJobs, useListSchedules } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ function formatDuration(startStr: string, endStr: string | null | undefined): st
 
 export default function JobsList() {
   const { data: jobs = [], isLoading } = useListJobs();
+  const { data: schedules = [] } = useListSchedules();
   const [, setLocation] = useLocation();
   const { rerunJob, cancelJob, deleteJob } = useJobsMutations();
   const { toast } = useToast();
@@ -117,12 +118,24 @@ export default function JobsList() {
   };
 
   const handleBulkDelete = async () => {
-    const ok = await confirmDialog({ title: "Delete Jobs", description: `Delete ${selection.count} selected job(s)? This action cannot be undone.`, confirmLabel: "Delete All", variant: "destructive" });
+    // Count schedules that reference any of the selected jobs — these cascade-delete on the server
+    const selectedIdSet = new Set(selection.ids);
+    const affectedSchedules = schedules.filter(s => selectedIdSet.has(s.jobId)).length;
+    const cascadeNote = affectedSchedules > 0
+      ? ` This will also remove ${affectedSchedules} schedule${affectedSchedules === 1 ? "" : "s"} that reference ${affectedSchedules === 1 ? "one of these jobs" : "these jobs"}.`
+      : "";
+    const ok = await confirmDialog({
+      title: "Delete Jobs",
+      description: `Delete ${selection.count} selected job(s)? This action cannot be undone.${cascadeNote}`,
+      confirmLabel: "Delete All",
+      variant: "destructive",
+    });
     if (!ok) return;
     setIsBulkDeleting(true);
     try {
       await Promise.all(selection.ids.map(id => deleteJob.mutateAsync({ id })));
-      toast({ title: `${selection.count} job(s) deleted` });
+      const scheduleNote = affectedSchedules > 0 ? ` (and ${affectedSchedules} linked schedule${affectedSchedules === 1 ? "" : "s"})` : "";
+      toast({ title: `${selection.count} job(s) deleted${scheduleNote}` });
       selection.clear();
     } catch (err: any) {
       toast({ title: "Error deleting jobs", description: err.message, variant: "destructive" });

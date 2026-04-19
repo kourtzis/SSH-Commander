@@ -189,17 +189,135 @@ router.post("/schedules", async (req, res) => {
 router.put("/schedules/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
-  const { name, enabled } = req.body;
+  const {
+    name,
+    enabled,
+    jobId,
+    type,
+    scheduledAt,
+    intervalMinutes,
+    daysOfWeek,
+    timeOfDay,
+    dayOfMonth,
+    monthlyMode,
+    nthWeek,
+    nthWeekday,
+  } = req.body ?? {};
+
+  // Load existing so we can validate and recompute nextRunAt with merged fields
+  const [existing] = await db
+    .select()
+    .from(schedulesTable)
+    .where(eq(schedulesTable.id, id))
+    .limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "Schedule not found" });
+    return;
+  }
+
+  // If a new job is provided, ensure it exists and is a scheduled-template job
+  if (jobId !== undefined && jobId !== existing.jobId) {
+    const [job] = await db.select().from(batchJobsTable).where(eq(batchJobsTable.id, jobId)).limit(1);
+    if (!job) {
+      res.status(404).json({ error: "Job not found" });
+      return;
+    }
+    if (job.status !== "scheduled") {
+      res.status(400).json({ error: "Only jobs saved with 'Schedule' mode can be used as templates" });
+      return;
+    }
+  }
 
   const updates: Record<string, any> = {};
   if (name !== undefined) updates.name = name;
   if (enabled !== undefined) updates.enabled = enabled;
+  if (jobId !== undefined) updates.jobId = jobId;
+
+  // Merged values used for nextRunAt recomputation
+  const mergedType = type ?? existing.type;
+  const mergedTimeOfDay = timeOfDay ?? existing.timeOfDay;
+  const mergedInterval = intervalMinutes ?? existing.intervalMinutes;
+  const mergedDays = daysOfWeek ?? existing.daysOfWeek;
+  const mergedDayOfMonth = dayOfMonth ?? existing.dayOfMonth;
+  const mergedMonthlyMode = monthlyMode ?? existing.monthlyMode;
+  const mergedNthWeek = nthWeek ?? existing.nthWeek;
+  const mergedNthWeekday = nthWeekday ?? existing.nthWeekday;
+  const mergedScheduledAt = scheduledAt !== undefined ? scheduledAt : existing.scheduledAt;
+
+  // Whether timing-related fields changed (need to recompute nextRunAt)
+  const timingChanged =
+    type !== undefined ||
+    scheduledAt !== undefined ||
+    intervalMinutes !== undefined ||
+    daysOfWeek !== undefined ||
+    timeOfDay !== undefined ||
+    dayOfMonth !== undefined ||
+    monthlyMode !== undefined ||
+    nthWeek !== undefined ||
+    nthWeekday !== undefined;
+
+  if (type !== undefined) updates.type = type;
+  if (scheduledAt !== undefined) updates.scheduledAt = scheduledAt ? new Date(scheduledAt) : null;
+  if (intervalMinutes !== undefined) updates.intervalMinutes = intervalMinutes;
+  if (daysOfWeek !== undefined) updates.daysOfWeek = daysOfWeek;
+  if (timeOfDay !== undefined) updates.timeOfDay = timeOfDay;
+  if (dayOfMonth !== undefined) updates.dayOfMonth = dayOfMonth;
+  if (monthlyMode !== undefined) updates.monthlyMode = monthlyMode;
+  if (nthWeek !== undefined) updates.nthWeek = nthWeek;
+  if (nthWeekday !== undefined) updates.nthWeekday = nthWeekday;
+
+  if (timingChanged) {
+    // Validate per-type required fields and recompute nextRunAt
+    let nextRunAt: Date | null = null;
+    if (mergedType === "once") {
+      if (!mergedScheduledAt) {
+        res.status(400).json({ error: "scheduledAt is required for one-time schedules" });
+        return;
+      }
+      nextRunAt = new Date(mergedScheduledAt);
+    } else if (mergedType === "interval") {
+      if (!mergedInterval || mergedInterval < 1) {
+        res.status(400).json({ error: "intervalMinutes must be at least 1" });
+        return;
+      }
+      nextRunAt = new Date(Date.now() + mergedInterval * 60 * 1000);
+    } else if (mergedType === "daily") {
+      if (!mergedTimeOfDay) {
+        res.status(400).json({ error: "timeOfDay is required for daily schedules" });
+        return;
+      }
+      nextRunAt = computeNextDailyRun(mergedTimeOfDay);
+    } else if (mergedType === "weekly") {
+      if (!mergedDays || !Array.isArray(mergedDays) || mergedDays.length === 0 || !mergedTimeOfDay) {
+        res.status(400).json({ error: "daysOfWeek and timeOfDay are required for weekly schedules" });
+        return;
+      }
+      nextRunAt = computeNextWeeklyRun(mergedDays, mergedTimeOfDay);
+    } else if (mergedType === "monthly") {
+      if (!mergedMonthlyMode || !mergedTimeOfDay) {
+        res.status(400).json({ error: "monthlyMode and timeOfDay are required for monthly schedules" });
+        return;
+      }
+      if (mergedMonthlyMode === "dayOfMonth" && !mergedDayOfMonth) {
+        res.status(400).json({ error: "dayOfMonth is required for day-of-month mode" });
+        return;
+      }
+      if (mergedMonthlyMode === "nthWeekday" && (mergedNthWeek == null || mergedNthWeekday == null)) {
+        res.status(400).json({ error: "nthWeek and nthWeekday are required for nth-weekday mode" });
+        return;
+      }
+      nextRunAt = computeNextMonthlyRun(
+        mergedMonthlyMode,
+        mergedDayOfMonth,
+        mergedNthWeek,
+        mergedNthWeekday,
+        mergedTimeOfDay,
+      );
+    }
+    updates.nextRunAt = nextRunAt;
+  }
 
   const [updated] = await db.update(schedulesTable).set(updates).where(eq(schedulesTable.id, id)).returning();
-  if (!updated) {
-    res.status(404).json({ error: "Schedule not found" });
-    return;
-  }
   res.json(updated);
 });
 

@@ -12,6 +12,16 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.4.1] - 2026-04-19
+
+### Added
+- **Edit Schedule** — schedules can now be fully edited from the Scheduler page; change the job template, switch type (one-time / interval / daily / weekly / monthly), or adjust timing parameters and the next run is automatically recomputed
+
+### Fixed
+- **Orphan schedules on job delete** — deleting a job now also removes any schedules that reference it, so the Scheduler never shows entries pointing at a non-existent job. The job delete confirmation dialog warns you in advance how many schedules will be removed. The Scheduler page refreshes immediately after a job is deleted so cascaded schedules disappear without a manual reload.
+
+---
+
 ## [1.4.0] - 2026-04-11
 
 ### Added

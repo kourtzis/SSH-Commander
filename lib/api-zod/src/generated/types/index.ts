@@ -48,6 +48,7 @@ export * from "./snippet";
 export * from "./updateGroupRequest";
 export * from "./updateRouterRequest";
 export * from "./updateScheduleRequest";
+export * from "./updateScheduleRequestType";
 export * from "./updateSnippetRequest";
 export * from "./updateUserRequest";
 export * from "./updateUserRequestRole";

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Clock, Calendar, Repeat, Trash2, CalendarClock, CalendarDays } from "lucide-react";
+import { Plus, Clock, Calendar, Repeat, Trash2, CalendarClock, CalendarDays, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FilterSortBar, ActiveSort, applySort } from "@/components/filter-sort-bar";
 
@@ -231,6 +231,16 @@ export default function SchedulerList() {
                         checked={s.enabled}
                         onCheckedChange={(val) => handleToggle(s.id, val)}
                       />
+                      <Link href={`/scheduler/new?edit=${s.id}`}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-primary"
+                          title="Edit schedule"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                      </Link>
                       <Button
                         size="icon"
                         variant="ghost"

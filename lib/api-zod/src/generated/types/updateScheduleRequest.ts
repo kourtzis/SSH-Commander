@@ -5,8 +5,19 @@
  * SSH Commander API
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateScheduleRequestType } from "./updateScheduleRequestType";
 
 export interface UpdateScheduleRequest {
   name?: string;
   enabled?: boolean;
+  jobId?: number;
+  type?: UpdateScheduleRequestType;
+  scheduledAt?: Date | null;
+  intervalMinutes?: number | null;
+  daysOfWeek?: number[] | null;
+  timeOfDay?: string | null;
+  dayOfMonth?: number | null;
+  monthlyMode?: string | null;
+  nthWeek?: number | null;
+  nthWeekday?: number | null;
 }

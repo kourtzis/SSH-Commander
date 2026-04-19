@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
-import { useListJobs } from "@workspace/api-client-react";
+import { useListJobs, useGetSchedule } from "@workspace/api-client-react";
 import { useSchedulesMutations } from "@/hooks/use-mutations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,9 +31,16 @@ export default function NewSchedule() {
   const search = useSearch();
   const params = new URLSearchParams(search);
   const presetJobId = params.get("jobId");
+  // Edit mode: ?edit=<scheduleId> loads an existing schedule into the form
+  const editIdParam = params.get("edit");
+  const editId = editIdParam ? parseInt(editIdParam) : null;
+  const isEdit = editId !== null && !Number.isNaN(editId);
 
   const { data: jobs = [] } = useListJobs();
-  const { createSchedule } = useSchedulesMutations();
+  const { data: existingSchedule } = useGetSchedule(editId ?? 0, {
+    query: { enabled: isEdit },
+  });
+  const { createSchedule, updateSchedule } = useSchedulesMutations();
   const { toast } = useToast();
 
   const [name, setName] = useState("");
@@ -49,17 +56,50 @@ export default function NewSchedule() {
   const [nthWeek, setNthWeek] = useState(1);
   const [nthWeekday, setNthWeekday] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
   const scheduledJobs = jobs.filter(j => j.status === "scheduled");
 
+  // Hydrate form from the loaded schedule (edit mode only, runs once)
   useEffect(() => {
+    if (!isEdit || !existingSchedule || hydrated) return;
+    const s = existingSchedule;
+    setName(s.name);
+    setJobId(s.jobId);
+    if (s.type === "once") {
+      setCategory("once");
+      if (s.scheduledAt) {
+        // datetime-local input expects "YYYY-MM-DDTHH:mm" without seconds/TZ
+        const d = new Date(s.scheduledAt);
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        setScheduledAt(local);
+      }
+    } else {
+      setCategory("recurring");
+      setRecurringMode(s.type as RecurringMode);
+      if (s.intervalMinutes) setIntervalMinutes(s.intervalMinutes);
+      if (s.timeOfDay) setTimeOfDay(s.timeOfDay);
+      if (s.daysOfWeek && Array.isArray(s.daysOfWeek)) setSelectedDays(s.daysOfWeek);
+      if (s.monthlyMode === "dayOfMonth" || s.monthlyMode === "nthWeekday") {
+        setMonthlyMode(s.monthlyMode);
+      }
+      if (s.dayOfMonth) setDayOfMonth(s.dayOfMonth);
+      if (s.nthWeek) setNthWeek(s.nthWeek);
+      if (s.nthWeekday !== null && s.nthWeekday !== undefined) setNthWeekday(s.nthWeekday);
+    }
+    setHydrated(true);
+  }, [isEdit, existingSchedule, hydrated]);
+
+  useEffect(() => {
+    if (isEdit) return; // don't auto-fill name in edit mode
     if (presetJobId && jobs.length > 0) {
       const job = jobs.find(j => j.id === parseInt(presetJobId));
       if (job && !name) {
         setName(`Schedule: ${job.name}`);
       }
     }
-  }, [presetJobId, jobs, name]);
+  }, [presetJobId, jobs, name, isEdit]);
 
   const handleSubmit = async () => {
     if (!name || !jobId) {
@@ -72,35 +112,26 @@ export default function NewSchedule() {
       const type = category === "once" ? "once" : recurringMode;
       const payload: any = { name, jobId: Number(jobId), type };
 
-      if (type === "once" && scheduledAt) {
-        payload.scheduledAt = new Date(scheduledAt).toISOString();
-      }
-      if (type === "interval") {
-        payload.intervalMinutes = intervalMinutes;
-      }
-      if (type === "daily") {
-        payload.timeOfDay = timeOfDay;
-      }
-      if (type === "weekly") {
-        payload.daysOfWeek = selectedDays;
-        payload.timeOfDay = timeOfDay;
-      }
-      if (type === "monthly") {
-        payload.timeOfDay = timeOfDay;
-        payload.monthlyMode = monthlyMode;
-        if (monthlyMode === "dayOfMonth") {
-          payload.dayOfMonth = dayOfMonth;
-        } else {
-          payload.nthWeek = nthWeek;
-          payload.nthWeekday = nthWeekday;
-        }
-      }
+      // Send all timing fields explicitly (use null to clear unused ones in edit mode)
+      payload.scheduledAt = type === "once" && scheduledAt ? new Date(scheduledAt).toISOString() : null;
+      payload.intervalMinutes = type === "interval" ? intervalMinutes : null;
+      payload.timeOfDay = type === "daily" || type === "weekly" || type === "monthly" ? timeOfDay : null;
+      payload.daysOfWeek = type === "weekly" ? selectedDays : null;
+      payload.monthlyMode = type === "monthly" ? monthlyMode : null;
+      payload.dayOfMonth = type === "monthly" && monthlyMode === "dayOfMonth" ? dayOfMonth : null;
+      payload.nthWeek = type === "monthly" && monthlyMode === "nthWeekday" ? nthWeek : null;
+      payload.nthWeekday = type === "monthly" && monthlyMode === "nthWeekday" ? nthWeekday : null;
 
-      await createSchedule.mutateAsync({ data: payload });
-      toast({ title: "Schedule created!" });
+      if (isEdit && editId) {
+        await updateSchedule.mutateAsync({ id: editId, data: payload });
+        toast({ title: "Schedule updated!" });
+      } else {
+        await createSchedule.mutateAsync({ data: payload });
+        toast({ title: "Schedule created!" });
+      }
       setLocation("/scheduler");
     } catch (e: any) {
-      toast({ title: "Failed to create schedule", description: e.message, variant: "destructive" });
+      toast({ title: isEdit ? "Failed to update schedule" : "Failed to create schedule", description: e.message, variant: "destructive" });
       setIsSubmitting(false);
     }
   };
@@ -126,8 +157,12 @@ export default function NewSchedule() {
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-20">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">New Schedule</h1>
-        <p className="text-muted-foreground mt-1">Set up a scheduled or recurring job execution.</p>
+        <h1 className="text-3xl font-bold tracking-tight">{isEdit ? "Edit Schedule" : "New Schedule"}</h1>
+        <p className="text-muted-foreground mt-1">
+          {isEdit
+            ? "Update this schedule's job, type, or timing. The next run will be recomputed."
+            : "Set up a scheduled or recurring job execution."}
+        </p>
       </div>
 
       <Card className="glass-panel">
@@ -377,7 +412,9 @@ export default function NewSchedule() {
 
       <div className="flex justify-end pt-4">
         <Button size="lg" onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto text-lg gap-2 shadow-[0_0_20px_rgba(45,212,191,0.3)]">
-          {isSubmitting ? "Creating..." : <><Save className="w-5 h-5" /> Create Schedule</>}
+          {isSubmitting
+            ? (isEdit ? "Saving..." : "Creating...")
+            : <><Save className="w-5 h-5" /> {isEdit ? "Save Changes" : "Create Schedule"}</>}
         </Button>
       </div>
     </div>

@@ -1509,3 +1509,35 @@ components:
           type: string
         enabled:
           type: boolean
+        jobId:
+          type: integer
+        type:
+          type: string
+          enum: [once, interval, weekly, daily, monthly]
+        scheduledAt:
+          type: string
+          format: date-time
+          nullable: true
+        intervalMinutes:
+          type: integer
+          nullable: true
+        daysOfWeek:
+          type: array
+          items:
+            type: integer
+          nullable: true
+        timeOfDay:
+          type: string
+          nullable: true
+        dayOfMonth:
+          type: integer
+          nullable: true
+        monthlyMode:
+          type: string
+          nullable: true
+        nthWeek:
+          type: integer
+          nullable: true
+        nthWeekday:
+          type: integer
+          nullable: true

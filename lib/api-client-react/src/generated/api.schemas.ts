@@ -383,9 +383,30 @@ export interface CreateScheduleRequest {
   nthWeekday?: number;
 }
 
+export type UpdateScheduleRequestType =
+  (typeof UpdateScheduleRequestType)[keyof typeof UpdateScheduleRequestType];
+
+export const UpdateScheduleRequestType = {
+  once: "once",
+  interval: "interval",
+  weekly: "weekly",
+  daily: "daily",
+  monthly: "monthly",
+} as const;
+
 export interface UpdateScheduleRequest {
   name?: string;
   enabled?: boolean;
+  jobId?: number;
+  type?: UpdateScheduleRequestType;
+  scheduledAt?: string | null;
+  intervalMinutes?: number | null;
+  daysOfWeek?: number[] | null;
+  timeOfDay?: string | null;
+  dayOfMonth?: number | null;
+  monthlyMode?: string | null;
+  nthWeek?: number | null;
+  nthWeekday?: number | null;
 }
 
 export type GetGroupsCounts200 = {

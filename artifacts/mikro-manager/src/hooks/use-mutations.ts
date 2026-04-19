@@ -135,7 +135,10 @@ export function useJobsMutations() {
 
   const deleteJob = useDeleteJob({
     mutation: {
-      onSuccess: () => qc.invalidateQueries({ queryKey: getListJobsQueryKey() })
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: getListJobsQueryKey() });
+        qc.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
+      }
     }
   });
 
