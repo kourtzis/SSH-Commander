@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.2";
+export const APP_VERSION = "1.8.3";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -13,6 +13,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.3",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Docker container start: the schema bootstrap step (drizzle-kit push) was hitting an interactive rename-detection prompt for new tables (credential_profiles, device_reachability, saved_views) on upgrades from older releases, sometimes leaving those tables uncreated. The defensive migration block in docker-entrypoint.sh now creates these three tables and their indexes explicitly with CREATE TABLE IF NOT EXISTS, and the push step is run with stdin closed so it can never block on a prompt again. Fixes 'relation device_reachability does not exist' in the reachability loop and the credential profile save failure on upgraded installations.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.2",
     date: "2026-04-19",

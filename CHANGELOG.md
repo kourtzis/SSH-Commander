@@ -12,6 +12,12 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.3] - 2026-04-19
+
+### Fixed
+- Docker container schema bootstrap. On upgrades from older releases (e.g. 1.4.x → 1.8.x), `drizzle-kit push` would hit an interactive rename-detection prompt for the new tables added in 1.5+/1.6+/1.7+ (`credential_profiles`, `device_reachability`, `saved_views`) — it offered to rename the existing `session` table (managed by `connect-pg-simple`, not in the Drizzle schema) into one of them. Even with `--force`, the prompt blocked container start, leaving those tables uncreated. The result was 500s on the credential profiles page and a flood of `relation "device_reachability" does not exist` errors from the background reachability loop.
+- The defensive migration block in `docker-entrypoint.sh` now creates `credential_profiles`, `device_reachability`, and `saved_views` (and their indexes) explicitly with `CREATE TABLE IF NOT EXISTS`, so by the time `drizzle-kit push` runs there are no new tables to ask about. As a belt-and-braces measure the push step is also run with stdin closed, so any future interactive prompt fails fast instead of hanging.
+
 ## [1.8.2] - 2026-04-19
 
 ### Performance

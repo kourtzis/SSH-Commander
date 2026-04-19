@@ -46,6 +46,44 @@ const { Client } = require('pg');
     \"ALTER TABLE routers ADD COLUMN IF NOT EXISTS ssh_host_key_fingerprint text\",
     // ── users: 1.8.0 (per-user terminal RBAC) ─────────────────────
     \"ALTER TABLE users ADD COLUMN IF NOT EXISTS can_terminal boolean NOT NULL DEFAULT false\",
+    // ── new tables added in 1.5+ / 1.6+ / 1.7+ ────────────────────
+    // We create these explicitly because drizzle-kit push's rename
+    // detector will otherwise interactively ask whether each new table
+    // is a rename of some existing table (e.g. 'session' from
+    // connect-pg-simple), and even with --force the prompt blocks
+    // container start. Creating them here means push has nothing new
+    // to ask about.
+    \"CREATE TABLE IF NOT EXISTS credential_profiles (\\
+      id serial PRIMARY KEY,\\
+      name text NOT NULL,\\
+      ssh_username text NOT NULL,\\
+      ssh_password text,\\
+      enable_password text,\\
+      jump_host_id integer,\\
+      jump_host text,\\
+      jump_port integer,\\
+      description text,\\
+      created_at timestamp NOT NULL DEFAULT now()\\
+    )\",
+    \"CREATE INDEX IF NOT EXISTS idx_credential_profiles_jump_host_id ON credential_profiles (jump_host_id)\",
+    \"CREATE TABLE IF NOT EXISTS device_reachability (\\
+      id serial PRIMARY KEY,\\
+      router_id integer NOT NULL,\\
+      day date NOT NULL,\\
+      total_checks integer NOT NULL DEFAULT 0,\\
+      success_count integer NOT NULL DEFAULT 0\\
+    )\",
+    \"CREATE INDEX IF NOT EXISTS idx_device_reachability_router_id ON device_reachability (router_id)\",
+    \"CREATE UNIQUE INDEX IF NOT EXISTS uq_device_reachability_router_day ON device_reachability (router_id, day)\",
+    \"CREATE TABLE IF NOT EXISTS saved_views (\\
+      id serial PRIMARY KEY,\\
+      user_id integer NOT NULL,\\
+      page_key text NOT NULL,\\
+      name text NOT NULL,\\
+      view_state json NOT NULL DEFAULT '{}'::json,\\
+      created_at timestamp NOT NULL DEFAULT now()\\
+    )\",
+    \"CREATE INDEX IF NOT EXISTS idx_saved_views_user_page ON saved_views (user_id, page_key)\",
   ];
   for (const sql of stmts) {
     try {
@@ -65,8 +103,15 @@ const { Client } = require('pg');
 
 echo "Running drizzle-kit push (catches any remaining schema drift)..."
 # Don't fail container start on push errors — the defensive ALTERs above
-# already added the columns that matter. Push is for new tables / indexes.
-pnpm exec drizzle-kit push --force 2>&1 || echo "drizzle-kit push warning (non-fatal — defensive ALTERs already applied)"
+# already added the columns and tables that matter. Push is here as a
+# belt-and-braces catch for indexes / future schema drift.
+#
+# We pipe an empty stdin (`</dev/null`) so that if drizzle-kit ever asks
+# an interactive question (e.g. its rename-detection prompt) it gets EOF
+# immediately and exits non-zero rather than hanging the container start
+# forever. The defensive block above already created every table that
+# would trigger such a prompt.
+pnpm exec drizzle-kit push --force </dev/null 2>&1 || echo "drizzle-kit push warning (non-fatal — defensive ALTERs already applied)"
 
 echo "Seeding default admin user..."
 cd /app
