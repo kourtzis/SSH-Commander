@@ -127,6 +127,13 @@ router.post("/routers/:id/terminal/input", async (req, res) => {
   const user = { id: (req.session as any).userId as number };
   const id = parseInt(req.params.id);
   const input = String(req.body?.input ?? "");
+  // Cap input size — without this, a misbehaving client can OOM the server
+  // by sending a multi-megabyte string that we'd then write straight to the
+  // SSH stream. 4 KiB is plenty for any interactive command line.
+  if (input.length > 4096) {
+    res.status(413).json({ error: "Input too large (max 4096 bytes)" });
+    return;
+  }
   const key = sessionKey(user.id, id);
   const session = sessions.get(key);
   if (!session || !session.stream || session.closed) {

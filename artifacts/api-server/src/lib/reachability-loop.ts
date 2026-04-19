@@ -66,16 +66,25 @@ async function tick(): Promise<void> {
     for (let i = 0; i < Math.min(MAX_CONCURRENCY, routers.length); i++) workers.push(worker());
     await Promise.all(workers);
 
-    // Bulk upsert one row per (router, today)
-    for (const { id, ok } of results) {
+    // Single bulk upsert for every router probed this tick. The EXCLUDED
+    // values come from the VALUES list, so we add them to the existing row
+    // (or use them directly when the row didn't yet exist).
+    if (results.length > 0) {
       await db
         .insert(deviceReachabilityTable)
-        .values({ routerId: id, day: today, totalChecks: 1, successCount: ok ? 1 : 0 })
+        .values(
+          results.map(({ id, ok }) => ({
+            routerId: id,
+            day: today,
+            totalChecks: 1,
+            successCount: ok ? 1 : 0,
+          })),
+        )
         .onConflictDoUpdate({
           target: [deviceReachabilityTable.routerId, deviceReachabilityTable.day],
           set: {
-            totalChecks: sql`${deviceReachabilityTable.totalChecks} + 1`,
-            successCount: sql`${deviceReachabilityTable.successCount} + ${ok ? 1 : 0}`,
+            totalChecks: sql`${deviceReachabilityTable.totalChecks} + EXCLUDED.${sql.identifier("total_checks")}`,
+            successCount: sql`${deviceReachabilityTable.successCount} + EXCLUDED.${sql.identifier("success_count")}`,
           },
         });
     }

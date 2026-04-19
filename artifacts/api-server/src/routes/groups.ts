@@ -226,6 +226,7 @@ router.put("/groups/:id/move", async (req, res) => {
 router.delete("/groups/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid group id" }); return; }
   await db.delete(groupRoutersTable).where(eq(groupRoutersTable.groupId, id));
   await db.delete(groupSubgroupsTable).where(eq(groupSubgroupsTable.parentGroupId, id));
   await db.delete(groupSubgroupsTable).where(eq(groupSubgroupsTable.childGroupId, id));

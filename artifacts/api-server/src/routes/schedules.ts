@@ -324,6 +324,7 @@ router.put("/schedules/:id", async (req, res) => {
 router.delete("/schedules/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid schedule id" }); return; }
   await db.delete(schedulesTable).where(eq(schedulesTable.id, id));
   res.json({ message: "Schedule deleted" });
 });

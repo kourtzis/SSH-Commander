@@ -1,6 +1,6 @@
 {
   "name": "@workspace/api-server",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,6 +19,7 @@
     "cors": "^2",
     "drizzle-orm": "^0.45.2",
     "express": "^5",
+    "express-rate-limit": "^8.3.2",
     "express-session": "^1.19.0",
     "jszip": "^3.10.1",
     "pg": "^8.20.0",

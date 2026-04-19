@@ -1,6 +1,6 @@
 {
   "name": "workspace",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "license": "MIT",
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
@@ -10,7 +10,10 @@
   },
   "private": true,
   "devDependencies": {
-    "typescript": "~5.9.2",
-    "prettier": "^3.8.1"
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.2"
+  },
+  "dependencies": {
+    "express-rate-limit": "^8.3.2"
   }
 }

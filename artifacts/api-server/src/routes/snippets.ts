@@ -89,7 +89,9 @@ router.put("/snippets/:id", async (req, res) => {
 // DELETE /snippets/:id — Remove a snippet
 router.delete("/snippets/:id", async (req, res) => {
   requireAuth(req);
-  await db.delete(snippetsTable).where(eq(snippetsTable.id, parseInt(req.params.id)));
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid snippet id" }); return; }
+  await db.delete(snippetsTable).where(eq(snippetsTable.id, id));
   res.json({ message: "Snippet deleted" });
 });
 

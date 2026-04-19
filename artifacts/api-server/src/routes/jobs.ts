@@ -322,10 +322,21 @@ async function runJobInBackground(
     .where(eq(batchJobsTable.id, jobId));
 }
 
-// GET /jobs/:id — Get full job details including all tasks
+// GET /jobs/:id — Get job details including all tasks.
+//
+// Performance: this endpoint is polled every 2 seconds while a job is running,
+// so we deliberately strip the two heavyweight per-task fields (`output` and
+// `connectionLog` — each can be megabytes) and the original `excelData`
+// import blob from the response. The detail page lazy-fetches the full task
+// payload via GET /jobs/:jobId/tasks/:taskId when the user expands a row.
+//
+// Internal consumers that DO need the full output (export endpoint, rerun)
+// query `jobTasksTable` directly and aren't affected.
 router.get("/jobs/:id", async (req, res) => {
   requireAuth(req);
   const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid job id" }); return; }
+
   const [job] = await db
     .select()
     .from(batchJobsTable)
@@ -335,26 +346,63 @@ router.get("/jobs/:id", async (req, res) => {
     res.status(404).json({ error: "Job not found" });
     return;
   }
+
   const tasks = await db
-    .select()
+    .select({
+      id: jobTasksTable.id,
+      jobId: jobTasksTable.jobId,
+      routerId: jobTasksTable.routerId,
+      routerName: jobTasksTable.routerName,
+      routerIp: jobTasksTable.routerIp,
+      status: jobTasksTable.status,
+      errorMessage: jobTasksTable.errorMessage,
+      resolvedScript: jobTasksTable.resolvedScript,
+      promptText: jobTasksTable.promptText,
+      attemptCount: jobTasksTable.attemptCount,
+      startedAt: jobTasksTable.startedAt,
+      completedAt: jobTasksTable.completedAt,
+    })
     .from(jobTasksTable)
     .where(eq(jobTasksTable.jobId, id))
     .orderBy(jobTasksTable.id);
 
+  // Strip excelData from job — the client never needs it after creation.
+  const { excelData: _excelData, ...jobLite } = job as any;
+
   res.json({
-    ...job,
+    ...jobLite,
     completedAt: job.completedAt ?? null,
     tasks: tasks.map((t) => ({
       ...t,
-      output: t.output ?? null,
+      // Provide null placeholders for the stripped fields so the client
+      // schema (Task) still matches the response shape; the detail page
+      // fetches real values lazily via /jobs/:jobId/tasks/:taskId.
+      output: null as string | null,
+      connectionLog: null as string | null,
       errorMessage: t.errorMessage ?? null,
-      connectionLog: t.connectionLog ?? null,
       resolvedScript: t.resolvedScript ?? null,
       promptText: t.promptText ?? null,
       startedAt: t.startedAt ?? null,
       completedAt: t.completedAt ?? null,
     })),
   });
+});
+
+// GET /jobs/:jobId/tasks/:taskId — Fetch a single task's full payload
+// (output + connectionLog) on demand. Used by the detail page when the
+// user expands a task row in lite mode.
+router.get("/jobs/:jobId/tasks/:taskId", async (req, res) => {
+  requireAuth(req);
+  const jobId = parseInt(req.params.jobId);
+  const taskId = parseInt(req.params.taskId);
+  if (isNaN(jobId) || isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [task] = await db
+    .select()
+    .from(jobTasksTable)
+    .where(and(eq(jobTasksTable.jobId, jobId), eq(jobTasksTable.id, taskId)))
+    .limit(1);
+  if (!task) { res.status(404).json({ error: "Task not found" }); return; }
+  res.json(task);
 });
 
 // ─── SSE Live Stream ────────────────────────────────────────────────

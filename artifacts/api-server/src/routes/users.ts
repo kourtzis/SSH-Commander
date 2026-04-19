@@ -54,10 +54,14 @@ router.post("/users", async (req, res) => {
   res.status(201).json(sanitizeUser(newUser));
 });
 
-// GET /users/:id — Get a single user by ID
+// GET /users/:id — Get a single user by ID. Admin only — operators can only
+// see their own record via /auth/me, not other users.
 router.get("/users/:id", async (req, res) => {
   requireAuth(req);
+  const currentUser = await getCurrentUser(req);
+  requireAdmin(currentUser!);
   const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid user id" }); return; }
   const [user] = await db
     .select()
     .from(usersTable)

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
 import { useGetJob } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { useConfirm } from "@/components/confirm-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,6 +90,28 @@ export default function JobDetail() {
   const confirmDialog = useConfirm();
   const { cancelJob } = useJobsMutations();
   const [expandedTask, setExpandedTask] = useState<number | null>(null);
+
+  // Lazy-fetch the heavyweight per-task fields (output + connectionLog) only
+  // when the user expands a task. The polled /jobs/:id response strips these
+  // by default so the 2s poll stays small even with many devices / large
+  // outputs. While the task is running we keep refetching every 2s to mirror
+  // the live SSE-streamed output the user already sees inline.
+  const baseUrl = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  const expandedTaskStatus = expandedTask
+    ? (job?.tasks?.find((t) => t.id === expandedTask)?.status ?? null)
+    : null;
+  const { data: expandedTaskFull } = useQuery({
+    queryKey: ["job-task-full", jobId, expandedTask],
+    queryFn: async () => {
+      const r = await fetch(`${baseUrl}/api/jobs/${jobId}/tasks/${expandedTask}`, {
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json() as Promise<{ output: string | null; connectionLog: string | null }>;
+    },
+    enabled: !!expandedTask,
+    refetchInterval: expandedTaskStatus === "running" ? 2000 : false,
+  });
   const [waitingDevices, setWaitingDevices] = useState<WaitingDevice[]>([]);
   const [liveOutputs, setLiveOutputs] = useState<Map<number, string>>(new Map());
   const [responseText, setResponseText] = useState("");
@@ -516,7 +539,11 @@ export default function JobDetail() {
                 const isWaiting = waitingDevices.some(w => w.taskId === task.id);
                 const waitingInfo = waitingDevices.find(w => w.taskId === task.id);
                 const liveOutput = liveOutputs.get(task.id);
-                const displayOutput = liveOutput || task.output;
+                // task.output is null in the polled response — fall back to
+                // the lazy-fetched full payload when this task is expanded.
+                const fullOutput = isExpanded ? expandedTaskFull?.output : null;
+                const displayOutput = liveOutput || fullOutput || task.output;
+                const fullConnectionLog = isExpanded ? expandedTaskFull?.connectionLog : null;
                 const taskStatus = isWaiting ? "waiting_input" : task.status;
 
                 return (
@@ -645,17 +672,17 @@ export default function JobDetail() {
                           </div>
                         )}
 
-                        {(task as any).connectionLog && (
+                        {fullConnectionLog && (
                           <div>
                             <div className="flex items-center gap-2 mb-2">
                               <ScrollText className="w-3.5 h-3.5 text-yellow-400" />
                               <span className="text-xs font-semibold uppercase text-yellow-400">SSH Connection Log</span>
                             </div>
-                            <pre className="text-xs font-mono text-muted-foreground bg-black/60 p-4 rounded-xl border border-yellow-500/20 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed">{(task as any).connectionLog}</pre>
+                            <pre className="text-xs font-mono text-muted-foreground bg-black/60 p-4 rounded-xl border border-yellow-500/20 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed">{fullConnectionLog}</pre>
                           </div>
                         )}
 
-                        {!displayOutput && !task.errorMessage && !(task as any).connectionLog && !(task as any).resolvedScript && !isWaiting && (
+                        {!displayOutput && !task.errorMessage && !fullConnectionLog && !(task as any).resolvedScript && !isWaiting && (
                           <p className="text-xs text-muted-foreground italic">No log data available yet for this task.</p>
                         )}
                       </div>

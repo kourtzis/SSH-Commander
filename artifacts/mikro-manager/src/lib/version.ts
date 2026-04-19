@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.7.1";
+export const APP_VERSION = "1.7.2";
 export const APP_VERSION_DATE = "2026-04-19";
 
 export interface ChangelogSection {
@@ -13,6 +13,32 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.7.2",
+    date: "2026-04-19",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "CRITICAL: Empty device / job lists and 'Fingerprint failed: column does not exist' errors after upgrading from 1.4.x to 1.7.x in Docker. The container entrypoint was silently swallowing migration failures, leaving the deployment running against an old schema. The entrypoint now applies the new columns (enable_password, credential_profile_id, vendor, os_version, last_fingerprint_at, timeout_seconds, retry_count, retry_backoff_seconds, attempt_count) explicitly with idempotent ADD COLUMN IF NOT EXISTS statements before drizzle-kit push, so a broken push can no longer leave the app serving 500s.",
+          "Per-task output and connection log are no longer included in the polled job-detail response (they're fetched lazily when the user expands a task), and the original Excel import blob is no longer returned to the client. Cuts polling payload size dramatically on jobs with many devices or large outputs.",
+          "Reachability poller now writes all device probes for each tick in a single bulk upsert instead of one INSERT per device.",
+        ],
+      },
+      {
+        title: "Security",
+        items: [
+          "SESSION_SECRET is now required (min 16 chars) when NODE_ENV=production — the app refuses to start with the dev fallback so sessions can't be forged.",
+          "CORS in production now uses an ALLOWED_ORIGINS allow-list (comma-separated) instead of accepting any origin with credentials.",
+          "Login endpoint is rate-limited to 10 attempts per IP per 15 minutes.",
+          "Session cookies are marked Secure in production.",
+          "JSON body limit tightened from 10mb to 1mb on general routes.",
+          "GET /users/:id is now admin-only (operators could previously read any user record).",
+          "Defensive isNaN guards added to every DELETE :id route (routers, groups, snippets, schedules, credentials, users) so a malformed URL returns 400 instead of attempting a delete with NaN.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.7.1",
     date: "2026-04-19",

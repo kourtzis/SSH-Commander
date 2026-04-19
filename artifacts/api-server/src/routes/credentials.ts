@@ -106,7 +106,9 @@ router.put("/credentials/:id", async (req, res) => {
 router.delete("/credentials/:id", async (req, res) => {
   const user = await authedUser(req);
   requireAdmin(user);
-  await db.delete(credentialProfilesTable).where(eq(credentialProfilesTable.id, parseInt(req.params.id)));
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid credential profile id" }); return; }
+  await db.delete(credentialProfilesTable).where(eq(credentialProfilesTable.id, id));
   res.json({ message: "Credential profile deleted" });
 });
 

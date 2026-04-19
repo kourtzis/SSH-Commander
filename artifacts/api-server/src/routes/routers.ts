@@ -149,7 +149,9 @@ router.put("/routers/:id", async (req, res) => {
 // DELETE /routers/:id — Remove a router
 router.delete("/routers/:id", async (req, res) => {
   requireAuth(req);
-  await db.delete(routersTable).where(eq(routersTable.id, parseInt(req.params.id)));
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid router id" }); return; }
+  await db.delete(routersTable).where(eq(routersTable.id, id));
   res.json({ message: "Router deleted" });
 });
 

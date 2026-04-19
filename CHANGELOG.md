@@ -12,6 +12,28 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.7.2] - 2026-04-19
+
+### Fixed
+- **CRITICAL: Empty device / job lists and "Fingerprint failed: column does not exist" after upgrading from 1.4.x to 1.7.x in Docker.** The container entrypoint was running `drizzle-kit push --force || echo "warning"`, which silently swallowed migration failures and let the container start serving requests against an outdated schema. Every query that touched `routers.enable_password`, `credential_profile_id`, `vendor`, `os_version`, `last_fingerprint_at`, `batch_jobs.timeout_seconds`/`retry_count`/`retry_backoff_seconds`, or `job_tasks.attempt_count` returned HTTP 500, which the frontend renders as empty lists. The entrypoint now applies all of those columns explicitly with idempotent `ADD COLUMN IF NOT EXISTS` statements **before** running drizzle-kit push, so a broken push can no longer leave the deployment unusable.
+- **Polled job-detail payload trimmed.** `GET /api/jobs/:id` no longer ships the per-task `output` and `connectionLog` blobs by default (the detail page polls every 2s); they're fetched lazily via the new `GET /api/jobs/:jobId/tasks/:taskId` endpoint when the user expands a task. The original Excel import blob is also stripped from the job response — it's never needed by the client after creation.
+- **Reachability poller bulk-upserts** every device probe in a single statement instead of one INSERT per device, restoring usable performance on installs with hundreds of devices.
+
+### Security
+- **`SESSION_SECRET` is now mandatory in production** (min 16 chars). The dev fallback secret could be used to forge sessions; the app now refuses to start without a real secret when `NODE_ENV=production`.
+- **CORS allow-list in production.** `ALLOWED_ORIGINS` (comma-separated) replaces the previous wide-open `cors({ origin: true, credentials: true })`. Unknown cross-origin browser requests are now refused.
+- **Login rate limiting.** `/api/auth/login` is capped at 10 attempts per IP per 15-minute window.
+- **Session cookies marked Secure in production** (`Set-Cookie ... Secure`).
+- **Request body limit** dropped from 10mb to 1mb on general routes.
+- **`GET /api/users/:id` is now admin-only.** Operators could previously read any user record by ID.
+- **`isNaN` guards on all `DELETE /:id` routes** (routers, groups, snippets, schedules, credentials, users) — malformed IDs now return 400 instead of attempting a delete with `NaN`.
+
+### Upgrade notes
+- Set `SESSION_SECRET` in your `.env` / Docker environment before deploying. Generate one with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+- Set `ALLOWED_ORIGINS=https://your-domain.example.com` (comma-separated for multiple origins) if you serve the UI from a different host than the API.
+
+---
+
 ## [1.7.1] - 2026-04-19
 
 ### Fixed
