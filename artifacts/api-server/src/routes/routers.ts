@@ -399,20 +399,60 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
     return { success: false, errorMessage: "No SSH password configured (check the credential profile or set an inline password)" };
   }
 
+  // Strip ANSI/VT100 escape sequences that MikroTik (and many other devices)
+  // emit for colour, cursor moves, and terminal-type queries. These were
+  // breaking the simple `version:` regex below — the literal "version:"
+  // string had control chars wedged into the middle of it on RouterOS v7.
+  const stripAnsi = (s: string): string =>
+    s
+      // CSI sequences (ESC [ … final-byte) — colours, cursor moves, DA queries
+      .replace(/\x1b\[[\d;?]*[a-zA-Z]/g, "")
+      // ESC ( charset selectors and other 2-byte escape sequences
+      .replace(/\x1b[()][A-Za-z0-9]/g, "")
+      // Bare ESC + single char (OSC, etc.)
+      .replace(/\x1b./g, "")
+      // Carriage returns from the pager
+      .replace(/\r/g, "");
+
   // Ordered detection probes. Each entry: { cmd, parse(out) → {vendor, osVersion} | null }
-  const probes: Array<{ cmd: string; parse: (out: string) => { vendor: string; osVersion: string | null } | null }> = [
+  // Append `+cte` to the MikroTik probe usernames: RouterOS treats the suffix
+  // as session flags — `c`=no colour, `t`=no terminal-type detect, `e`=no
+  // escape sequences. Without it, /system resource print emits ANSI codes
+  // and pagination prompts that scramble the output. Falls back to the bare
+  // username if the device rejects the suffix (older RouterOS, non-MikroTik).
+  const mtUser = `${username}+cte`;
+  const probes: Array<{ cmd: string; user: string; parse: (out: string) => { vendor: string; osVersion: string | null } | null }> = [
     {
-      // MikroTik RouterOS
+      // RouterOS v7+ — terse one-liner via scripting `:put`. Returns just the
+      // version string (e.g. "7.13.5 (stable)") on its own line, no headers.
+      cmd: ":put [/system resource get version]",
+      user: mtUser,
+      parse: (raw) => {
+        const out = stripAnsi(raw);
+        // Pick the first line that looks like a version (digits.dots, optional channel suffix)
+        const m = /^\s*(\d+\.\d+(?:\.\d+)?(?:\s*\([^)]+\))?)\s*$/m.exec(out);
+        if (m) return { vendor: "MikroTik", osVersion: `RouterOS ${m[1].trim()}` };
+        return null;
+      },
+    },
+    {
+      // RouterOS v6/v7 — full resource dump. `version:` appears as a column.
       cmd: "/system resource print",
-      parse: (out) => {
-        const ver = /version:\s*([^\r\n]+)/i.exec(out);
+      user: mtUser,
+      parse: (raw) => {
+        const out = stripAnsi(raw);
+        const ver = /version\s*:\s*([^\r\n]+)/i.exec(out);
         if (ver) return { vendor: "MikroTik", osVersion: `RouterOS ${ver[1].trim()}` };
+        // Some RouterOS builds put it on the line above as just "RouterOS X.Y.Z"
+        const ros = /RouterOS\s+v?(\d+\.\d+(?:\.\d+)?(?:[A-Za-z0-9.\-]*)?)/i.exec(out);
+        if (ros) return { vendor: "MikroTik", osVersion: `RouterOS ${ros[1]}` };
         return null;
       },
     },
     {
       // Cisco IOS / IOS-XE
       cmd: "show version | include Software",
+      user: username,
       parse: (out) => {
         const m = /Cisco IOS[^\n]*Version\s+([^\s,]+)/i.exec(out);
         if (m) return { vendor: "Cisco", osVersion: `IOS ${m[1]}` };
@@ -422,6 +462,7 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
     {
       // Generic Linux
       cmd: "uname -a; lsb_release -a 2>/dev/null || cat /etc/os-release 2>/dev/null",
+      user: username,
       parse: (out) => {
         const distro =
           /PRETTY_NAME="?([^"\n]+)/i.exec(out)?.[1] ||
@@ -434,9 +475,13 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
   ];
 
   let lastErr = "";
+  // Snippet of the most recent probe's actual output — surfaced in the error
+  // message when nothing matches so users can see what the device sent back
+  // (almost always reveals an unexpected banner, MOTD, or unparseable format).
+  let lastOutputSnippet = "";
   for (const probe of probes) {
     try {
-      const result = await executeSSH(r.ipAddress, port, username, password, probe.cmd, {
+      const result = await executeSSH(r.ipAddress, port, probe.user, password, probe.cmd, {
         timeoutMs: 15_000,
         autoConfirm: true,
         enablePassword: creds.enablePassword,
@@ -446,11 +491,20 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
       if (!result.success) {
         lastErr = result.errorMessage || "ssh failed";
         // If the SSH connection itself failed (auth/network), no point trying
-        // the next probe — they'll all fail the same way.
-        if (/auth|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH/i.test(lastErr)) break;
+        // the next probe — they'll all fail the same way. EXCEPT for the
+        // MikroTik `+cte` user-suffix probes: a non-MikroTik device will
+        // reject the `+cte` username with an auth error, which is the
+        // expected signal to fall through to the Cisco/Linux probes below.
+        const isAuthErr = /auth/i.test(lastErr);
+        const isMikrotikSuffix = probe.user !== username;
+        if (isAuthErr && isMikrotikSuffix) continue;
+        if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH/i.test(lastErr)) break;
+        if (isAuthErr) break;
         continue;
       }
-      const parsed = probe.parse(result.output || "");
+      const out = result.output || "";
+      lastOutputSnippet = stripAnsi(out).trim().slice(0, 300);
+      const parsed = probe.parse(out);
       if (parsed) {
         await db
           .update(routersTable)
@@ -461,6 +515,12 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
     } catch (err: any) {
       lastErr = String(err?.message || err);
     }
+  }
+  if (!lastErr && lastOutputSnippet) {
+    return {
+      success: false,
+      errorMessage: `No probe matched. Device responded but the output didn't match any known vendor format. First 300 chars: ${JSON.stringify(lastOutputSnippet)}`,
+    };
   }
   return { success: false, errorMessage: lastErr || "no probe matched" };
 }

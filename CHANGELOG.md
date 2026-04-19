@@ -12,6 +12,19 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.8] - 2026-04-19
+
+### Fixed
+- **MikroTik fingerprint returning `"no probe matched"`** on devices that otherwise respond normally to SSH. Two root causes were addressed:
+  - RouterOS interactive shells emit ANSI/VT100 escape sequences (colour, cursor moves, terminal-type queries) that were embedding control bytes in the middle of the literal `version:` string the regex was looking for.
+  - RouterOS v7 sometimes prints the version on a different line than v6 (or via a header like `RouterOS 7.13.5` rather than the `version: ...` column).
+- The MikroTik probe now:
+  - Appends the RouterOS `+cte` session-flag suffix to the username (`c`=no colour, `t`=no terminal-detect, `e`=no escape sequences) so the device sends clean output in the first place. Non-MikroTik devices reject this username with an auth error, which is the expected signal to fall through to the Cisco / Linux probes.
+  - Strips ANSI/VT100 escape sequences before parsing, as a belt-and-braces measure.
+  - Tries a terse `:put [/system resource get version]` command first, which on RouterOS v7 returns just the version string on its own line — much easier to parse and immune to MOTD/banner noise.
+  - Accepts the alternative `RouterOS X.Y.Z` header format as well as the `version:` column.
+- When no probe matches, the error message now includes the first 300 characters of what the device actually sent back (with ANSI codes stripped), so unsupported vendors or unexpected banners can be diagnosed from the UI without digging into server logs.
+
 ## [1.8.7] - 2026-04-19
 
 ### Fixed

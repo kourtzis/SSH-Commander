@@ -1,5 +1,6 @@
-export const APP_VERSION = "1.8.7";
+export const APP_VERSION = "1.8.8";
 export const APP_VERSION_DATE = "2026-04-19";
+
 
 export interface ChangelogSection {
   title: string;
@@ -14,11 +15,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "1.8.7",
+    version: "1.8.8",
     date: "2026-04-19",
     sections: [
       {
         title: "Fixed",
+        items: [
+          "MikroTik fingerprinting was returning 'no probe matched' on devices that responded normally to SSH. Two root causes: RouterOS interactive shells emit ANSI escape codes (colour, terminal-type queries) that fragmented the literal 'version:' string the parser was looking for, and RouterOS v7 sometimes prints the version on a different line than v6.",
+          "Fingerprint probes now strip ANSI/VT100 escape sequences before parsing, append the RouterOS '+cte' username flag (no colour, no terminal-detect, no escapes) so the device sends clean output in the first place, try a terse ':put [/system resource get version]' command first as a v7-friendly fallback, and accept the alternative 'RouterOS X.Y.Z' header format as well.",
+          "When no probe matches, the error message now includes the first 300 characters of what the device actually sent back, so unsupported vendors / unexpected banners can be diagnosed without server logs.",
+        ],
+      },
+      {
+        title: "Fixed (v1.8.7)",
         items: [
           "Credential profiles are now honoured everywhere SSH is opened. Fingerprint, batch jobs, scheduled jobs, and interactive jobs were previously reading the inline username/password columns directly off the device row, which meant devices managed via a credential profile were attempted with whatever (often empty) inline values were on the row — producing spurious 'authentication failed' errors. All four code paths now resolve the effective credentials (profile takes precedence, inline columns as fallback) and pull the bastion / jump host from the profile chain.",
           "Per-device enable/sudo password and bastion routing are now applied in scheduled and interactive jobs as well — previously only ad-hoc batch runs picked them up.",
