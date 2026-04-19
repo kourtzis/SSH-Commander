@@ -49,9 +49,15 @@ export function AppSidebar() {
   }, [mobileOpen]);
 
   const { theme, toggle: toggleTheme } = useTheme();
+  // Admins see "Credentials" inserted between Snippets and Batch Jobs (it
+  // belongs with the other config-of-targets items), and "Users" appended
+  // at the end of the nav.
   const items = [...navItems];
   if (user?.role === "admin") {
-    items.push({ name: "Credentials", href: "/credentials", icon: KeyRound });
+    const insertAt = items.findIndex((i) => i.href === "/jobs");
+    const credentialsItem = { name: "Credentials", href: "/credentials", icon: KeyRound };
+    if (insertAt >= 0) items.splice(insertAt, 0, credentialsItem);
+    else items.push(credentialsItem);
     items.push({ name: "Users", href: "/users", icon: Users });
   }
 
