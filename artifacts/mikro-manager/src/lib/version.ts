@@ -19,9 +19,25 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "2026-04-20",
     sections: [
       {
+        title: "Added",
+        items: [
+          "\"Needs Attention\" task status. New state sitting between success and failed. After every successful SSH run the scheduler now scans the output for ~25 vendor-aware failure signals (% Invalid input, % Bad command, syntax error, permission denied, command not found, etc.; deliberately skips bare wrong/bad/denied to avoid false positives). A match flips the task to needs_attention, stores the matched reason, and counts it as failed at the job level. The job detail page shows an amber triangle badge with the reason in a tooltip so you can spot devices that \"technically ran\" but actually rejected the script.",
+          "Admin \"Active Terminals\" page. New sidebar entry for admins at /admin/terminals listing every live standalone-terminal SSH session: user, device, opened-at, idle time, with a one-click Disconnect button. Auto-refreshes every 5s. The disconnected operator sees an explicit \"[disconnected by admin <username>]\" message in their terminal. Idle times over 5 min are highlighted amber so stuck sessions stand out.",
+        ],
+      },
+      {
         title: "Improved",
         items: [
           "Increased post-prompt idle timer from 3s to 10s. After the command is sent and the device starts replying, the auto-confirm shell now waits up to 10 seconds of silence before declaring the output complete (was 3s). This gives slower devices and longer commands more breathing room while still keeping the pre-prompt wait at 25s.",
+          "Standalone terminal (the \"Open Terminal\" button on the devices list) brought up to parity with Batch Jobs and Fingerprint. It now resolves credentials through the credential-profile resolver (profile-only devices connect), supports bastion/jump-host routing, negotiates with the same expanded SSH algorithm list legacy MikroTik/Cisco need, opens the PTY with explicit 24×200 vt100, runs the smart DSR cursor responder so RouterOS stops blocking on cursor-position queries, and decodes SSH chunks as binary + pipes them through the stateful ANSI stripper so C1 control bytes and escape sequences split across TCP frames no longer leak to the output. Effectively: the terminal now behaves the same as everything else in the app.",
+          "Concurrency bumped 10 → 20 everywhere SSH sessions are batched: scheduler, ad-hoc job runs, and \"Fingerprint all\". Twice the throughput against large fleets while still keeping a sane socket ceiling.",
+          "Terminal session hygiene. Standalone terminals now auto-close after 10 minutes idle (reset on any activity in either direction) and have a 1-hour hard ceiling regardless. Prevents zombie SSH connections when a device wedges mid-session or an operator forgets to close a tab.",
+        ],
+      },
+      {
+        title: "Fixed",
+        items: [
+          "RouterOS fingerprint returning banner ASCII art (e.g. \"MMM MMM KKK TTTTTTTTTTT KKK\") as the model instead of the real board name. The +cte user-suffix doesn't always suppress the login banner on every firmware. Two-layer fix: the v7 :put probe now anchors its search window after the echoed board-name command so the banner isn't even visible to the parser, and candidate model lines must contain at least one digit (real models like RB4011iGS+ and CCR2004-1G-12S+2XS always do; banner ASCII art never does).",
         ],
       },
     ],

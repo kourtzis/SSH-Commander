@@ -14,8 +14,27 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ## [1.8.29] - 2026-04-20
 
+### Added
+- **"Needs Attention" task status.** New task state sitting between `success` and `failed`. After every successful SSH run the scheduler now scans the output for ~25 vendor-aware failure signals (`% Invalid input`, `% Bad command`, `syntax error`, `permission denied`, `command not found`, etc.; deliberately skips bare `wrong`/`bad`/`denied` to avoid false positives on e.g. "wrong password message"). A match flips the task to `needs_attention`, populates a new `failureReason` column, and counts it as failed at the job level. The job detail page shows an amber triangle badge with the matched reason in a tooltip so operators can spot devices that "technically ran" but actually rejected the script.
+- **Admin "Active Terminals" page.** New sidebar entry (admin only) at `/admin/terminals` listing every live standalone-terminal SSH session on the API server: user, device, opened-at, idle time, with a one-click **Disconnect** button. Auto-refreshes every 5s. The disconnected operator sees `[disconnected by admin <username>]` in their terminal so they're not left wondering what happened. Idle times over 5 min are highlighted in amber so stuck sessions stand out. Backed by two new admin endpoints (`GET /admin/terminals`, `DELETE /admin/terminals/:key`).
+
 ### Improved
 - **Post-prompt idle timer raised from 3s to 10s.** Once the command has been sent to the device and output starts streaming back, the auto-confirm shell now allows up to 10 seconds of silence between chunks before considering the response complete (was 3s). Pre-prompt wait stays at 25s. Helps slower devices and longer-running commands that emit output in bursts.
+- **Standalone terminal brought up to parity with Batch Jobs / Fingerprint.** The "Open Terminal" page from the devices list was written before most of the SSH hardening and was missing several things. Now it:
+  - Resolves credentials through `resolveEffectiveCreds` — devices attached to a credential profile (with no inline password) can now be opened from the terminal page, same as they already could from jobs and fingerprint.
+  - Supports **bastion / jump-host** routing via `connectViaJumpHost` when the profile has a `jumpHostId`.
+  - Passes the shared `SSH_ALGORITHMS` list so legacy MikroTik / Cisco devices negotiate KEX, ciphers, and HMACs successfully.
+  - Opens the PTY with explicit `rows: 24, cols: 200, term: "vt100"` — cols=200 stops RouterOS auto-wrapping, vt100 quiets the worst banner escape garbage.
+  - Runs the smart **DSR cursor responder** (`makeCursorResponder`) so RouterOS-style devices don't block waiting for a cursor-position reply.
+  - Decodes SSH chunks as `binary` (was `utf8`) so RouterOS's single-byte C1 CSI (0x9B) isn't mangled, then pipes them through the stateful ANSI stripper (`stripAnsiStream` + `flushStripState`) so escape sequences split across TCP frames reassemble cleanly and the final prompt isn't eaten on close.
+  - Uses the shared TOFU host-key verifier on both direct and jump-host paths.
+- **Concurrency bumped 10 → 20** everywhere SSH sessions are batched: scheduler's `executeJobTasks`, ad-hoc job runs in `routes/jobs.ts`, and the "Fingerprint all" endpoint in `routes/routers.ts`. Twice the throughput against large fleets while still keeping a sane socket ceiling.
+- **Terminal session hygiene.** Standalone terminals were previously only cleaned up when the user closed the tab, reconnected to the same device, or the SSH side hung up. Added two safety timers:
+  - **Idle timeout** — 10 minutes of complete silence in either direction auto-closes the session with `[session idle for 10 min — auto-closed]`. Reset on any SSH output *and* on any operator keystroke.
+  - **Hard ceiling** — 1 hour from session start, never reset, closes with `[session reached the 60-minute hard limit — auto-closed]`. Anything longer should be a Batch Job with proper audit trail.
+
+### Fixed
+- **RouterOS fingerprint returning banner ASCII art as the model** (e.g. `"MMM MMM KKK TTTTTTTTTTT KKK"` instead of `RB4011iGS+`). The `+cte` user-suffix doesn't always suppress the login banner on every RouterOS firmware, and banner lines like `MMM MMM KKK` were passing the old `/^[A-Za-z][A-Za-z0-9+\-/. ()]*$/` board-name filter. Two-layer fix: (1) the v7 `:put` parser now anchors its search window *after* the echoed `:put [/system resource get board-name]` line, so the banner isn't even visible to the parser; (2) candidate model lines must now contain at least one digit (real RouterOS board names always do — `RB4011iGS+`, `CCR2004-1G-12S+2XS`, `RB962UiGS-5HacT2HnT`, `CRS328-24P-4S+` — banner ASCII art never does). Either fix alone would be sufficient; both gives belt-and-braces.
 
 ---
 
