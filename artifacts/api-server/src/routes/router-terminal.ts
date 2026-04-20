@@ -45,7 +45,32 @@ interface TerminalSession {
   // Each session has exactly one SSE response writer; we replace it on reconnect.
   res: import("express").Response | null;
   closed: boolean;
+  // Hygiene: we want stuck terminals to clean themselves up rather than
+  // sitting forever holding an SSH socket. Two timers do that:
+  //   • idleTimer  — fires after IDLE_MS of NO traffic in either direction.
+  //                  Reset on every stream chunk in and every keystroke out.
+  //   • globalTimer — fires after MAX_MS from session start, no matter what.
+  //                  A safety ceiling so a "chatty" device that keeps the
+  //                  idle timer alive can't run forever either.
+  idleTimer: NodeJS.Timeout | null;
+  globalTimer: NodeJS.Timeout | null;
+  // Bookkeeping shown in the admin "Active Terminals" panel.
+  userId: number | string;
+  username: string;
+  routerId: number;
+  routerName: string;
+  routerIp: string;
+  openedAt: number;
+  lastActivityAt: number;
 }
+
+// Idle ceiling: 10 minutes of complete silence in both directions closes
+// the session. Long enough that a thinking operator doesn't get kicked,
+// short enough that a wedged device doesn't pin a connection forever.
+const IDLE_MS = 10 * 60 * 1000;
+// Hard ceiling: a single terminal session can live at most 1 hour. Anything
+// longer should be a Batch Job with proper auditing.
+const MAX_MS = 60 * 60 * 1000;
 
 // Keyed by `${userId}:${routerId}` so each operator has their own session
 // per device, and reconnecting cleanly replaces the prior one.
@@ -109,20 +134,55 @@ router.get("/routers/:id/terminal", async (req, res) => {
   }
 
   const sshPort = router_.sshPort ?? 22;
-  const session: TerminalSession = { conn: null as unknown as Client, stream: null, res, closed: false };
+  const now = Date.now();
+  const session: TerminalSession = {
+    conn: null as unknown as Client,
+    stream: null,
+    res,
+    closed: false,
+    idleTimer: null,
+    globalTimer: null,
+    userId: user.id,
+    username: (user as any).username ?? String(user.id),
+    routerId: id,
+    routerName: router_.name,
+    routerIp: router_.ipAddress,
+    openedAt: now,
+    lastActivityAt: now,
+  };
   sessions.set(key, session);
 
-  const cleanup = () => {
+  const cleanup = (reason?: string) => {
     if (session.closed) return;
     session.closed = true;
+    if (session.idleTimer) clearTimeout(session.idleTimer);
+    if (session.globalTimer) clearTimeout(session.globalTimer);
     try { session.stream?.end(); } catch {}
     try { session.conn?.end(); } catch {}
     sessions.delete(key);
+    if (reason) sendEvent(res, { type: "data", data: `\n[${reason}]\n` });
     sendEvent(res, { type: "closed" });
     try { res.end(); } catch {}
   };
 
-  req.on("close", cleanup);
+  // Reset the idle timer on every byte of activity in either direction.
+  // Called from the stream-data handler AND from the input endpoint via
+  // the exported markActivity() helper below.
+  const resetIdleTimer = () => {
+    session.lastActivityAt = Date.now();
+    if (session.idleTimer) clearTimeout(session.idleTimer);
+    session.idleTimer = setTimeout(() => {
+      cleanup(`session idle for ${Math.round(IDLE_MS / 60000)} min — auto-closed`);
+    }, IDLE_MS);
+  };
+  resetIdleTimer();
+
+  // Hard ceiling — never reset.
+  session.globalTimer = setTimeout(() => {
+    cleanup(`session reached the ${Math.round(MAX_MS / 60000)}-minute hard limit — auto-closed`);
+  }, MAX_MS);
+
+  req.on("close", () => cleanup());
 
   // TOFU host-key verification: persist the device's host key fingerprint
   // on first connect, then refuse subsequent connections that present a
@@ -177,12 +237,14 @@ router.get("/routers/:id/terminal", async (req, res) => {
         // it). The cursor responder and ANSI stripper both expect raw
         // 8-bit bytes anyway.
         const raw = chunk.toString("binary");
+        resetIdleTimer();
         cursorRespond(raw);
         const clean = stripAnsiStream(stripState, raw);
         if (clean) sendEvent(res, { type: "data", data: clean });
       });
       stream.stderr?.on("data", (chunk: Buffer) => {
         const raw = chunk.toString("binary");
+        resetIdleTimer();
         const clean = stripAnsiStream(stripState, raw);
         if (clean) sendEvent(res, { type: "data", data: clean });
       });
@@ -260,7 +322,83 @@ router.post("/routers/:id/terminal/input", async (req, res) => {
   }
   // Append a newline so the remote shell treats it as a complete command.
   session.stream.write(input + "\n");
+  // Reset the idle timer — operator activity counts as life signs even
+  // if the device is silent on the other end.
+  session.lastActivityAt = Date.now();
+  if (session.idleTimer) {
+    clearTimeout(session.idleTimer);
+    session.idleTimer = setTimeout(() => {
+      if (session.closed) return;
+      session.closed = true;
+      try { session.stream?.end(); } catch {}
+      try { session.conn?.end(); } catch {}
+      sessions.delete(key);
+      const r = session.res;
+      if (r) {
+        try { r.write(`data: ${JSON.stringify({ type: "data", data: `\n[session idle for ${Math.round(IDLE_MS / 60000)} min — auto-closed]\n` })}\n\n`); } catch {}
+        try { r.write(`data: ${JSON.stringify({ type: "closed" })}\n\n`); } catch {}
+        try { r.end(); } catch {}
+      }
+    }, IDLE_MS);
+  }
   res.json({ ok: true });
+});
+
+// ─── Admin: list & forcibly close active terminals ────────────────
+// Visibility into who currently has a live shell on which device, plus
+// a one-click kill switch for stuck sessions. Admin-only because this
+// can disconnect another user's interactive work.
+router.get("/admin/terminals", async (req, res) => {
+  requireAuth(req);
+  const me = await getCurrentUser(req);
+  requireAdmin(me!);
+  const now = Date.now();
+  const list = Array.from(sessions.entries()).map(([key, s]) => ({
+    key,
+    userId: s.userId,
+    username: s.username,
+    routerId: s.routerId,
+    routerName: s.routerName,
+    routerIp: s.routerIp,
+    openedAt: new Date(s.openedAt).toISOString(),
+    lastActivityAt: new Date(s.lastActivityAt).toISOString(),
+    ageSeconds: Math.round((now - s.openedAt) / 1000),
+    idleSeconds: Math.round((now - s.lastActivityAt) / 1000),
+    closed: s.closed,
+  }));
+  // Newest first — usually what you want when triaging "what's running?"
+  list.sort((a, b) => (a.openedAt < b.openedAt ? 1 : -1));
+  res.json({ sessions: list, idleLimitSeconds: Math.round(IDLE_MS / 1000), maxLifetimeSeconds: Math.round(MAX_MS / 1000) });
+});
+
+router.delete("/admin/terminals/:key", async (req, res) => {
+  requireAuth(req);
+  const me = await getCurrentUser(req);
+  requireAdmin(me!);
+  const key = req.params.key;
+  const session = sessions.get(key);
+  if (!session) {
+    res.status(404).json({ error: "No such terminal session" });
+    return;
+  }
+  if (session.closed) {
+    sessions.delete(key);
+    res.json({ ok: true, message: "Session was already closed; cleaned up bookkeeping." });
+    return;
+  }
+  session.closed = true;
+  if (session.idleTimer) clearTimeout(session.idleTimer);
+  if (session.globalTimer) clearTimeout(session.globalTimer);
+  try { session.stream?.end(); } catch {}
+  try { session.conn?.end(); } catch {}
+  sessions.delete(key);
+  const r = session.res;
+  if (r) {
+    try { r.write(`data: ${JSON.stringify({ type: "data", data: `\n[disconnected by admin ${me!.username}]\n` })}\n\n`); } catch {}
+    try { r.write(`data: ${JSON.stringify({ type: "closed" })}\n\n`); } catch {}
+    try { r.end(); } catch {}
+  }
+  res.json({ ok: true, message: `Closed terminal ${key}` });
 });
 
 // Admin-only: clear the pinned host-key fingerprint so the next connection

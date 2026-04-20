@@ -23,6 +23,7 @@ const SchedulerList = React.lazy(() => import("@/pages/scheduler/index"));
 const NewSchedule = React.lazy(() => import("@/pages/scheduler/new"));
 const Credentials = React.lazy(() => import("@/pages/credentials"));
 const RouterTerminal = React.lazy(() => import("@/pages/router-terminal"));
+const AdminTerminals = React.lazy(() => import("@/pages/admin-terminals"));
 const NotFound = React.lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
@@ -79,6 +80,7 @@ const ProtectedNewSchedule = () => <ProtectedRoute component={NewSchedule} />;
 const ProtectedUsers = () => <ProtectedRoute component={Users} />;
 const ProtectedCredentials = () => <ProtectedRoute component={Credentials} />;
 const ProtectedRouterTerminal = () => <ProtectedRoute component={RouterTerminal} />;
+const ProtectedAdminTerminals = () => <ProtectedRoute component={AdminTerminals} />;
 
 function Router() {
   return (
@@ -96,6 +98,7 @@ function Router() {
         <Route path="/scheduler/new" component={ProtectedNewSchedule} />
         <Route path="/credentials" component={ProtectedCredentials} />
         <Route path="/routers/:id/terminal" component={ProtectedRouterTerminal} />
+        <Route path="/admin/terminals" component={ProtectedAdminTerminals} />
         <Route path="/users" component={ProtectedUsers} />
         <Route component={NotFound} />
       </Switch>

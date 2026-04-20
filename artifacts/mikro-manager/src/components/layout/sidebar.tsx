@@ -11,6 +11,7 @@ import {
   LogOut,
   Clock,
   KeyRound,
+  Terminal,
   Menu,
   Moon,
   Sun,
@@ -58,6 +59,7 @@ export function AppSidebar() {
     const credentialsItem = { name: "Credentials", href: "/credentials", icon: KeyRound };
     if (insertAt >= 0) items.splice(insertAt, 0, credentialsItem);
     else items.push(credentialsItem);
+    items.push({ name: "Terminals", href: "/admin/terminals", icon: Terminal });
     items.push({ name: "Users", href: "/users", icon: Users });
   }
 
