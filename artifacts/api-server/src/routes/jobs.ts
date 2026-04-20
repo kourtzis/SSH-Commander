@@ -312,7 +312,7 @@ async function runJobInBackground(
       .update(batchJobsTable)
       .set({ completedTasks: completedCount, failedTasks: failedCount })
       .where(eq(batchJobsTable.id, jobId));
-  }, 10);
+  }, 20);
 
   const finalStatus =
     failedCount === routers.length

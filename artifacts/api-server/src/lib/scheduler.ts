@@ -11,7 +11,7 @@ import { resolveEffectiveCreds } from "./effective-creds.js";
 
 // ─── Shared SSH execution helper ────────────────────────────────────
 // Runs the SSH commands for every router of a job in parallel (bounded
-// concurrency = 10), updating per-task and per-job rows as it goes.
+// concurrency = 20), updating per-task and per-job rows as it goes.
 // Used by both runJobFromTemplate (interval/weekly clones) and the one-time
 // path in tick() — they used to be near-duplicates with the one-time path
 // running sequentially; sharing this helper makes them identical and parallel.
@@ -122,7 +122,7 @@ async function executeJobTasks(
       completedTasks: completedCount,
       failedTasks: failedCount,
     }).where(eq(batchJobsTable.id, jobId));
-  }, 10);
+  }, 20);
 
   return { completedCount, failedCount };
 }
