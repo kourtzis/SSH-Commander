@@ -554,7 +554,14 @@ export async function sendScriptLineByLine(
     await new Promise<void>(resolve => {
       const tick = setInterval(() => {
         const newOutput = stripAnsi(getBuffer().slice(startLen));
-        if (PROMPT_RE.test(newOutput)) {
+        // PROMPT_RE includes ":" because Linux/Cisco prompts can end in
+        // it — but so do confirmation prompts like "[y/n]:". If a confirm
+        // prompt is currently showing, the data-handler's auto-confirm
+        // logic is about to write "y\n"; we must NOT proceed to the
+        // next script line until the device has consumed the "y" and
+        // returned a real CLI prompt. Otherwise the next line gets fed
+        // to the device as the answer to the y/n question.
+        if (PROMPT_RE.test(newOutput) && !looksLikeConfirmPrompt(getBuffer())) {
           clearInterval(tick);
           if (resetIdle) resetIdle();
           resolve();
