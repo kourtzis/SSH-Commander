@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.24";  
+export const APP_VERSION = "1.8.25";  
 export const APP_VERSION_DATE = "2026-04-20";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.25",
+    date: "2026-04-20",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "MikroTik RouterOS jobs that were silently doing nothing now actually run. Two compounding root causes: (1) the prompt-wait fix from 1.8.24 only landed in one of three SSH execution paths — the auto-confirm path used by most jobs still had the old hardcoded 500ms delay. All three paths now use the prompt-wait. (2) RouterOS opens the shell by sending a terminal-size probe and then BLOCKS waiting for the terminal to reply with its cursor position. Our SSH session never replied, so the prompt never appeared, so prompt-wait would just time out at 20s. Two changes fix this: we now request a PTY with explicit dimensions (24x200, vt100) so most devices skip the probe entirely, and as a fallback we auto-respond to any cursor-position query that does come through. RouterOS, Cisco IOS, and similar chatty CLIs should now show their prompt within a few hundred milliseconds.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.24",
     date: "2026-04-20",

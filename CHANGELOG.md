@@ -12,6 +12,21 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.25] - 2026-04-20
+
+### Fixed
+- **MikroTik RouterOS (and similar) jobs running but doing nothing.** The 1.8.24 prompt-wait fix only patched `interactive-session.ts`; the auto-confirm code path that most jobs actually use lives in `ssh.ts` and still had the old hardcoded 500ms delay. Both `conn.shell()` paths in `ssh.ts` (the direct one and the retry-wrapped one) now use the same prompt-wait + 20s ceiling logic. Three execution paths total, all consistent now.
+  
+- **RouterOS terminal-size-probe deadlock.** Even with prompt-wait in place, RouterOS jobs would still hit the 20s ceiling because of a deeper issue: when RouterOS opens an SSH shell it emits `\x1b[999;999H\x1b[6n` — "move cursor to row 999/col 999, then report cursor position" — and **blocks waiting for a Device Status Report reply** before printing its prompt. Without a reply, no prompt ever appears. The wire log made this visible: every session showed `<< [9999B` and `<< [9999BZ  [6n` (the leading `\x1b` rendered invisibly) and nothing else.
+  
+  Two-pronged fix:
+  1. **Explicit PTY config.** All three `conn.shell()` calls now pass `{ rows: 24, cols: 200, term: "vt100" }`. With explicit dimensions most devices skip the probe entirely. `cols: 200` also stops RouterOS from auto-wrapping long output lines mid-table.
+  2. **DSR auto-responder.** As a belt-and-braces fallback, the data handlers in both `ssh.ts` shell paths now scan each chunk for `\x1b[6n` and immediately reply with `\x1b[1;1R` (cursor at row 1, col 1). Once replied to, devices stop asking. `interactive-session.ts` doesn't need this because the explicit PTY alone is enough for the slower interactive flow, but we may add it there too if any device still misbehaves.
+  
+  Net effect: RouterOS prompts now appear within a few hundred milliseconds of shell open, the prompt-wait succeeds quickly, and the script actually executes against a ready shell. Connection log will read `Waiting for shell prompt (max 20s)` → `Shell prompt detected after Nms` → `>> /system identity print` → device output.
+
+---
+
 ## [1.8.24] - 2026-04-20
 
 ### Fixed

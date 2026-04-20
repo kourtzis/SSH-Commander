@@ -462,7 +462,10 @@ export async function executeSSHCommand(
         // ── Interactive shell mode ──
         // Opens a shell, sends the command, and auto-responds "y" to confirmation prompts.
         // Closes after 3 seconds of idle (no new data).
-        conn.shell((err, stream) => {
+        // PTY: explicit rows/cols/term so MikroTik RouterOS et al. don't sit
+        // forever waiting for a DSR reply to their terminal-size probe. See
+        // the matching block in interactive-session.ts for the full story.
+        conn.shell({ rows: 24, cols: 200, term: "vt100" }, (err, stream) => {
           if (err) {
             clearTimeout(timer);
             log.push(`[${ts()}] ERROR: shell failed — ${err.message}`);
@@ -519,6 +522,16 @@ export async function executeSSHCommand(
             recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
             resetIdleTimer();
 
+            // DSR responder: some devices (RouterOS most notably) emit
+            // \x1b[6n ("Device Status Report — query cursor position") at
+            // shell startup and then *block* waiting for a reply before
+            // they print their prompt. We claim cursor at row 1, col 1 so
+            // the device proceeds. Match against the chunk only — once
+            // replied, the device stops asking.
+            if (chunk.includes("\x1b[6n")) {
+              try { stream.write("\x1b[1;1R"); } catch {}
+            }
+
             if (!commandSent) return;
 
             // Check if the output tail looks like a y/n prompt and auto-respond
@@ -537,14 +550,32 @@ export async function executeSSHCommand(
             stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
           });
 
-          // Delay command sending by 500ms to let the shell banner/MOTD arrive first
-          setTimeout(() => {
+          // ─── Wait for shell prompt before sending the command ──
+          // Same logic as interactive-session.ts: poll the buffer for a
+          // prompt-shaped tail (CLI prompt char at end, ANSI-stripped) up
+          // to a 20s ceiling. See that file for the full rationale.
+          const PROMPT_RE = /(?:^|\n)[^\n]*[>#$%\]:][ \t]*$/;
+          const PROMPT_CEILING_MS = 20_000;
+          const promptStart = Date.now();
+          log.push(`[${ts()}] Waiting for shell prompt (max ${PROMPT_CEILING_MS / 1000}s)`);
+          const promptTick = setInterval(() => {
+            const cleaned = stripAnsi(shellBuffer);
+            const ready = PROMPT_RE.test(cleaned);
+            const ceiling = Date.now() - promptStart >= PROMPT_CEILING_MS;
+            if (!ready && !ceiling) return;
+            clearInterval(promptTick);
+            const waited = Date.now() - promptStart;
+            if (ready) {
+              log.push(`[${ts()}] Shell prompt detected after ${waited}ms`);
+            } else {
+              log.push(`[${ts()}] No shell prompt detected after ${waited}ms — sending command anyway`);
+            }
             commandSent = true;
             log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
             appendWireLog(log, "", ">>", command + "\n");
             writeCommandWithControlChars(stream, command);
             resetIdleTimer();
-          }, 500);
+          }, 100);
         });
       } else {
         // ── Exec mode ──
@@ -797,7 +828,10 @@ async function executeOnce(
     }, timeoutMs);
 
     if (autoConfirm) {
-      conn.shell((err, stream) => {
+      // PTY: explicit rows/cols/term — see interactive-session.ts for the
+      // full reasoning. Skips the RouterOS terminal-size probe that would
+      // otherwise pin the shell waiting for a DSR reply.
+      conn.shell({ rows: 24, cols: 200, term: "vt100" }, (err, stream) => {
         if (err) {
           clearTimeout(timer);
           log.push(`[${ts()}] ERROR: shell failed — ${err.message}`);
@@ -845,6 +879,12 @@ async function executeOnce(
           output += chunk;
           recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
           resetIdleTimer();
+          // DSR responder — see the matching block in the non-retry shell
+          // path above. Same purpose: unblock RouterOS-style devices that
+          // probe the terminal at startup.
+          if (chunk.includes("\x1b[6n")) {
+            try { stream.write("\x1b[1;1R"); } catch {}
+          }
           if (!commandSent) return;
           const tail = shellBuffer.slice(-200);
           // Enable password handler: respond once, only when we have a password and it differs from the SSH one
@@ -869,13 +909,30 @@ async function executeOnce(
           stderr += chunk;
           stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
         });
-        setTimeout(() => {
+        // Wait for the shell prompt (max 20s) instead of a fixed 500ms —
+        // see the matching block above for the full rationale.
+        const PROMPT_RE = /(?:^|\n)[^\n]*[>#$%\]:][ \t]*$/;
+        const PROMPT_CEILING_MS = 20_000;
+        const promptStart = Date.now();
+        log.push(`[${ts()}] Waiting for shell prompt (max ${PROMPT_CEILING_MS / 1000}s)`);
+        const promptTick = setInterval(() => {
+          const cleaned = stripAnsi(shellBuffer);
+          const ready = PROMPT_RE.test(cleaned);
+          const ceiling = Date.now() - promptStart >= PROMPT_CEILING_MS;
+          if (!ready && !ceiling) return;
+          clearInterval(promptTick);
+          const waited = Date.now() - promptStart;
+          if (ready) {
+            log.push(`[${ts()}] Shell prompt detected after ${waited}ms`);
+          } else {
+            log.push(`[${ts()}] No shell prompt detected after ${waited}ms — sending command anyway`);
+          }
           commandSent = true;
           log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
           appendWireLog(log, "", ">>", command + "\n");
           writeCommandWithControlChars(stream, command);
           resetIdleTimer();
-        }, 500);
+        }, 100);
       });
     } else {
       conn.exec(command, (err, stream) => {

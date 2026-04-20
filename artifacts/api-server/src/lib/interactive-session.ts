@@ -393,7 +393,14 @@ class InteractiveSessionManager {
       log.push(`[${ts()}] ──────────────────────────────────`);
       dev.state = "running";
 
-      conn.shell((err, stream) => {
+      // Pass an explicit PTY config so devices like MikroTik RouterOS don't
+      // fire terminal-size-probing escape sequences (\x1b[999;999H\x1b[6n)
+      // and then *block* waiting for a Device Status Report reply. With
+      // explicit rows/cols/term most devices skip the probe entirely. The
+      // <<DSR_RESPONDER>> handler below is a belt-and-braces fallback in
+      // case a device probes anyway. cols=200 avoids RouterOS auto-wrapping
+      // long output lines.
+      conn.shell({ rows: 24, cols: 200, term: "vt100" }, (err, stream) => {
         if (err) {
           log.push(`[${ts()}] ERROR: shell failed — ${err.message}`);
           this.finalizeDevice(jobId, taskId, false, err.message);
