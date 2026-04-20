@@ -572,7 +572,7 @@ router.post("/routers/fingerprint-all", async (req, res) => {
   let successCount = 0, failedCount = 0;
   // Bounded concurrency — fingerprinting is SSH-bound and we don't want to
   // open hundreds of sockets at once on large fleets.
-  const CONCURRENCY = 10;
+  const CONCURRENCY = 20;
   let cursor = 0;
   const worker = async () => {
     while (cursor < all.length) {
