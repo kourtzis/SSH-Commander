@@ -477,7 +477,7 @@ class InteractiveSessionManager {
         });
 
         stream.on("data", (data: Buffer) => {
-          const chunk = data.toString();
+          const chunk = data.toString("binary");
           dev.shellBuffer += chunk;
           recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
           resetIdleTimer();
@@ -536,7 +536,7 @@ class InteractiveSessionManager {
         });
 
         stream.stderr.on("data", (data: Buffer) => {
-          const chunk = data.toString();
+          const chunk = data.toString("binary");
           dev.shellBuffer += chunk;
           stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
         });

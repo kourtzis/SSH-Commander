@@ -95,9 +95,17 @@ export function tidyLine(input: string): string {
     const code = ch.charCodeAt(0);
     // Carriage return: cursor to column 0 of current line.
     if (ch === "\r") { cur = 0; i++; continue; }
-    // ESC [ ... letter — CSI sequence.
-    if (ch === "\x1b" && input[i + 1] === "[") {
-      let j = i + 2;
+    // ESC [ ... letter — CSI sequence (7-bit form).
+    // Also handle 0x9B as single-byte CSI (8-bit form) — devices like
+    // RouterOS sometimes emit the C1 form. When the wider stream is
+    // decoded as binary/latin1, 0x9B arrives as the same character; if
+    // it's been UTF-8-mangled into U+FFFD upstream we won't see it here,
+    // which is why the data handlers now use toString("binary").
+    const isCsiIntro =
+      (ch === "\x1b" && input[i + 1] === "[") ||
+      code === 0x9b;
+    if (isCsiIntro) {
+      let j = ch === "\x1b" ? i + 2 : i + 1;
       let params = "";
       while (j < input.length && /[0-9;?]/.test(input[j])) { params += input[j]; j++; }
       if (j >= input.length) { i = input.length; break; }
@@ -164,11 +172,11 @@ export function tidyText(input: string): string {
 // both the saved record and the live stream are clean. The connection log
 // (>>/<<) is left raw on purpose — it's the "what actually went over the
 // wire" view and stripping it would defeat its diagnostic purpose.
-const ANSI_CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;            // CSI: ESC [ ... letter
+const ANSI_CSI = /(?:\x1b\[|\x9b)[0-9;?]*[ -/]*[@-~]/g;   // CSI: ESC [ ... letter, or 0x9B (8-bit)
 const ANSI_OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;    // OSC: ESC ] ... BEL or ST
 const ANSI_OTHER = /\x1b[()#][0-9A-Za-z]/g;               // charset selectors
 const ANSI_SS = /\x1b[NOPVWXZ\\^_=>]/g;                   // single-shift / misc
-const CTRL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;   // C0 except \t \n \r
+const CTRL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g;   // C0+C1 except \t \n \r
 
 export function stripAnsi(text: string): string {
   if (!text) return text;
@@ -685,7 +693,7 @@ export async function executeSSHCommand(
           });
 
           stream.on("data", (data: Buffer) => {
-            const chunk = data.toString();
+            const chunk = data.toString("binary");
             shellBuffer += chunk;
             output += chunk;
             recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
@@ -720,7 +728,7 @@ export async function executeSSHCommand(
           });
 
           stream.stderr.on("data", (data: Buffer) => {
-            const chunk = data.toString();
+            const chunk = data.toString("binary");
             stderr += chunk;
             stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
           });
@@ -792,12 +800,12 @@ export async function executeSSHCommand(
           });
 
           stream.on("data", (data: Buffer) => {
-            const chunk = data.toString();
+            const chunk = data.toString("binary");
             output += chunk;
             recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
           });
           stream.stderr.on("data", (data: Buffer) => {
-            const chunk = data.toString();
+            const chunk = data.toString("binary");
             stderr += chunk;
             stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
           });
@@ -1058,7 +1066,7 @@ async function executeOnce(
           if (!timedOut) resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
         });
         stream.on("data", (data: Buffer) => {
-          const chunk = data.toString();
+          const chunk = data.toString("binary");
           shellBuffer += chunk;
           output += chunk;
           recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
@@ -1094,7 +1102,7 @@ async function executeOnce(
           }
         });
         stream.stderr.on("data", (data: Buffer) => {
-          const chunk = data.toString();
+          const chunk = data.toString("binary");
           stderr += chunk;
           stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
         });
@@ -1154,12 +1162,12 @@ async function executeOnce(
           }
         });
         stream.on("data", (data: Buffer) => {
-          const chunk = data.toString();
+          const chunk = data.toString("binary");
           output += chunk;
           recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
         });
         stream.stderr.on("data", (data: Buffer) => {
-          const chunk = data.toString();
+          const chunk = data.toString("binary");
           stderr += chunk;
           stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
         });
