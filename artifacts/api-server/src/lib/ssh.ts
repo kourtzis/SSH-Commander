@@ -370,6 +370,26 @@ export function looksLikeConfirmPrompt(buffer: string): boolean {
   return CONFIRM_PATTERNS.some(p => p.test(lastChunk));
 }
 
+// Pager prompts that appear when output exceeds the screen height. We auto-
+// advance by writing a single space (which every common pager treats as
+// "next page"). Patterns are matched against the ANSI-stripped tail.
+//   --More--                  Cisco IOS, more(1), less(1)
+//   --More-- (50%)            less with percentage
+//   <--- More --->            HP ProCurve / Aruba
+//   -- MORE --, next page:..  HP Comware
+//   :                         less / more on a page boundary (too risky;
+//                             not included — false positives on Password:)
+const PAGER_PATTERNS: RegExp[] = [
+  /--\s*more\s*--/i,
+  /<---\s*more\s*--->/i,
+  /-{2,}\s*more\s*-{2,}/i,
+];
+
+export function looksLikePagerPrompt(buffer: string): boolean {
+  const tail = stripAnsi(buffer).slice(-120);
+  return PAGER_PATTERNS.some(p => p.test(tail));
+}
+
 // Check the last 200 chars for a generic input prompt (excluding MikroTik CLI prompts)
 export function looksLikeInputPrompt(buffer: string): boolean {
   const lastChunk = buffer.slice(-200);
@@ -617,6 +637,8 @@ export async function executeSSHCommand(
           let commandSent = false;
           let autoConfirmCount = 0;
           let lastPromptChecked = "";  // Deduplication: prevents re-confirming the same prompt
+          let pagerAdvanceCount = 0;
+          let lastPagerChecked = "";   // Deduplication: prevents re-spacing the same pager prompt
           const cursorRespond = makeCursorResponder(stream, 24, 200);
           let promptTick: ReturnType<typeof setInterval> | null = null;
 
@@ -675,6 +697,17 @@ export async function executeSSHCommand(
             cursorRespond(chunk);
 
             if (!commandSent) return;
+
+            // Pager auto-advance — write a space when --More-- / HP MORE
+            // appears so Cisco/HP/Linux output that overflows a screen
+            // doesn't stall the session.
+            const pagerTail = shellBuffer.slice(-160);
+            if (pagerTail !== lastPagerChecked && looksLikePagerPrompt(shellBuffer)) {
+              lastPagerChecked = pagerTail;
+              pagerAdvanceCount++;
+              log.push(`[${ts()}] Pager prompt #${pagerAdvanceCount}: sending space`);
+              stream.write(" ");
+            }
 
             // Check if the output tail looks like a y/n prompt and auto-respond
             const currentTail = shellBuffer.slice(-200);
@@ -985,6 +1018,8 @@ async function executeOnce(
         let commandSent = false;
         let autoConfirmCount = 0;
         let lastPromptChecked = "";
+        let pagerAdvanceCount = 0;
+        let lastPagerChecked = "";
         let enableSent = false;
         const cursorRespond = makeCursorResponder(stream, 24, 200);
         let promptTick: ReturnType<typeof setInterval> | null = null;
@@ -1040,6 +1075,15 @@ async function executeOnce(
             enableSent = true;
             log.push(`[${ts()}] Enable-password prompt detected, sending stored secret`);
             stream.write(enablePassword + "\n");
+            return;
+          }
+          // Pager auto-advance
+          const pagerTail2 = shellBuffer.slice(-160);
+          if (pagerTail2 !== lastPagerChecked && looksLikePagerPrompt(shellBuffer)) {
+            lastPagerChecked = pagerTail2;
+            pagerAdvanceCount++;
+            log.push(`[${ts()}] Pager prompt #${pagerAdvanceCount}: sending space`);
+            stream.write(" ");
             return;
           }
           if (tail !== lastPromptChecked && looksLikeConfirmPrompt(shellBuffer)) {

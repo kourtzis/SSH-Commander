@@ -15,6 +15,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import {
   SSH_ALGORITHMS,
   looksLikeConfirmPrompt,
+  looksLikePagerPrompt,
   detectPromptType,
   extractPromptText,
   applyTagSubstitution,
@@ -142,6 +143,8 @@ interface DeviceSession {
   promptType: "confirm" | "input" | null;
   lastPromptChecked: string;       // Deduplication: last 200 chars checked for prompts
   autoConfirmCount: number;        // How many prompts were auto-confirmed (if applicable)
+  lastPagerChecked: string;        // Deduplication: last 160 chars checked for pager prompts
+  pagerAdvanceCount: number;       // How many pager prompts were auto-advanced
   commandSent: boolean;            // Whether the command has been sent (delayed by 500ms)
   idleTimerRef: ReturnType<typeof setTimeout> | null;    // Idle timer (closes session on inactivity)
   globalTimerRef: ReturnType<typeof setTimeout> | null;  // Global timeout (hard limit per device)
@@ -360,6 +363,8 @@ class InteractiveSessionManager {
       promptType: null,
       lastPromptChecked: "",
       autoConfirmCount: 0,
+      lastPagerChecked: "",
+      pagerAdvanceCount: 0,
       commandSent: false,
       idleTimerRef: null,
       globalTimerRef: null,
@@ -497,6 +502,17 @@ class InteractiveSessionManager {
           }
 
           if (!dev.commandSent) return;
+
+          // Pager auto-advance — write a space when --More-- / HP MORE
+          // appears so paged output (Cisco/HP/Linux) doesn't stall.
+          const pagerTail = dev.shellBuffer.slice(-160);
+          if (pagerTail !== dev.lastPagerChecked && looksLikePagerPrompt(dev.shellBuffer)) {
+            dev.lastPagerChecked = pagerTail;
+            dev.pagerAdvanceCount++;
+            log.push(`[${ts()}] Pager prompt #${dev.pagerAdvanceCount}: sending space`);
+            stream.write(" ");
+            return;
+          }
 
           // Check for interactive prompts in the latest output
           const currentTail = dev.shellBuffer.slice(-200);
