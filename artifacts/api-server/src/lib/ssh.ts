@@ -402,21 +402,107 @@ export function looksLikeConfirmPrompt(buffer: string): boolean {
 // Pager prompts that appear when output exceeds the screen height. We auto-
 // advance by writing a single space (which every common pager treats as
 // "next page"). Patterns are matched against the ANSI-stripped tail.
-//   --More--                  Cisco IOS, more(1), less(1)
-//   --More-- (50%)            less with percentage
-//   <--- More --->            HP ProCurve / Aruba
-//   -- MORE --, next page:..  HP Comware
-//   :                         less / more on a page boundary (too risky;
-//                             not included — false positives on Password:)
+//   --More--                       Cisco IOS, more(1), less(1)
+//   --More-- (50%)                 less with percentage
+//   <--- More --->                 HP ProCurve / Aruba
+//   -- MORE --, next page:..       HP Comware
+//   -- [Q quit|D dump|C-z pause]   MikroTik RouterOS pager (e.g. /system/package/update/install
+//                                  download progress, /log print, /export)
+//   :                              less / more on a page boundary (too risky;
+//                                  not included — false positives on Password:)
 const PAGER_PATTERNS: RegExp[] = [
   /--\s*more\s*--/i,
   /<---\s*more\s*--->/i,
   /-{2,}\s*more\s*-{2,}/i,
+  // RouterOS pager — has variants like
+  //   "-- [Q quit|D dump|C-z pause]"
+  //   "-- [Q quit|C-z pause]"
+  //   "-- [Q quit]"
+  // Anchor on the literal "[Q quit" which is unique to RouterOS pagers and
+  // won't collide with normal CLI output or prompts.
+  /--\s*\[Q\s+quit/i,
 ];
 
 export function looksLikePagerPrompt(buffer: string): boolean {
   const tail = stripAnsi(buffer).slice(-120);
   return PAGER_PATTERNS.some(p => p.test(tail));
+}
+
+// ─── Failure-Signal Detection ───────────────────────────────────────
+// Even when the SSH session itself succeeds (auth ok, prompt returned, no
+// exec error), the device output can still indicate a logical failure:
+// "% Bad command", "syntax error", "permission denied", etc. Detecting
+// these and surfacing them as task.status="needs_attention" + a stored
+// failureReason saves the operator from having to read every output pane
+// to find which devices actually went sideways.
+//
+// Patterns are matched against the ANSI-stripped, tidied output. Each is
+// designed to be unambiguous on a CLI:
+//   - Vendor error sigils (Cisco/Juniper/MikroTik/HP)
+//   - Word-boundary "error" / "failed" / "failure" / "invalid"
+//   - Common shell + permission failures (Linux, BSD)
+//   - "not found", "no such file", "cannot", "unable to"
+// We avoid bare "wrong" / "bad" / "denied" — too many false positives
+// (config keywords, table headers, log topics).
+const FAILURE_PATTERNS: { name: string; re: RegExp }[] = [
+  { name: "% Invalid",          re: /^\s*%\s*invalid/im },
+  { name: "% Bad command",      re: /^\s*%\s*bad\b/im },
+  { name: "% Error",            re: /^\s*%\s*error/im },
+  { name: "% Incomplete",       re: /^\s*%\s*incomplete/im },
+  { name: "% Ambiguous",        re: /^\s*%\s*ambiguous/im },
+  { name: "% Unknown",          re: /^\s*%\s*unknown/im },
+  { name: "syntax error",       re: /\bsyntax\s+error\b/i },
+  { name: "permission denied",  re: /\bpermission\s+denied\b/i },
+  { name: "access denied",      re: /\baccess\s+denied\b/i },
+  { name: "command not found",  re: /\bcommand\s+not\s+found\b/i },
+  { name: "no such file",       re: /\bno\s+such\s+file\b/i },
+  { name: "not found",          re: /\bnot\s+found\b/i },
+  { name: "unable to",          re: /\bunable\s+to\b/i },
+  { name: "could not",          re: /\bcould\s+not\b/i },
+  { name: "failure:",           re: /\bfailure\s*:/i },
+  { name: "failed:",            re: /\bfailed\s*:/i },
+  { name: "error:",             re: /\berror\s*:/i },
+  { name: "ERROR (RouterOS)",   re: /^\s*ERROR\s*:/m },
+  { name: "operation failed",   re: /\boperation\s+failed\b/i },
+  { name: "could not be",       re: /\bcould\s+not\s+be\b/i },
+  { name: "is invalid",         re: /\bis\s+invalid\b/i },
+  { name: "not enough",         re: /\bnot\s+enough\b/i },
+  { name: "no route to host",   re: /\bno\s+route\s+to\s+host\b/i },
+  { name: "connection refused", re: /\bconnection\s+refused\b/i },
+  { name: "host unreachable",   re: /\bhost\s+unreachable\b/i },
+];
+
+export interface FailureSignal {
+  word: string;        // The matched signal label (e.g. "syntax error", "% Invalid")
+  line: string;        // The first output line containing the match (trimmed)
+  matchedCount: number;// Total distinct signals matched (across all patterns)
+}
+
+// Scan the output for any failure signal. Returns null if the output is
+// clean. The first match's line is returned as the most relevant context.
+// Walk lines so we can attach the offending text to the report.
+export function detectFailureSignals(output: string): FailureSignal | null {
+  if (!output) return null;
+  const clean = stripAnsi(output);
+  const lines = clean.split(/\r?\n/);
+  let firstHit: { word: string; line: string } | null = null;
+  const matchedWords = new Set<string>();
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    // Skip prompt-only lines (echoed CLI prompts) — they never contain
+    // meaningful failure text and the prompt char list overlaps "[" /
+    // ":" used in some pattern boundaries.
+    if (PROMPT_RE.test(line)) continue;
+    for (const p of FAILURE_PATTERNS) {
+      if (p.re.test(line)) {
+        matchedWords.add(p.name);
+        if (!firstHit) firstHit = { word: p.name, line };
+      }
+    }
+  }
+  if (!firstHit) return null;
+  return { word: firstHit.word, line: firstHit.line, matchedCount: matchedWords.size };
 }
 
 // Check the last 200 chars for a generic input prompt (excluding MikroTik CLI prompts)
@@ -743,6 +829,28 @@ export async function executeSSHCommand(
           const resetIdleTimer = () => {
             if (idleTimer.ref) clearTimeout(idleTimer.ref);
             idleTimer.ref = setTimeout(() => {
+              // Rescue hook — before declaring the session idle, peek at
+              // the buffer tail. If a pager / confirm prompt is sitting
+              // there but no new data has arrived (the device dumped a
+              // big chunk and is now waiting on us), the data-handler
+              // never got a second look at it. Take the action here and
+              // restart the idle window instead of closing.
+              if (commandSent && looksLikePagerPrompt(shellBuffer)) {
+                pagerAdvanceCount++;
+                log.push(`[${ts()}] Idle rescue: pager prompt #${pagerAdvanceCount} — sending space`);
+                lastPagerChecked = shellBuffer.slice(-160);
+                try { stream.write(" "); } catch {}
+                resetIdleTimer();
+                return;
+              }
+              if (commandSent && looksLikeConfirmPrompt(shellBuffer)) {
+                autoConfirmCount++;
+                log.push(`[${ts()}] Idle rescue: confirm prompt #${autoConfirmCount} — sending "y"`);
+                lastPromptChecked = shellBuffer.slice(-200);
+                try { stream.write("y\n"); } catch {}
+                resetIdleTimer();
+                return;
+              }
               clearTimeout(timer);
               if (promptTick) { clearInterval(promptTick); promptTick = null; }
               log.push(`[${ts()}] ──────────────────────────────────`);
@@ -1124,6 +1232,26 @@ async function executeOnce(
         const resetIdleTimer = () => {
           if (idleTimer.ref) clearTimeout(idleTimer.ref);
           idleTimer.ref = setTimeout(() => {
+            // Rescue hook — see executeSSHCommand for full rationale.
+            // If a pager / confirm prompt is sitting in the buffer but no
+            // new data has arrived, take action and restart the window
+            // instead of closing the session.
+            if (commandSent && looksLikePagerPrompt(shellBuffer)) {
+              pagerAdvanceCount++;
+              log.push(`[${ts()}] Idle rescue: pager prompt #${pagerAdvanceCount} — sending space`);
+              lastPagerChecked = shellBuffer.slice(-160);
+              try { stream.write(" "); } catch {}
+              resetIdleTimer();
+              return;
+            }
+            if (commandSent && looksLikeConfirmPrompt(shellBuffer)) {
+              autoConfirmCount++;
+              log.push(`[${ts()}] Idle rescue: confirm prompt #${autoConfirmCount} — sending "y"`);
+              lastPromptChecked = shellBuffer.slice(-200);
+              try { stream.write("y\n"); } catch {}
+              resetIdleTimer();
+              return;
+            }
             clearTimeout(timer);
             if (promptTick) { clearInterval(promptTick); promptTick = null; }
             flushWireLog(log, recvBuf, "<<");  recvBuf = "";

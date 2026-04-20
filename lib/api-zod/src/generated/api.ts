@@ -613,12 +613,19 @@ export const GetJobResponse = zod.object({
         "success",
         "failed",
         "waiting_input",
+        "needs_attention",
       ]),
       output: zod.string().nullish(),
       errorMessage: zod.string().nullish(),
       connectionLog: zod.string().nullish(),
       resolvedScript: zod.string().nullish(),
       promptText: zod.string().nullish(),
+      failureReason: zod
+        .string()
+        .nullish()
+        .describe(
+          'Set when status=\"needs_attention\" — the failure signal word(s)\ndetected in the device output and the line(s) containing them.\nThe SSH session itself succeeded; this flags suspicious output.\n',
+        ),
       attemptCount: zod.number().optional(),
       startedAt: zod.date().nullish(),
       completedAt: zod.date().nullish(),

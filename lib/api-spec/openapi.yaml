@@ -1626,7 +1626,7 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, running, success, failed, waiting_input]
+          enum: [pending, running, success, failed, waiting_input, needs_attention]
         output:
           type: string
           nullable: true
@@ -1642,6 +1642,13 @@ components:
         promptText:
           type: string
           nullable: true
+        failureReason:
+          type: string
+          nullable: true
+          description: |
+            Set when status="needs_attention" — the failure signal word(s)
+            detected in the device output and the line(s) containing them.
+            The SSH session itself succeeded; this flags suspicious output.
         attemptCount:
           type: integer
         startedAt:

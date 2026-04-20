@@ -564,6 +564,7 @@ export default function JobDetail() {
                       <div className="shrink-0">
                         <Badge variant={
                           taskStatus === 'waiting_input' ? 'warning' :
+                          taskStatus === 'needs_attention' ? 'warning' :
                           taskStatus === 'success' ? 'success' : 
                           taskStatus === 'failed' ? 'destructive' : 
                           taskStatus === 'running' ? 'default' : 'secondary'
@@ -572,7 +573,10 @@ export default function JobDetail() {
                           {taskStatus === 'success' && <CheckCircle2 className="w-3 h-3 mr-1" />}
                           {taskStatus === 'failed' && <XCircle className="w-3 h-3 mr-1" />}
                           {taskStatus === 'waiting_input' && <MessageSquare className="w-3 h-3 mr-1 animate-pulse" />}
-                          {taskStatus === 'waiting_input' ? 'Awaiting Input' : taskStatus}
+                          {taskStatus === 'needs_attention' && <AlertTriangle className="w-3 h-3 mr-1" />}
+                          {taskStatus === 'waiting_input' ? 'Awaiting Input' :
+                           taskStatus === 'needs_attention' ? 'Needs Attention' :
+                           taskStatus}
                         </Badge>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -605,6 +609,8 @@ export default function JobDetail() {
                       <div className="shrink-0 max-w-xs truncate">
                         {task.errorMessage ? (
                           <span className="text-xs text-destructive truncate">{task.errorMessage}</span>
+                        ) : (task as any).failureReason ? (
+                          <span className="text-xs text-amber-400 truncate" title={(task as any).failureReason}>{(task as any).failureReason}</span>
                         ) : displayOutput ? (
                           <span className="text-xs text-emerald-400 truncate">{displayOutput.slice(0, 60)}{displayOutput.length > 60 ? "..." : ""}</span>
                         ) : null}

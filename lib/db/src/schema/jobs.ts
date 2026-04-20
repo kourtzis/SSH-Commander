@@ -23,14 +23,20 @@ export const jobStatusEnum = pgEnum("job_status", [
   "scheduled",
 ]);
 
-// Per-router task lifecycle: pending → running → success/failed
-// "waiting_input" is used in interactive mode when a prompt is detected
+// Per-router task lifecycle: pending → running → success/failed/needs_attention
+// "waiting_input"   — interactive mode, a prompt is detected
+// "needs_attention" — SSH session itself succeeded (auth ok, prompt returned,
+//                     no exec error) but the device output contains failure
+//                     signals like "error", "invalid", "% Bad command",
+//                     "permission denied", etc. Surfaced to the operator so
+//                     a clean exit code doesn't hide a logical problem.
 export const taskStatusEnum = pgEnum("task_status", [
   "pending",
   "running",
   "success",
   "failed",
   "waiting_input",
+  "needs_attention",
 ]);
 
 // A batch job — runs a script across one or more routers.
@@ -73,6 +79,7 @@ export const jobTasksTable = pgTable("job_tasks", {
   connectionLog: text("connection_log"),        // Timestamped SSH handshake/connection log
   resolvedScript: text("resolved_script"),      // Script after {{TAG}} substitution
   promptText: text("prompt_text"),              // Current interactive prompt text (cleared on resume)
+  failureReason: text("failure_reason"),        // For status="needs_attention": which signal word(s) matched + the line containing them
   attemptCount: integer("attempt_count").notNull().default(0), // How many SSH attempts were made
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),

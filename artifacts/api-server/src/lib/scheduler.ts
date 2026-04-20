@@ -5,7 +5,7 @@
 
 import { db, schedulesTable, batchJobsTable, jobTasksTable, routersTable } from "@workspace/db";
 import { eq, lte, and, inArray } from "drizzle-orm";
-import { executeSSH, applyTagSubstitution } from "./ssh.js";
+import { executeSSH, applyTagSubstitution, detectFailureSignals } from "./ssh.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "./resolve-routers.js";
 import { resolveEffectiveCreds } from "./effective-creds.js";
 
@@ -72,14 +72,31 @@ async function executeJobTasks(
           }
         );
         if (result.success) {
-          completedCount++;
-          await db.update(jobTasksTable).set({
-            status: "success",
-            output: result.output,
-            connectionLog: result.connectionLog,
-            attemptCount: result.attemptCount,
-            completedAt: new Date(),
-          }).where(eq(jobTasksTable.id, taskId));
+          // SSH itself succeeded — but check the device output for failure
+          // signals. If any are present the task is marked needs_attention
+          // (still counts toward failedTasks so the job badge doesn't
+          // falsely show fully successful when devices logically failed).
+          const signal = detectFailureSignals(result.output);
+          if (signal) {
+            failedCount++;
+            await db.update(jobTasksTable).set({
+              status: "needs_attention",
+              output: result.output,
+              connectionLog: result.connectionLog,
+              attemptCount: result.attemptCount,
+              failureReason: `Detected "${signal.word}"${signal.matchedCount > 1 ? ` (+${signal.matchedCount - 1} more signal${signal.matchedCount - 1 === 1 ? "" : "s"})` : ""} in output: ${signal.line.slice(0, 240)}`,
+              completedAt: new Date(),
+            }).where(eq(jobTasksTable.id, taskId));
+          } else {
+            completedCount++;
+            await db.update(jobTasksTable).set({
+              status: "success",
+              output: result.output,
+              connectionLog: result.connectionLog,
+              attemptCount: result.attemptCount,
+              completedAt: new Date(),
+            }).where(eq(jobTasksTable.id, taskId));
+          }
         } else {
           failedCount++;
           await db.update(jobTasksTable).set({

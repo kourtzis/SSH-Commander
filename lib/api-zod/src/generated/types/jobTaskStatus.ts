@@ -14,4 +14,5 @@ export const JobTaskStatus = {
   success: "success",
   failed: "failed",
   waiting_input: "waiting_input",
+  needs_attention: "needs_attention",
 } as const;

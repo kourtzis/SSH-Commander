@@ -19,6 +19,11 @@ export interface JobTask {
   connectionLog?: string | null;
   resolvedScript?: string | null;
   promptText?: string | null;
+  /** Set when status="needs_attention" — the failure signal word(s)
+detected in the device output and the line(s) containing them.
+The SSH session itself succeeded; this flags suspicious output.
+ */
+  failureReason?: string | null;
   attemptCount?: number;
   startedAt?: Date | null;
   completedAt?: Date | null;
