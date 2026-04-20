@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.22";  
+export const APP_VERSION = "1.8.23";  
 export const APP_VERSION_DATE = "2026-04-20";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.23",
+    date: "2026-04-20",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "ANSI escape codes like '[6n', '[9999B', and 'Z' that were leaking into the live job output pane are now stripped properly. The 1.8.20 cleanup worked on whole-string output but ran on each TCP chunk individually, so when a single escape sequence like ESC + [6n got split across two network frames (very common with chatty devices), neither chunk had a complete sequence to match and the tail showed up as visible junk. The cleaner is now stream-aware: it holds back any unterminated escape at the end of a chunk and reassembles it with the next chunk's head before stripping. Final tail is flushed when the session closes so the last prompt line still shows.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.22",
     date: "2026-04-20",

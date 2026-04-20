@@ -86,6 +86,97 @@ export function stripAnsi(text: string): string {
     .replace(CTRL_CHARS, "");
 }
 
+// ─── Stream-aware stripper ──────────────────────────────────────────
+// stripAnsi() above is stateless and runs on a single string. Real SSH
+// output arrives in TCP-sized chunks and an escape sequence like `\x1b[6n`
+// can be split across two chunks (e.g. `\x1b` at the tail of chunk A and
+// `[6n` at the head of chunk B). Per-chunk stripping then misses the split
+// sequence: chunk A's lone `\x1b` is consumed by the C0/C1 control-char
+// rule, chunk B has no `\x1b` to anchor the CSI regex, and `[6n` flows
+// through to the UI unmodified — exactly the symptom users were reporting.
+//
+// stripAnsiStream() solves this by holding back any unterminated trailing
+// escape until the next chunk arrives. The pending tail is capped at 64
+// chars so a stuck/garbled stream can never grow it without bound.
+export type StripState = { pending: string };
+
+export function makeStripState(): StripState {
+  return { pending: "" };
+}
+
+// Returns true if `s` (which starts at an ESC) contains a complete escape
+// sequence — i.e. we know we can hand it off to stripAnsi without losing
+// information. Returns false if it looks like a still-arriving sequence
+// that should be held back for the next chunk.
+function escapeIsComplete(s: string): boolean {
+  if (s.length < 2) return false;          // just ESC, definitely incomplete
+  const c1 = s.charCodeAt(1);
+  // ESC + single byte: charset selector ESC ( B, single-shift ESC N, etc.
+  // These are all 2 or 3 char sequences with deterministic length.
+  if (s[1] === "[" || s[1] === "]") {
+    // CSI / OSC — need a terminator. CSI ends on a byte in 0x40–0x7E (@–~).
+    // OSC ends on BEL (0x07) or ST (ESC \).
+    if (s[1] === "[") {
+      for (let i = 2; i < s.length; i++) {
+        const code = s.charCodeAt(i);
+        if (code >= 0x40 && code <= 0x7e) return true;
+      }
+      return false;
+    } else {
+      for (let i = 2; i < s.length; i++) {
+        if (s.charCodeAt(i) === 0x07) return true;
+        if (s[i] === "\x1b" && i + 1 < s.length && s[i + 1] === "\\") return true;
+      }
+      return false;
+    }
+  }
+  if (s[1] === "(" || s[1] === ")" || s[1] === "#") {
+    return s.length >= 3;                  // ESC ( B   etc.
+  }
+  // Single-byte escape (NEL, IND, RI, ...). Already 2 chars, complete.
+  // Hex range check matches ANSI_SS regex.
+  if ([0x4e, 0x4f, 0x50, 0x56, 0x57, 0x58, 0x5a, 0x5c, 0x5e, 0x5f, 0x3d, 0x3e].includes(c1)) {
+    return true;
+  }
+  // Unknown ESC — assume complete to avoid pinning the stream forever.
+  return true;
+}
+
+const MAX_PENDING = 64;
+
+export function stripAnsiStream(state: StripState, chunk: string): string {
+  if (!chunk) return "";
+  const combined = state.pending + chunk;
+  // Find the last ESC in the combined buffer. If it's the start of an
+  // incomplete sequence, split there: everything before it is safe to
+  // strip-and-emit, everything from that ESC onward becomes the new pending.
+  let splitAt = combined.length;
+  const lastEsc = combined.lastIndexOf("\x1b");
+  if (lastEsc !== -1 && !escapeIsComplete(combined.slice(lastEsc))) {
+    splitAt = lastEsc;
+  }
+  const emitPart = combined.slice(0, splitAt);
+  let nextPending = combined.slice(splitAt);
+  if (nextPending.length > MAX_PENDING) {
+    // Stuck — flush whatever we've accumulated rather than buffering forever.
+    nextPending = "";
+    state.pending = "";
+    return stripAnsi(combined);
+  }
+  state.pending = nextPending;
+  return stripAnsi(emitPart);
+}
+
+// Drain whatever is left in the strip-state when the stream closes.
+// Anything still pending at close time is by definition not going to be
+// completed, so flush it through the regular stripper.
+export function flushStripState(state: StripState): string {
+  if (!state.pending) return "";
+  const out = stripAnsi(state.pending);
+  state.pending = "";
+  return out;
+}
+
 // Flush whatever is left in a wire-log buffer when a stream closes — captures
 // the final line of output that didn't end in a newline (common with prompts
 // like `[admin@router] > `).

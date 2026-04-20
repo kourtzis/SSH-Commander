@@ -24,6 +24,10 @@ import {
   appendWireLog,
   flushWireLog,
   stripAnsi,
+  stripAnsiStream,
+  flushStripState,
+  makeStripState,
+  type StripState,
 } from "./ssh.js";
 import { resolveEffectiveCreds } from "./effective-creds.js";
 
@@ -403,6 +407,13 @@ class InteractiveSessionManager {
         // in ssh.ts for the full rationale.
         let recvBuf = "";
         let stderrBuf = "";
+        // Stream-aware ANSI stripper state. SSH chunks can split a single
+        // escape sequence (e.g. `\x1b[6n`) across two TCP frames; without
+        // state, the lone trailing `\x1b` of frame A gets eaten by the C0
+        // control-char rule and `[6n` arrives in frame B with nothing to
+        // anchor on, leaking to the UI as visible junk. stripState carries
+        // any trailing partial escape over to the next chunk.
+        const stripState: StripState = makeStripState();
 
         // Idle timer: if no new data for 5s, check for prompts or close
         const resetIdleTimer = () => {
@@ -426,6 +437,20 @@ class InteractiveSessionManager {
         stream.on("close", () => {
           flushWireLog(log, recvBuf, "<<");  recvBuf = "";
           flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
+          // Drain any partial-escape bytes still held by the stream stripper
+          // — emit them as a final SSE chunk so the user sees the very last
+          // line of output (typically a prompt).
+          const tail = flushStripState(stripState);
+          if (tail) {
+            job.emitter.emit("event", {
+              type: "task_output",
+              taskId,
+              routerId: router.id,
+              routerName: router.name,
+              routerIp: router.ipAddress,
+              output: tail,
+            } as LiveEvent);
+          }
           if (!dev.resolved) {
             log.push(`[${ts()}] ──────────────────────────────────`);
             log.push(`[${ts()}] Shell session closed by remote`);
@@ -441,8 +466,11 @@ class InteractiveSessionManager {
 
           // Stream output to SSE subscribers in real-time. Strip ANSI/control
           // bytes so the live "Output" pane stays readable — raw bytes still
-          // go to the wire log via appendWireLog above for debugging.
-          const cleanChunk = stripAnsi(chunk);
+          // go to the wire log via appendWireLog above for debugging. Use the
+          // stateful stripper so escape sequences split across TCP chunk
+          // boundaries are reassembled before stripping, instead of leaking
+          // their tail (e.g. `[6n`, `[9999B`) to the UI.
+          const cleanChunk = stripAnsiStream(stripState, chunk);
           if (cleanChunk) {
             job.emitter.emit("event", {
               type: "task_output",

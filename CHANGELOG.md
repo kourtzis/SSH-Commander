@@ -12,6 +12,17 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.23] - 2026-04-20
+
+### Fixed
+- **ANSI escape codes leaking into the live output pane** — operators were seeing visible junk like `[9999B`, `Z`, `[6n` in the SSE-streamed "Output" tab even though 1.8.20 added `stripAnsi`. The bug: `stripAnsi` is a pure-function-on-a-complete-string, but it was being called on every individual TCP chunk. When a device emitted `\x1b[6n` (Device Status Report) at a TCP boundary that put `\x1b` at the very end of frame A and `[6n` at the start of frame B, neither chunk had a complete CSI sequence to match. The lone `\x1b` was then consumed by the C0/C1 control-char regex, frame B had no anchor, and `[6n` flowed through to the UI unmodified. Same mechanism explained the `[9999B` (terminal-height probe) and `Z` (cursor-back-tab) leaks.
+  
+  Fix: a new `stripAnsiStream(state, chunk)` paired with `makeStripState()` and `flushStripState(state)` (all in `lib/ssh.ts`). It scans for the last `\x1b` in `pending + chunk`, decides whether the escape sequence starting there is complete (CSI ends on `0x40-0x7E`, OSC on BEL or ST, charset selectors are 3 chars, single-shifts are 2 chars), and if not, holds the partial tail back as `pending` for the next chunk to complete. Pending is capped at 64 chars so a stuck stream can't pin output forever — past that we flush. On stream close `flushStripState` drains anything still held so the trailing prompt line isn't lost. Wired into `interactive-session.ts`'s shell-data handler. The wire log (`>>` / `<<`) still receives raw bytes intentionally — that's the diagnostic view of what actually went over the socket.
+  
+  The whole-string `stripAnsi(dev.shellBuffer)` calls at finalize time are unchanged and still correct (they always operate on the complete buffer).
+
+---
+
 ## [1.8.22] - 2026-04-20
 
 ### Fixed
