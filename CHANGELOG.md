@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.29] - 2026-04-20
+
+### Improved
+- **Post-prompt idle timer raised from 3s to 10s.** Once the command has been sent to the device and output starts streaming back, the auto-confirm shell now allows up to 10 seconds of silence between chunks before considering the response complete (was 3s). Pre-prompt wait stays at 25s. Helps slower devices and longer-running commands that emit output in bursts.
+
+---
+
 ## [1.8.28] - 2026-04-20
 
 ### Improved

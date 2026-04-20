@@ -640,7 +640,7 @@ export async function executeSSHCommand(
               if (!timedOut) {
                 resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
               }
-            }, commandSent ? 3000 : 25000);
+            }, commandSent ? 10000 : 25000);
           };
 
           // Per-direction line buffers for the wire log (see appendWireLog).
@@ -1008,7 +1008,7 @@ async function executeOnce(
             log.push(`[${ts()}] Session closed`);
             try { conn.end(); } catch {}
             if (!timedOut) resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
-          }, commandSent ? 3000 : 25000);
+          }, commandSent ? 10000 : 25000);
         };
         stream.on("close", () => {
           clearTimeout(timer);

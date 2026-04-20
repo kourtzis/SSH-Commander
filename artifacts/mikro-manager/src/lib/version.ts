@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.28";  
+export const APP_VERSION = "1.8.29";  
 export const APP_VERSION_DATE = "2026-04-20";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.29",
+    date: "2026-04-20",
+    sections: [
+      {
+        title: "Improved",
+        items: [
+          "Increased post-prompt idle timer from 3s to 10s. After the command is sent and the device starts replying, the auto-confirm shell now waits up to 10 seconds of silence before declaring the output complete (was 3s). This gives slower devices and longer commands more breathing room while still keeping the pre-prompt wait at 25s.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.28",
     date: "2026-04-20",
