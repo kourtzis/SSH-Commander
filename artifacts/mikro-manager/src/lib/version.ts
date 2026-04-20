@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.25";  
+export const APP_VERSION = "1.8.26";  
 export const APP_VERSION_DATE = "2026-04-20";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.26",
+    date: "2026-04-20",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "RouterOS jobs still hanging after 1.8.25 — two more compounding root causes found in the wire log. (1) The dumb DSR responder always replied '1;1' to any cursor-position query, but RouterOS does a multi-step terminal-size discovery ritual (move-cursor-down-9999, query, move-home, query, move-right-9999, query) and deduces dimensions from the answers. Always answering 1;1 told the device the terminal was 1×1, so it re-probed forever. Replaced with a smart responder that maintains a virtual cursor (clamped to 24×200), updates it on every cursor-movement escape sequence we see (A/B/C/D/H/f), and replies to '\\x1b[6n' with the current virtual position. RouterOS now gets believable answers and stops probing. (2) The auto-confirm shell mode in ssh.ts had a 3-second idle-close timer that fired during the prompt-wait, killing the session before the 20-second prompt ceiling could elapse. The idle window is now 25s while waiting for the prompt and drops to 3s once the command is sent. Also added clearInterval cleanup so the prompt-wait poll doesn't leak past stream close.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.25",
     date: "2026-04-20",

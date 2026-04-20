@@ -25,6 +25,7 @@ import {
   flushWireLog,
   stripAnsi,
   stripAnsiStream,
+  makeCursorResponder,
   flushStripState,
   makeStripState,
   type StripState,
@@ -421,6 +422,10 @@ class InteractiveSessionManager {
         // anchor on, leaking to the UI as visible junk. stripState carries
         // any trailing partial escape over to the next chunk.
         const stripState: StripState = makeStripState();
+        // Smart DSR responder — replies to \x1b[6n with believable cursor
+        // positions so RouterOS-style devices stop probing and show their
+        // prompt. See makeCursorResponder() in ssh.ts for the full story.
+        const cursorRespond = makeCursorResponder(stream, 24, 200);
 
         // Idle timer: if no new data for 5s, check for prompts or close
         const resetIdleTimer = () => {
@@ -470,6 +475,7 @@ class InteractiveSessionManager {
           dev.shellBuffer += chunk;
           recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
           resetIdleTimer();
+          cursorRespond(chunk);
 
           // Stream output to SSE subscribers in real-time. Strip ANSI/control
           // bytes so the live "Output" pane stays readable — raw bytes still

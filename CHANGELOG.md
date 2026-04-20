@@ -12,6 +12,26 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.26] - 2026-04-20
+
+### Fixed
+- **RouterOS jobs still hanging after 1.8.25.** The wire log from the failed v1.8.25 run revealed two more compounding root causes that I missed by guessing instead of looking at the data:
+
+  1. **Dumb DSR responder confused RouterOS into a re-probe loop.** The 1.8.25 responder always replied `\x1b[1;1R` to any cursor-position query. But RouterOS doesn't ask once — it runs a *terminal-size discovery ritual*: send `\x1b[9999B` (cursor down a lot) → DSR (where am I?) → `\x1b[H` (home) → DSR → `\x1b[9999C` (right edge) → DSR. It then *deduces* terminal dimensions from the answers. Telling it the cursor is at 1;1 every time is telling it the terminal is 1 row by 1 column, which sends it into an infinite re-probe loop and the prompt never appears. Replaced with `makeCursorResponder()`, a smart responder that:
+     - Maintains a virtual cursor clamped to (rows, cols) — currently 24×200, matching the PTY config.
+     - Walks each chunk for cursor-movement CSI sequences (`A`/`B`/`C`/`D` for up/down/right/left, `H`/`f` for absolute position) and updates the virtual cursor.
+     - Replies to `\x1b[6n` with the current virtual position. RouterOS now gets `\x1b[24;1R` after a "down 9999", `\x1b[1;1R` after a "home", `\x1b[1;200R` after a "right 9999" — all consistent with a real 24×200 terminal. It deduces correctly and stops probing.
+     
+     Wired into all three SSH shell paths (auto-confirm, retry-wrapped, interactive-session).
+
+  2. **3-second idle-close timer killed the session during prompt-wait.** The auto-confirm shell mode in `ssh.ts` had an idle timer that fired 3 seconds after the last received byte. Once RouterOS finished its initial probe burst, it went silent waiting for our DSR replies; the device's silence triggered our idle timer, the session closed, and the 20-second prompt-wait ceiling never had a chance to fire. The idle window is now **25 seconds while waiting for the prompt** (longer than the 20s prompt ceiling) and drops to **3 seconds once the command is sent**. Same fix on both auto-confirm shell paths in `ssh.ts`. `interactive-session.ts` was already correctly no-opping the idle handler before `commandSent`, so it didn't need this fix.
+
+  3. **Cleanup.** The prompt-wait `setInterval` is now properly `clearInterval`'d on stream close in both `ssh.ts` shell paths, so it can't leak past the session ending.
+
+  Net effect: connection log on a successful RouterOS job should now show `Waiting for shell prompt (max 20s)` → a few hundred ms of `<<` chunks where the device probes and we reply with cursor positions → `Shell prompt detected after Nms` → `>> /system identity print` → real device output streamed back.
+
+---
+
 ## [1.8.25] - 2026-04-20
 
 ### Fixed

@@ -177,6 +177,50 @@ export function flushStripState(state: StripState): string {
   return out;
 }
 
+// ─── Cursor-position responder (smart DSR) ─────────────────────────
+// Some devices (RouterOS most notably) run a terminal-size discovery
+// ritual at shell open: send `\x1b[9999B` (cursor down a lot) → DSR
+// `\x1b[6n` (where am I?) → `\x1b[H` (home) → DSR → `\x1b[9999C`
+// (right) → DSR. The device then deduces rows/cols from the answers.
+// A naive "always reply 1;1" responder makes RouterOS think the
+// terminal is 1×1, which sends it into a re-probe loop that never
+// terminates and never prints the prompt.
+//
+// makeCursorResponder() returns a function you call from the data
+// handler with each chunk. It walks the chunk for cursor-movement
+// CSI sequences, maintains a virtual cursor clamped to (rows, cols),
+// and replies to any `\x1b[6n` with the current virtual position.
+// The device then gets believable answers and stops probing.
+export interface CursorWritable { write: (s: string) => unknown }
+export function makeCursorResponder(stream: CursorWritable, rows = 24, cols = 200) {
+  let row = 1, col = 1;
+  return function respond(chunk: string): void {
+    let i = 0;
+    while (i < chunk.length) {
+      const esc = chunk.indexOf("\x1b[", i);
+      if (esc === -1) break;
+      let j = esc + 2;
+      let params = "";
+      while (j < chunk.length && /[0-9;?]/.test(chunk[j])) { params += chunk[j]; j++; }
+      if (j >= chunk.length) break; // sequence split across chunks — bail
+      const letter = chunk[j];
+      const n = parseInt(params, 10) || 1;
+      if (letter === "A") row = Math.max(1, row - n);
+      else if (letter === "B") row = Math.min(rows, row + n);
+      else if (letter === "C") col = Math.min(cols, col + n);
+      else if (letter === "D") col = Math.max(1, col - n);
+      else if (letter === "H" || letter === "f") {
+        const [r, c] = params.split(";");
+        row = Math.min(Math.max(parseInt(r, 10) || 1, 1), rows);
+        col = Math.min(Math.max(parseInt(c, 10) || 1, 1), cols);
+      } else if (letter === "n" && params === "6") {
+        try { stream.write(`\x1b[${row};${col}R`); } catch {}
+      }
+      i = j + 1;
+    }
+  };
+}
+
 // Flush whatever is left in a wire-log buffer when a stream closes — captures
 // the final line of output that didn't end in a newline (common with prompts
 // like `[admin@router] > `).
@@ -479,13 +523,21 @@ export async function executeSSHCommand(
           let commandSent = false;
           let autoConfirmCount = 0;
           let lastPromptChecked = "";  // Deduplication: prevents re-confirming the same prompt
+          const cursorRespond = makeCursorResponder(stream, 24, 200);
+          let promptTick: ReturnType<typeof setInterval> | null = null;
 
-          // Idle timer: resolves the session if no new data arrives for 3 seconds
+          // Idle timer: resolves the session after a window of no new data.
+          // We use a much longer window (25s) BEFORE the command is sent —
+          // the prompt-wait poll has a 20s ceiling, and chatty devices like
+          // RouterOS can sit silent for several seconds mid-handshake while
+          // they wait for our DSR replies. After commandSent we drop back
+          // to 3s, since the command-response cycle should be tight.
           const idleTimer = { ref: null as ReturnType<typeof setTimeout> | null };
           const resetIdleTimer = () => {
             if (idleTimer.ref) clearTimeout(idleTimer.ref);
             idleTimer.ref = setTimeout(() => {
               clearTimeout(timer);
+              if (promptTick) { clearInterval(promptTick); promptTick = null; }
               log.push(`[${ts()}] ──────────────────────────────────`);
               log.push(`[${ts()}] Shell session idle — closing`);
               if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
@@ -494,7 +546,7 @@ export async function executeSSHCommand(
               if (!timedOut) {
                 resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
               }
-            }, 3000);
+            }, commandSent ? 3000 : 25000);
           };
 
           // Per-direction line buffers for the wire log (see appendWireLog).
@@ -504,6 +556,7 @@ export async function executeSSHCommand(
           stream.on("close", () => {
             clearTimeout(timer);
             if (idleTimer.ref) clearTimeout(idleTimer.ref);
+            if (promptTick) { clearInterval(promptTick); promptTick = null; }
             flushWireLog(log, recvBuf, "<<");  recvBuf = "";
             flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
             log.push(`[${ts()}] ──────────────────────────────────`);
@@ -522,15 +575,10 @@ export async function executeSSHCommand(
             recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
             resetIdleTimer();
 
-            // DSR responder: some devices (RouterOS most notably) emit
-            // \x1b[6n ("Device Status Report — query cursor position") at
-            // shell startup and then *block* waiting for a reply before
-            // they print their prompt. We claim cursor at row 1, col 1 so
-            // the device proceeds. Match against the chunk only — once
-            // replied, the device stops asking.
-            if (chunk.includes("\x1b[6n")) {
-              try { stream.write("\x1b[1;1R"); } catch {}
-            }
+            // Smart DSR responder — tracks a virtual 24×200 cursor and
+            // replies to \x1b[6n with believable positions. See
+            // makeCursorResponder() for the full rationale.
+            cursorRespond(chunk);
 
             if (!commandSent) return;
 
@@ -558,12 +606,12 @@ export async function executeSSHCommand(
           const PROMPT_CEILING_MS = 20_000;
           const promptStart = Date.now();
           log.push(`[${ts()}] Waiting for shell prompt (max ${PROMPT_CEILING_MS / 1000}s)`);
-          const promptTick = setInterval(() => {
+          promptTick = setInterval(() => {
             const cleaned = stripAnsi(shellBuffer);
             const ready = PROMPT_RE.test(cleaned);
             const ceiling = Date.now() - promptStart >= PROMPT_CEILING_MS;
             if (!ready && !ceiling) return;
-            clearInterval(promptTick);
+            if (promptTick) { clearInterval(promptTick); promptTick = null; }
             const waited = Date.now() - promptStart;
             if (ready) {
               log.push(`[${ts()}] Shell prompt detected after ${waited}ms`);
@@ -844,14 +892,20 @@ async function executeOnce(
         let autoConfirmCount = 0;
         let lastPromptChecked = "";
         let enableSent = false;
+        const cursorRespond = makeCursorResponder(stream, 24, 200);
+        let promptTick: ReturnType<typeof setInterval> | null = null;
         // Per-direction line buffers for the wire log.
         let recvBuf = "";
         let stderrBuf = "";
+        // Idle timer: 25s while waiting for the prompt (longer than the 20s
+        // prompt-wait ceiling) to avoid killing the session mid-handshake on
+        // chatty devices like RouterOS, then 3s once the command is sent.
         const idleTimer = { ref: null as ReturnType<typeof setTimeout> | null };
         const resetIdleTimer = () => {
           if (idleTimer.ref) clearTimeout(idleTimer.ref);
           idleTimer.ref = setTimeout(() => {
             clearTimeout(timer);
+            if (promptTick) { clearInterval(promptTick); promptTick = null; }
             flushWireLog(log, recvBuf, "<<");  recvBuf = "";
             flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
             log.push(`[${ts()}] ──────────────────────────────────`);
@@ -860,11 +914,12 @@ async function executeOnce(
             log.push(`[${ts()}] Session closed`);
             try { conn.end(); } catch {}
             if (!timedOut) resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
-          }, 3000);
+          }, commandSent ? 3000 : 25000);
         };
         stream.on("close", () => {
           clearTimeout(timer);
           if (idleTimer.ref) clearTimeout(idleTimer.ref);
+          if (promptTick) { clearInterval(promptTick); promptTick = null; }
           flushWireLog(log, recvBuf, "<<");  recvBuf = "";
           flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
           log.push(`[${ts()}] ──────────────────────────────────`);
@@ -879,12 +934,8 @@ async function executeOnce(
           output += chunk;
           recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
           resetIdleTimer();
-          // DSR responder — see the matching block in the non-retry shell
-          // path above. Same purpose: unblock RouterOS-style devices that
-          // probe the terminal at startup.
-          if (chunk.includes("\x1b[6n")) {
-            try { stream.write("\x1b[1;1R"); } catch {}
-          }
+          // Smart DSR responder — see makeCursorResponder() for the full story.
+          cursorRespond(chunk);
           if (!commandSent) return;
           const tail = shellBuffer.slice(-200);
           // Enable password handler: respond once, only when we have a password and it differs from the SSH one
@@ -915,12 +966,12 @@ async function executeOnce(
         const PROMPT_CEILING_MS = 20_000;
         const promptStart = Date.now();
         log.push(`[${ts()}] Waiting for shell prompt (max ${PROMPT_CEILING_MS / 1000}s)`);
-        const promptTick = setInterval(() => {
+        promptTick = setInterval(() => {
           const cleaned = stripAnsi(shellBuffer);
           const ready = PROMPT_RE.test(cleaned);
           const ceiling = Date.now() - promptStart >= PROMPT_CEILING_MS;
           if (!ready && !ceiling) return;
-          clearInterval(promptTick);
+          if (promptTick) { clearInterval(promptTick); promptTick = null; }
           const waited = Date.now() - promptStart;
           if (ready) {
             log.push(`[${ts()}] Shell prompt detected after ${waited}ms`);
