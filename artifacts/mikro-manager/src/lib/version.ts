@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.23";  
+export const APP_VERSION = "1.8.24";  
 export const APP_VERSION_DATE = "2026-04-20";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.24",
+    date: "2026-04-20",
+    sections: [
+      {
+        title: "Fixed",
+        items: [
+          "Scripts no longer fail silently on slow-to-initialize devices. Previously the runner waited a flat half-second after opening the SSH shell and then sent the script — fine for a fast Linux box, but on chatty devices (MikroTik RouterOS, Cisco IOS, anything behind RADIUS auth) the prompt didn't appear for several seconds, so the first command landed in a still-initializing shell and either disappeared or got treated as garbage. The runner now waits for the actual prompt to appear (looks for typical CLI prompt characters at the end of the buffer, ignoring color codes) before sending the script, with a 20-second hard ceiling so devices that never show a recognisable prompt still run eventually. The connection log shows when the wait started, when the prompt was detected (and after how many ms), or when the ceiling was hit.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.23",
     date: "2026-04-20",

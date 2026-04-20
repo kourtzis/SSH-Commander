@@ -12,6 +12,17 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.24] - 2026-04-20
+
+### Fixed
+- **Race between shell opening and script send on slow-initializing devices.** The interactive runner used to wait a flat 500ms after `conn.shell()` returned and then dump the entire script into the stream. That worked for fast Linux boxes but not for chatty devices — MikroTik RouterOS, Cisco IOS, anything behind RADIUS — where the shell takes several seconds to print its banner and emit the first prompt. During that window the device's TX is pure terminal-init escape sequences (color codes, cursor probes, bracketed-paste toggles), so on the operator side the output pane looked frozen with only control-character noise, and on the device side the script's first command landed in a not-yet-ready shell and was either dropped or interpreted as garbage. Net effect: the job "ran" but did nothing.
+  
+  Fix: replaced the fixed `setTimeout(..., 500)` with an active wait. We poll `dev.shellBuffer` every 100ms, strip ANSI from the current buffer, and check for a "prompt-shaped" tail using `/(?:^|\n)[^\n]*[>#$%\]:][ \t]*$/` — i.e. any of the typical CLI prompt characters at the very end of the buffer with no trailing newline. As soon as a match is found we flip `commandSent = true` and proceed exactly as before. A 20-second hard ceiling guarantees we always send eventually, even if the device never shows a recognisable prompt — in that case the log records `No shell prompt detected after Nms — sending command anyway` so operators know we fell back. On success the log records `Shell prompt detected after Nms` so you can see exactly how long that particular device took to come up.
+  
+  The script-directives runner (`<<SLEEP>>` / `<<WAIT>>`) sits inside the same `.then()` callback so it benefits automatically. Connection-log timing now reads naturally: `Waiting for shell prompt (max 20s)` → `Shell prompt detected after 1820ms` → `Executing command (3 line(s)): ...`.
+
+---
+
 ## [1.8.23] - 2026-04-20
 
 ### Fixed

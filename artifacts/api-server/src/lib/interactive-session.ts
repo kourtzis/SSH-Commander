@@ -511,8 +511,51 @@ class InteractiveSessionManager {
           stderrBuf = appendWireLog(log, stderrBuf, "<<E", chunk);
         });
 
-        // Delay command send to let shell banner/MOTD arrive first
-        setTimeout(() => {
+        // ─── Wait for shell prompt before sending the script ────────
+        // We used to fire the script after a flat 500ms wait. That was fine
+        // for fast Linux boxes but caused a real race on chatty devices —
+        // MikroTik RouterOS, Cisco IOS, anything behind RADIUS — where the
+        // shell needs several seconds to print its banner and emit the
+        // first prompt. Sending the script before the prompt arrived meant
+        // the first command was either dropped entirely or interpreted as
+        // garbage by the still-initializing shell.
+        //
+        // Instead we now poll dev.shellBuffer for a "prompt-shaped" tail
+        // (a typical CLI prompt char like > # $ % ] : possibly followed by
+        // whitespace, at the very end of the buffer with no trailing
+        // newline). We strip ANSI before matching since chatty devices wrap
+        // their prompts in color codes. A 20s ceiling guarantees we always
+        // try to send eventually — if a device never shows a recognisable
+        // prompt we fall through and let the script run anyway, with a log
+        // entry so operators know what happened.
+        const PROMPT_RE = /(?:^|\n)[^\n]*[>#$%\]:][ \t]*$/;
+        const PROMPT_CEILING_MS = 20_000;
+        const PROMPT_POLL_MS = 100;
+        const promptStart = Date.now();
+        const waitForPrompt = (): Promise<"prompt" | "ceiling"> =>
+          new Promise(resolve => {
+            const tick = setInterval(() => {
+              if (dev.resolved) { clearInterval(tick); resolve("ceiling"); return; }
+              const cleaned = stripAnsi(dev.shellBuffer);
+              if (PROMPT_RE.test(cleaned)) {
+                clearInterval(tick); resolve("prompt"); return;
+              }
+              if (Date.now() - promptStart >= PROMPT_CEILING_MS) {
+                clearInterval(tick); resolve("ceiling"); return;
+              }
+            }, PROMPT_POLL_MS);
+          });
+
+        log.push(`[${ts()}] Waiting for shell prompt (max ${PROMPT_CEILING_MS / 1000}s)`);
+        waitForPrompt().then(reason => {
+          if (dev.resolved) return;
+          const waited = Date.now() - promptStart;
+          if (reason === "prompt") {
+            log.push(`[${ts()}] Shell prompt detected after ${waited}ms`);
+          } else {
+            log.push(`[${ts()}] No shell prompt detected after ${waited}ms — sending command anyway`);
+          }
+
           dev.commandSent = true;
           // Log every line of the command being sent so the operator can see
           // exactly what hit the wire. Logged before the actual write so the
@@ -566,7 +609,10 @@ class InteractiveSessionManager {
             log.push(`[${ts()}] ERROR during sequenced send: ${err?.message ?? err}`);
             this.finalizeDevice(jobId, taskId, false, "sequenced-send error");
           });
-        }, 500);
+        }).catch(err => {
+          log.push(`[${ts()}] ERROR while waiting for shell prompt: ${err?.message ?? err}`);
+          this.finalizeDevice(jobId, taskId, false, "prompt-wait error");
+        });
       });
     });
 
