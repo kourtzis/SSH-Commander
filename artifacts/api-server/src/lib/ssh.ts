@@ -151,10 +151,25 @@ export function tidyLine(input: string): string {
 // device-init bytes leave behind once stripAnsi alone has handled them.
 export function tidyText(input: string): string {
   if (!input) return "";
-  return input
-    .split("\n")
-    .map(tidyLine)
+  const lines = input.split("\n").map(tidyLine).map(line => {
+    // RouterOS's terminal-size discovery ritual leaves behind lines that
+    // are dominated by space-padding from cursor jumps (e.g. a line where
+    // \x1b[9999C moved the cursor to col 9999 and *something* was written
+    // there, leaving ~9999 leading spaces and one tail character that we
+    // can't usefully show). Treat those as blank.
+    if (line.trim() === "") return "";
+    if (line.length > 200) {
+      const nonSpace = line.replace(/[ \t]/g, "").length;
+      if (nonSpace / line.length < 0.2) return "";
+    }
+    return line;
+  });
+  return lines
     .join("\n")
+    // Collapse 2+ consecutive blank lines into a single blank line
+    // (banner has internal blanks we want to preserve, but the device's
+    // pre-prompt padding routinely emits 20+ in a row).
+    .replace(/\n{3,}/g, "\n\n")
     .replace(/^\s*\n+/, "")   // drop leading blank lines
     .replace(/\n+\s*$/, "");  // drop trailing blank lines
 }
