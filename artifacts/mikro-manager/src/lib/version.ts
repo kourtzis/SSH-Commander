@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.26";  
+export const APP_VERSION = "1.8.27";  
 export const APP_VERSION_DATE = "2026-04-20";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.27",
+    date: "2026-04-20",
+    sections: [
+      {
+        title: "Improved",
+        items: [
+          "Connection log is much cleaner. Two issues with how SSH wire data was rendered: (1) ESC and other control bytes leaked through as garbage characters because the previous stripper only handled the 7-bit ESC-prefixed form, missing the C1 single-byte forms. (2) Devices that redraw a line in place — RouterOS does this every time it echoes a command, then backs up the cursor and re-renders it with syntax-highlight colors — were producing each command twice in the log because we only stripped the colors, not the cursor-back-and-overwrite. Both fixed by routing every wire-log line through a small per-line terminal emulator (tidyLine) that handles carriage return, cursor-back/forward, and line-erase the way a real terminal would, then drops everything else. Side effect: the connection log is now much shorter and more readable.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.26",
     date: "2026-04-20",

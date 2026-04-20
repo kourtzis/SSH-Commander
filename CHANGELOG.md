@@ -12,6 +12,33 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.27] - 2026-04-20
+
+### Improved
+- **Connection log is much cleaner.** v1.8.26 made jobs run successfully against RouterOS but the wire log was full of two kinds of noise:
+  
+  1. **Stray control bytes (`�`, garbled chars).** The previous ANSI stripper only knew about the 7-bit form of escape sequences (e.g. `\x1b[6n`). It didn't recognize the C1 single-byte forms (e.g. `\x9b` is the single-byte equivalent of `\x1b[`), so those bytes leaked through and rendered as `�` or `ě` depending on whether the buffer happened to UTF-8-decode them as part of a valid sequence.
+  
+  2. **Each command appearing twice.** RouterOS interactive mode echoes a typed command character-by-character, then sends `\x1b[<N>D` to back the cursor up by N chars, then re-renders the same command with syntax-highlight colors. On a real terminal that's "type, back up, overwrite" — the second copy *replaces* the first on screen. Our flat ANSI stripper just removed the color codes, leaving both copies in the log:
+     ```
+     << [admin@...] > /system identity print/system identity print
+     ```
+  
+  Both fixed by routing every wire-log line through `tidyLine()`, a small per-line terminal emulator. It maintains a virtual cursor and a line buffer, and processes:
+  - **CR** (`\r`) → cursor to column 0
+  - **Cursor back** (`\x1b[<N>D`) → cursor -= N (clamped)
+  - **Cursor forward** (`\x1b[<N>C`) → cursor += N
+  - **Line erase** (`\x1b[K`, `\x1b[1K`, `\x1b[2K`) → erase to EOL / to BOL / entire line
+  - **Other CSI** (color codes, cursor-pos to row, DSR, etc.) → silently dropped, no effect on buffer
+  - **C0 controls** (other than tab/newline/CR) and **C1 controls** (`0x80`–`0x9F`, including the single-byte CSI form) → dropped
+  - **Text writes** → write at cursor, advance, padding with spaces if cursor jumped past end
+  
+  Net effect: that earlier 16-line wire-log block from the test run will now read about 5 lines — the splash banner once, the prompt once, the command once, the result once, the trailing prompt once. No `�` characters, no doubled commands.
+  
+  Scope is intentionally **per-line**, not full screen emulation. Multi-line cursor moves are rare in our use case and full emulation would be a much bigger change. If a device does something exotic across line boundaries the worst case is the log looks like it did before.
+
+---
+
 ## [1.8.26] - 2026-04-20
 
 ### Fixed

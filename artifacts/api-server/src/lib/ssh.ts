@@ -40,11 +40,15 @@ export function appendWireLog(
   chunk: string,
 ): string {
   if (!chunk) return buffer;
-  const combined = buffer + chunk.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  // NB: do NOT collapse \r → \n here. \r is a meaningful cursor-to-column-0
+  // operation that tidyLine() needs to handle correctly (so cursor-back + CR
+  // overwrites on the same line don't get split into two lines).
+  const combined = buffer + chunk.replace(/\r\n/g, "\n");
   const parts = combined.split("\n");
   // Last element may be a partial line — keep it as the new buffer.
   const newBuffer = parts.pop() ?? "";
-  for (const line of parts) {
+  for (const rawLine of parts) {
+    const line = tidyLine(rawLine);
     if (line.length === 0) continue;
     if (log.length >= MAX_LOG_LINES) {
       if (log[log.length - 1] !== "[…connection log truncated]") {
@@ -55,6 +59,81 @@ export function appendWireLog(
     log.push(`[${ts()}] ${prefix} ${line}`);
   }
   return newBuffer;
+}
+
+// ─── Tidy a single terminal "line" for human display ───────────────
+// Real terminal output is a stream of writes mixed with cursor moves and
+// line-erase operations. Stripping the escape codes alone gives wrong
+// output when a device redraws a line in place — e.g. RouterOS echoes a
+// typed command, then sends `\x1b[<N>D` to back up the cursor and
+// re-renders the same command with syntax-highlight colors. A flat
+// stripper leaves both copies in the log; a real terminal would have
+// shown only the second.
+//
+// tidyLine() emulates a single-line terminal: it processes text writes,
+// CR (cursor to col 0), cursor-back (\x1b[<N>D), cursor-forward
+// (\x1b[<N>C), and line-erase (\x1b[K / \x1b[1K / \x1b[2K). All other
+// CSI sequences (colors, cursor pos to row, etc.) are skipped without
+// affecting the line buffer. Other escapes and stray C0/C1 control
+// bytes are dropped.
+//
+// Scope is intentionally per-line — multi-line cursor moves are rare
+// in our wire-log use case and would require full terminal emulation
+// to handle correctly.
+export function tidyLine(input: string): string {
+  if (!input) return input;
+  let buf: string[] = [];
+  let cur = 0;
+  const writeChar = (ch: string) => {
+    while (buf.length < cur) buf.push(" ");
+    buf[cur] = ch;
+    cur++;
+  };
+  let i = 0;
+  while (i < input.length) {
+    const ch = input[i];
+    const code = ch.charCodeAt(0);
+    // Carriage return: cursor to column 0 of current line.
+    if (ch === "\r") { cur = 0; i++; continue; }
+    // ESC [ ... letter — CSI sequence.
+    if (ch === "\x1b" && input[i + 1] === "[") {
+      let j = i + 2;
+      let params = "";
+      while (j < input.length && /[0-9;?]/.test(input[j])) { params += input[j]; j++; }
+      if (j >= input.length) { i = input.length; break; }
+      const letter = input[j];
+      const n = parseInt(params, 10) || 1;
+      if (letter === "D") cur = Math.max(0, cur - n);
+      else if (letter === "C") cur = cur + n;
+      else if (letter === "K") {
+        if (params === "" || params === "0") buf.length = cur;
+        else if (params === "1") { for (let k = 0; k < cur && k < buf.length; k++) buf[k] = " "; }
+        else if (params === "2") { buf = []; cur = 0; }
+      }
+      // Any other CSI (m for color, H for pos, n for DSR, etc.) is dropped
+      // without affecting the line buffer.
+      i = j + 1;
+      continue;
+    }
+    // Other ESC sequences (charset selectors, single-byte etc.): drop ESC
+    // and the byte that follows.
+    if (ch === "\x1b") { i += 2; continue; }
+    // Tab — keep verbatim.
+    if (ch === "\t") { writeChar(ch); i++; continue; }
+    // C0 controls (other than \t \n \r — \n won't appear because the caller
+    // already split on it) and DEL: drop.
+    if (code < 0x20 || code === 0x7F) { i++; continue; }
+    // C1 controls (0x80–0x9F): drop. These are the "8-bit form" of the
+    // ESC-prefixed sequences (e.g. 0x9B is single-byte CSI). We don't
+    // try to interpret them as CSI here — devices that use them are rare
+    // and the cost of misinterpretation is higher than dropping them.
+    if (code >= 0x80 && code <= 0x9f) { i++; continue; }
+    writeChar(ch);
+    i++;
+  }
+  // Drop any trailing spaces introduced by cursor jumps that were never
+  // overwritten with real characters.
+  return buf.join("").replace(/[ \t]+$/, "");
 }
 
 // Strip ANSI escape sequences and stray control bytes from terminal output

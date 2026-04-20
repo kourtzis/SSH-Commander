@@ -1,0 +1,30 @@
+[2026-04-20 13:52:27.295] SSH session initiated
+[2026-04-20 13:52:27.295] Target: admin@172.16.100.1:22
+[2026-04-20 13:52:27.295] Timeout: 60000ms
+[2026-04-20 13:52:27.295] Auto-confirm: enabled
+[2026-04-20 13:52:27.784] Authentication successful
+[2026-04-20 13:52:27.784] Mode: interactive shell (auto-confirm)
+[2026-04-20 13:52:27.784] Executing command...
+[2026-04-20 13:52:27.784] ──────────────────────────────────
+[2026-04-20 13:52:27.815] Waiting for shell prompt (max 20s)
+[2026-04-20 13:52:27.817] << [9999B
+[2026-04-20 13:52:27.872] << [9999BZ  [6n[4l[20l[?7h[?5l[?25h[H[9999B[6n[H[9999BD[9999A[6n[H[9999C[6n[HěH[6n
+[2026-04-20 13:52:27.901] <<    [H[9999C[6n [6n [6n[6n[?47l[1;2r[H[6n
+[2026-04-20 13:52:27.912] << [6n[9999B[6n[r[1;9999r
+[2026-04-20 13:52:27.912] <<   MMM      MMM       KKK                          TTTTTTTTTTT      KKK
+[2026-04-20 13:52:27.912] <<   MMMM    MMMM       KKK                          TTTTTTTTTTT      KKK
+[2026-04-20 13:52:27.912] <<   MMM MMMM MMM  III  KKK  KKK  RRRRRR     OOOOOO      TTT     III  KKK  KKK
+[2026-04-20 13:52:27.912] <<   MMM  MM  MMM  III  KKKKK     RRR  RRR  OOO  OOO     TTT     III  KKKKK
+[2026-04-20 13:52:27.912] <<   MMM      MMM  III  KKK KKK   RRRRRR    OOO  OOO     TTT     III  KKK KKK
+[2026-04-20 13:52:27.912] <<   MMM      MMM  III  KKK  KKK  RRR  RRR   OOOOOO      TTT     III  KKK  KKK
+[2026-04-20 13:52:27.912] <<   MikroTik RouterOS 7.23rc1 (c) 1999-2026       https://www.mikrotik.com/
+[2026-04-20 13:52:27.912] << Press F1 for help
+[2026-04-20 13:52:28.016] Shell prompt detected after 201ms
+[2026-04-20 13:52:28.016] Executing command (1 line(s)):
+[2026-04-20 13:52:28.016] >> /system identity print
+[2026-04-20 13:52:28.026] << �9999B�K[�m�36madmin�m@�m�32mn000001-100-central-cgw�m] > /system identity print�22D�m�36m/system�m �m�36midentity�m �m�35mprint�m
+[2026-04-20 13:52:28.026] << �K  name: n000001-100-central-cgw
+[2026-04-20 13:52:31.027] << �9999B�K[�m�36madmin�m@�m�32mn000001-100-central-cgw�m] > 
+[2026-04-20 13:52:31.027] ──────────────────────────────────
+[2026-04-20 13:52:31.027] Shell session idle — closing
+[2026-04-20 13:52:31.027] Session closed
