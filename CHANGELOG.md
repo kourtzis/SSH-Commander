@@ -12,6 +12,13 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.8.28] - 2026-04-20
+
+### Improved
+- **Job output pane is now as clean as the connection log.** v1.8.27 fixed the wire log via the per-line terminal emulator, but the *output* pane (the text the operator actually reads as the result of the job) was still using the old flat `stripAnsi().trim()`. So users still saw "DěH" leading garbage, the splash banner's many empty padding lines, and the duplicated `/system identity print/system identity print` command line. New `tidyText()` helper applies `tidyLine` per line and trims leading/trailing blank lines; all output-producing sites (both auto-confirm shell paths in `ssh.ts`, the exec path, and the interactive-session resolver) now use it instead. Output for the standard RouterOS identity test now reads as just the banner once and then `name: <hostname>`, with no escape gunk on either side.
+
+---
+
 ## [1.8.27] - 2026-04-20
 
 ### Improved

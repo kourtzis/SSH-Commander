@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.8.27";  
+export const APP_VERSION = "1.8.28";  
 export const APP_VERSION_DATE = "2026-04-20";
 
 
@@ -14,6 +14,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.28",
+    date: "2026-04-20",
+    sections: [
+      {
+        title: "Improved",
+        items: [
+          "Job output pane no longer shows the leading 'DěH' / control-byte garbage and the duplicated command line. v1.8.27 routed the connection log through the new per-line terminal emulator, but the job output pane was still using the old flat ANSI stripper. Output now goes through tidyText, which is just tidyLine applied per-line plus blank-line trimming top and bottom. So the splash banner's empty padding lines, the leading C1 control bytes, and RouterOS's cursor-back-and-rewrite of the typed command all collapse correctly.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.27",
     date: "2026-04-20",

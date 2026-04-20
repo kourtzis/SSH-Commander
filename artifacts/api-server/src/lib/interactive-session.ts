@@ -26,6 +26,7 @@ import {
   stripAnsi,
   stripAnsiStream,
   makeCursorResponder,
+  tidyText,
   flushStripState,
   makeStripState,
   type StripState,
@@ -743,7 +744,7 @@ class InteractiveSessionManager {
     // Persist final task state to the database
     const dbUpdate: any = {
       status: success ? "success" : "failed",
-      output: stripAnsi(dev.shellBuffer).trim() || null,
+      output: tidyText(dev.shellBuffer) || null,
       connectionLog: dev.log.join("\n"),
       completedAt: new Date(),
       promptText: null,

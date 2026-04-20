@@ -136,6 +136,21 @@ export function tidyLine(input: string): string {
   return buf.join("").replace(/[ \t]+$/, "");
 }
 
+// Multi-line tidy: split on real newlines, tidyLine each, rejoin. Use this
+// instead of stripAnsi() for any text that's going to be shown to a human
+// (job output pane, persisted output, etc.). Also drops leading/trailing
+// blank lines and the leading-banner garbage like "DěH" that early-stream
+// device-init bytes leave behind once stripAnsi alone has handled them.
+export function tidyText(input: string): string {
+  if (!input) return "";
+  return input
+    .split("\n")
+    .map(tidyLine)
+    .join("\n")
+    .replace(/^\s*\n+/, "")   // drop leading blank lines
+    .replace(/\n+\s*$/, "");  // drop trailing blank lines
+}
+
 // Strip ANSI escape sequences and stray control bytes from terminal output
 // before persisting/displaying it. Real-world devices send things like:
 //   \x1b[6n            (Device Status Report — terminal queries cursor pos)
@@ -623,7 +638,7 @@ export async function executeSSHCommand(
               log.push(`[${ts()}] Session closed`);
               conn.end();
               if (!timedOut) {
-                resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
+                resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
               }
             }, commandSent ? 3000 : 25000);
           };
@@ -643,7 +658,7 @@ export async function executeSSHCommand(
             log.push(`[${ts()}] Session closed`);
             conn.end();
             if (!timedOut) {
-              resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
+              resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
             }
           });
 
@@ -736,7 +751,7 @@ export async function executeSSHCommand(
             if (!timedOut) {
               resolve({
                 success: code === 0,
-                output: stripAnsi(output).trim(),
+                output: tidyText(output),
                 errorMessage: code !== 0 ? (stderr.trim() || `Exit code: ${code}`) : undefined,
                 connectionLog: log.join("\n"),
               });
@@ -992,7 +1007,7 @@ async function executeOnce(
             if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
             log.push(`[${ts()}] Session closed`);
             try { conn.end(); } catch {}
-            if (!timedOut) resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
+            if (!timedOut) resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
           }, commandSent ? 3000 : 25000);
         };
         stream.on("close", () => {
@@ -1005,7 +1020,7 @@ async function executeOnce(
           if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
           log.push(`[${ts()}] Session closed`);
           try { conn.end(); } catch {}
-          if (!timedOut) resolve({ success: true, output: stripAnsi(shellBuffer).trim(), connectionLog: log.join("\n") });
+          if (!timedOut) resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
         });
         stream.on("data", (data: Buffer) => {
           const chunk = data.toString();
@@ -1088,7 +1103,7 @@ async function executeOnce(
           if (!timedOut) {
             resolve({
               success: code === 0,
-              output: stripAnsi(output).trim(),
+              output: tidyText(output),
               errorMessage: code !== 0 ? (stderr.trim() || `Exit code: ${code}`) : undefined,
               connectionLog: log.join("\n"),
             });
