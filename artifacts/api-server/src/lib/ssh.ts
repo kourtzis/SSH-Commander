@@ -516,6 +516,61 @@ export function hasControlChars(script: string): boolean {
   return CONTROL_CHAR_REGEX.test(script);
 }
 
+// Prompt regex used both for the initial prompt-wait and for the
+// inter-command prompt-wait when sending a multi-line script line by line.
+// Matches a typical CLI prompt char at the very end of the buffer.
+export const PROMPT_RE = /(?:^|\n)[^\n]*[>#$%\]:][ \t]*$/;
+
+// Send a multi-line script one command at a time, waiting for the device's
+// prompt to return between each. Solves a real bug we saw with RouterOS:
+// a 3-line script (set ..., check-for-updates, install) had all 3 lines
+// flushed into the SSH input buffer in one TCP write. The device echoed
+// lines 1 and 2, started running line 2 (which prints status output for
+// several seconds), and silently dropped line 3 because its input buffer
+// was busy. Now we send line 1, poll for the prompt to come back, send
+// line 2, poll, send line 3. Per-line ceiling guards against commands
+// that never re-print a prompt (rare — the ceiling just falls through to
+// the next line, same as the initial prompt-wait does).
+export async function sendScriptLineByLine(
+  stream: NodeJS.WritableStream,
+  script: string,
+  log: string[],
+  getBuffer: () => string,
+  perLineTimeoutMs: number = 30_000,
+  resetIdle?: () => void,
+): Promise<void> {
+  const lines = script.split("\n").map(l => l.trim()).filter(l => l !== "");
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
+    const startLen = getBuffer().length;
+    appendWireLog(log, "", ">>", line + "\n");
+    writeCommandWithControlChars(stream, line);
+    if (resetIdle) resetIdle();
+    // No need to wait after the final command — the idle timer + the
+    // existing close handler will finalize the session.
+    if (idx === lines.length - 1) break;
+    // Wait for the prompt to come back before sending the next line.
+    const start = Date.now();
+    await new Promise<void>(resolve => {
+      const tick = setInterval(() => {
+        const newOutput = stripAnsi(getBuffer().slice(startLen));
+        if (PROMPT_RE.test(newOutput)) {
+          clearInterval(tick);
+          if (resetIdle) resetIdle();
+          resolve();
+          return;
+        }
+        if (Date.now() - start >= perLineTimeoutMs) {
+          clearInterval(tick);
+          log.push(`[${ts()}] No prompt after ${perLineTimeoutMs / 1000}s — sending next line anyway`);
+          resolve();
+          return;
+        }
+      }, 100);
+    });
+  }
+}
+
 export const SUPPORTED_CONTROL_CHARS = Object.keys(CONTROL_CHAR_MAP);
 
 // ─── SSH Host Key Verification (TOFU) ───────────────────────────────
@@ -775,10 +830,10 @@ export async function executeSSHCommand(
               log.push(`[${ts()}] No shell prompt detected after ${waited}ms — sending command anyway`);
             }
             commandSent = true;
-            log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
-            appendWireLog(log, "", ">>", command + "\n");
-            writeCommandWithControlChars(stream, command);
-            resetIdleTimer();
+            const lineCount = command.split("\n").map(l => l.trim()).filter(l => l !== "").length;
+            log.push(`[${ts()}] Executing command (${lineCount} line(s)):`);
+            sendScriptLineByLine(stream, command, log, () => shellBuffer, 30_000, resetIdleTimer)
+              .catch(e => log.push(`[${ts()}] sendScriptLineByLine error: ${(e as Error).message}`));
           }, 100);
         });
       } else {
@@ -1146,10 +1201,10 @@ async function executeOnce(
             log.push(`[${ts()}] No shell prompt detected after ${waited}ms — sending command anyway`);
           }
           commandSent = true;
-          log.push(`[${ts()}] Executing command (${command.split("\n").length} line(s)):`);
-          appendWireLog(log, "", ">>", command + "\n");
-          writeCommandWithControlChars(stream, command);
-          resetIdleTimer();
+          const lineCount = command.split("\n").map(l => l.trim()).filter(l => l !== "").length;
+          log.push(`[${ts()}] Executing command (${lineCount} line(s)):`);
+          sendScriptLineByLine(stream, command, log, () => shellBuffer, 30_000, resetIdleTimer)
+            .catch(e => log.push(`[${ts()}] sendScriptLineByLine error: ${(e as Error).message}`));
         }, 100);
       });
     } else {
