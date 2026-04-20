@@ -433,14 +433,33 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
       user: mtUser,
       parse: (raw) => {
         const out = stripAnsi(raw);
-        const verMatch = /^\s*(\d+\.\d+(?:\.\d+)?(?:\s*\([^)]+\))?)\s*$/m.exec(out);
+        // Restrict the search window to AFTER the command echo. RouterOS
+        // still emits its login banner ("MMM MMM KKK ...") even with the
+        // `+cte` user-suffix on some firmwares, and the banner contains
+        // lines that look superficially like board names (all-letter,
+        // mixed case, parens). By anchoring to the echoed `:put` line we
+        // only see the actual command output. If the echo is missing for
+        // any reason we fall back to the full buffer.
+        const echoIdx = out.search(/:put\s*\[\s*\/system\s+resource\s+get\s+board-name\s*\]/i);
+        const window = echoIdx >= 0 ? out.slice(echoIdx) : out;
+        const verMatch = /^\s*(\d+\.\d+(?:\.\d+)?(?:\s*\([^)]+\))?)\s*$/m.exec(window);
         if (!verMatch) return null;
-        // Pick a board-name line: any non-empty line that isn't the version line itself.
-        // RouterOS board names include letters, digits, +, -, /, parens.
-        const verLine = verMatch[0];
-        const boardLines = out.split(/\r?\n/)
+        // Pick a board-name line: any non-empty line that isn't the
+        // version line, isn't a CLI prompt echo, and contains at least
+        // one digit. Real RouterOS models always contain digits
+        // (RB4011iGS+, CCR2004-1G-12S+2XS, CRS328-24P-4S+, hAP ac²,
+        // RB962UiGS-5HacT2HnT, ...). Banner ASCII art does not — that
+        // single rule reliably skips the "MMM MMM KKK" garbage.
+        const verLine = verMatch[0].trim();
+        const boardLines = window.split(/\r?\n/)
           .map((s) => s.trim())
-          .filter((s) => s.length > 0 && s !== verLine.trim() && /^[A-Za-z][A-Za-z0-9+\-/. ()]*$/.test(s));
+          .filter((s) =>
+            s.length > 0 &&
+            s !== verLine &&
+            /\d/.test(s) &&                                    // must contain a digit
+            !/^\[.*\]\s*[>\/#]/.test(s) &&                     // skip "[admin@host] >" prompt echo
+            /^[A-Za-z0-9][A-Za-z0-9+\-/. ()²³]*$/.test(s)      // model-shaped charset only
+          );
         const model = boardLines[0] || null;
         return { vendor: "MikroTik", osVersion: `RouterOS ${verMatch[1].trim()}`, model };
       },
