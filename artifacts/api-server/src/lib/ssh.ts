@@ -348,7 +348,13 @@ export function flushWireLog(
 ): void {
   if (!buffer) return;
   if (log.length >= MAX_LOG_LINES) return;
-  log.push(`[${ts()}] ${prefix} ${buffer}`);
+  // Run the leftover partial line through tidyLine too — otherwise the
+  // last chunk before the stream closes (typically the redrawn prompt
+  // RouterOS emits after a command) leaks raw escape-code parameters
+  // into the wire log.
+  const line = tidyLine(buffer);
+  if (!line) return;
+  log.push(`[${ts()}] ${prefix} ${line}`);
 }
 
 // ─── Prompt Detection ───────────────────────────────────────────────
