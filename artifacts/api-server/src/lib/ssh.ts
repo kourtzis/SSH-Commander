@@ -400,23 +400,49 @@ const CONFIRM_PATTERNS = [
   /\[y\]\s*:?\s*$/i,
 ];
 
-// Patterns that indicate a generic input prompt (password, value entry, etc.)
+// Patterns that indicate a real interactive input prompt (a question the
+// device is actively asking the operator to answer). Bare punctuation
+// (`>`, `:`, `?`) on its own is NOT enough — every device's idle CLI
+// prompt ends in one of those characters, so a bare-punctuation match
+// would park the session every single time the shell returns to the
+// prompt after a successful command. Each pattern below requires either
+// a recognisable keyword ("password", "enter X", etc.) or a question
+// ending in `?` that contains real prose (more than a single token).
 const INPUT_PATTERNS = [
-  /:\s*$/,
-  /\?\s*$/,
-  />\s*$/,
-  /password\s*:?\s*$/i,
-  /enter\s+\w+\s*:?\s*$/i,
-  /type\s+\w+\s*:?\s*$/i,
-  /value\s*:?\s*$/i,
-  /number\s*:?\s*$/i,
-  /name\s*:?\s*$/i,
-  /input\s*:?\s*$/i,
+  /password\s*:\s*$/i,
+  /passphrase\s*:\s*$/i,
+  /username\s*:\s*$/i,
+  /login\s*:\s*$/i,
+  /enter\s+[\w\s-]+\s*:\s*$/i,
+  /type\s+[\w\s-]+\s*:\s*$/i,
+  /please\s+enter[^\n]{0,80}:\s*$/i,
+  /please\s+type[^\n]{0,80}:\s*$/i,
+  /value\s*:\s*$/i,
+  /input\s*:\s*$/i,
+  /choose\s+[\w\s-]+\s*:\s*$/i,
+  /select\s+[\w\s-]+\s*:\s*$/i,
+  /^\s*\w[\w\s.,/-]{6,}\?\s*$/m,   // "Save changes?" — needs ≥7 chars before `?`
 ];
 
-// MikroTik CLI prompt pattern — excluded from input detection to avoid
-// falsely treating the normal CLI prompt as an interactive question
-const MIKROTIK_PROMPT = /\[[\w@\w.-]+\]\s*[>\/]\s*$/;
+// Patterns that indicate the session is sitting at a normal idle CLI
+// prompt — NOT a question. Used to suppress false-positive parking after
+// a command finishes and the shell returns to its prompt. Covers the
+// common forms across the device families we support.
+const SHELL_PROMPT_PATTERNS: RegExp[] = [
+  /\[[\w@.\- ]+\]\s*[>#$\/]\s*$/,        // MikroTik [admin@router] >, [user@host]/path>
+  /^[\w.\-]+\s*[>#]\s*$/m,                // Cisco / Juniper / generic: Router>, Switch#, host>
+  /^[\w.\-]+@[\w.\-]+[:\s][^\n]*[$#>]\s*$/m,  // Linux: user@host:~$, user@host ~ #
+  /^[\w.\-]+:[^\n]*[$#>]\s*$/m,           // user:path$ / user:path#
+  /[)\]]\s*[>#$]\s*$/,                    // (config)#, [edit]$
+  /^\s*[$#>]\s*$/m,                       // bare $, #, > on its own line
+];
+
+// True when the buffer tail looks like a normal idle shell prompt
+// (i.e. the device is ready for the next command, not asking a question).
+function looksLikeShellPrompt(buffer: string): boolean {
+  const lastChunk = buffer.slice(-200);
+  return SHELL_PROMPT_PATTERNS.some(p => p.test(lastChunk));
+}
 
 // Check the last 200 chars of the buffer for a y/n confirmation prompt
 export function looksLikeConfirmPrompt(buffer: string): boolean {
@@ -533,7 +559,12 @@ export function detectFailureSignals(output: string): FailureSignal | null {
 // Check the last 200 chars for a generic input prompt (excluding MikroTik CLI prompts)
 export function looksLikeInputPrompt(buffer: string): boolean {
   const lastChunk = buffer.slice(-200);
-  if (MIKROTIK_PROMPT.test(lastChunk)) return false;
+  // Suppress false positives: if the tail is a normal idle CLI prompt
+  // (Cisco `Router>`, MikroTik `[admin@router] >`, Linux `user@host:~$`,
+  // bare `$`/`#`/`>`, etc.), the device is ready for input — not asking
+  // a question. Without this guard, the post-command idle timer would
+  // park every successful run.
+  if (looksLikeShellPrompt(lastChunk)) return false;
   return INPUT_PATTERNS.some(p => p.test(lastChunk));
 }
 
