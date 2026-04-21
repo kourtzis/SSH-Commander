@@ -57,7 +57,11 @@ export const batchJobsTable = pgTable("batch_jobs", {
   totalTasks: integer("total_tasks").notNull().default(0),
   completedTasks: integer("completed_tasks").notNull().default(0),  // Running counters updated as tasks finish
   failedTasks: integer("failed_tasks").notNull().default(0),
-  createdBy: integer("created_by").notNull(),   // FK to users.id
+  // Audit field — owning user. Intentionally NOT a FK reference: keeping job
+  // history when the original creator's user row is deleted is a legitimate
+  // audit requirement, and ON DELETE SET NULL would lose attribution. We
+  // preserve the historical user id as an opaque integer.
+  createdBy: integer("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),       // Set when all tasks finish
 }, (table) => [
@@ -69,8 +73,17 @@ export const batchJobsTable = pgTable("batch_jobs", {
 // One task per router within a batch job — tracks individual SSH execution results
 export const jobTasksTable = pgTable("job_tasks", {
   id: serial("id").primaryKey(),
-  jobId: integer("job_id").notNull(),           // FK to batch_jobs.id
-  routerId: integer("router_id").notNull(),     // FK to routers.id
+  // FK to batch_jobs.id with ON DELETE CASCADE. Without this, deleting a job
+  // could leave behind orphaned job_tasks rows pointing at a missing parent
+  // (every prior code path that deleted a job had to remember to delete
+  // tasks first; the FK makes it impossible to forget).
+  jobId: integer("job_id").notNull().references(() => batchJobsTable.id, { onDelete: "cascade" }),
+  // Audit field — original target router id. Intentionally NOT a FK: deleting
+  // a router must not retroactively erase its task history (operators rely
+  // on past job output for incident review). routerName + routerIp below
+  // are snapshotted at task creation time so the row remains meaningful
+  // even after the routers row is gone.
+  routerId: integer("router_id").notNull(),
   routerName: text("router_name").notNull(),    // Snapshot at job creation time (so logs remain valid if router is renamed)
   routerIp: text("router_ip").notNull(),        // Snapshot of IP at creation time
   status: taskStatusEnum("status").notNull().default("pending"),

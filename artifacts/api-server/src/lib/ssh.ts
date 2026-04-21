@@ -20,6 +20,13 @@ function ts(): string {
 // the job-detail page to a crawl. 4000 lines is plenty for normal scripts and
 // still meaningful for debugging when truncated.
 const MAX_LOG_LINES = 4000;
+// Per-line cap. A single device line that's longer than this is truncated
+// with a marker. Catches RouterOS/Cisco binary blob dumps and other
+// pathological line lengths that would otherwise produce multi-MB
+// individual log entries (each one TOASTed individually but still slow
+// to render in the job-detail UI). 1024 chars covers normal CLI output
+// (terminals are 80–200 wide) with comfortable headroom.
+const MAX_LOG_LINE_CHARS = 1024;
 
 // Append wire data (sent or received) to a connection log as one entry per
 // line, with a direction prefix (">>" for sent, "<<" for received,
@@ -49,8 +56,15 @@ export function appendWireLog(
   // Last element may be a partial line — keep it as the new buffer.
   const newBuffer = parts.pop() ?? "";
   for (const rawLine of parts) {
-    const line = tidyLine(rawLine);
+    let line = tidyLine(rawLine);
     if (line.length === 0) continue;
+    // Per-line truncation. A single megabyte-long line (binary dump, base64
+    // backup, etc.) would otherwise produce one multi-MB log entry that
+    // bloats the JSON column even though we're well under MAX_LOG_LINES.
+    if (line.length > MAX_LOG_LINE_CHARS) {
+      const dropped = line.length - MAX_LOG_LINE_CHARS;
+      line = line.slice(0, MAX_LOG_LINE_CHARS) + ` […${dropped} chars truncated]`;
+    }
     if (log.length >= MAX_LOG_LINES) {
       if (log[log.length - 1] !== "[…connection log truncated]") {
         log.push("[…connection log truncated]");
@@ -60,6 +74,16 @@ export function appendWireLog(
     log.push(`[${ts()}] ${prefix} ${line}`);
   }
   return newBuffer;
+}
+
+// Redact a string that's about to be written to the wire log when we know
+// it contains a password. Used for the enable-password handler and the
+// interactive-prompt path where the user just typed a secret in response
+// to a "Password:" prompt. Without this, the cleartext credential ends up
+// in batch_jobs.connection_log and is visible to anyone with access to the
+// jobs detail page or DB dumps.
+export function redactedSendLog(): string {
+  return "[REDACTED password response]";
 }
 
 // ─── Tidy a single terminal "line" for human display ───────────────
@@ -1619,6 +1643,11 @@ async function executeOnce(
           ) {
             enableSent = true;
             log.push(`[${ts()}] Enable-password prompt detected, sending stored secret`);
+            // Write the actual secret to the wire, but log a redacted
+            // marker — without this the cleartext enable password ends
+            // up in batch_jobs.connection_log via the >> entry that
+            // appendWireLog would normally produce on the next tick.
+            log.push(`[${ts()}] >> ${redactedSendLog()}`);
             stream.write(enablePassword + "\n");
             return;
           }

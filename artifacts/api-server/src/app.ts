@@ -146,7 +146,13 @@ const sessionConfig: session.SessionOptions = {
     secure: cookieSecure, // overridable via COOKIE_SECURE env var (see comment above)
     httpOnly: true,    // Prevent client-side JS from reading the session cookie
     sameSite: "lax",   // CSRF protection while allowing normal navigation; "strict" can break login flows from external links
-    maxAge: 7 * 24 * 60 * 60 * 1000,  // 7-day session lifetime (refreshed on every request — see `rolling` above)
+    // 12-hour session lifetime, refreshed on every request via `rolling` above.
+    // Tightened from 7 days in 1.13.0: an idle session that long was a long
+    // window for credential abuse from a stolen device. With rolling renewal
+    // an active operator never notices — the cookie keeps sliding forward
+    // for as long as they're using the app — but a forgotten tab on a
+    // shared workstation logs itself out by morning.
+    maxAge: 12 * 60 * 60 * 1000,
   },
 };
 

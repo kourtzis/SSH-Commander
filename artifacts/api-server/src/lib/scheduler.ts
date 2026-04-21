@@ -181,30 +181,41 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
   const routerMap = new Map(routersUnordered.map((r) => [r.id, r]));
   const routers = allRouterIds.map((id) => routerMap.get(id)!).filter(Boolean) as any;
 
-  const [newJob] = await db.insert(batchJobsTable).values({
-    name: `${templateJob.name} (scheduled)`,
-    scriptCode: templateJob.scriptCode,
-    status: "running",
-    targetRouterIds: templateJob.targetRouterIds,
-    targetGroupIds: templateJob.targetGroupIds,
-    excelData: templateJob.excelData,
-    autoConfirm: templateJob.autoConfirm,
-    timeoutSeconds: templateJob.timeoutSeconds,
-    retryCount: templateJob.retryCount,
-    retryBackoffSeconds: templateJob.retryBackoffSeconds,
-    totalTasks: routers.length,
-    completedTasks: 0,
-    failedTasks: 0,
-    createdBy: templateJob.createdBy,
-  }).returning();
-
-  await db.insert(jobTasksTable).values(routers.map((r: any) => ({
-    jobId: newJob.id,
-    routerId: r.id,
-    routerName: r.name,
-    routerIp: r.ipAddress,
-    status: "pending" as const,
-  })));
+  // Atomic clone: create the parent batch_jobs row + all child job_tasks in
+  // one transaction. Without this, a crash between the two inserts (or a
+  // pool-eviction-induced disconnect) would leave a "running" job with zero
+  // tasks — visible in the UI as a perpetually 0/N progress bar that the
+  // operator can never resolve. The transaction ensures both rows exist or
+  // neither does (a retry on the next scheduler tick would then start
+  // cleanly because the orphan parent was never committed).
+  const newJob = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(batchJobsTable).values({
+      name: `${templateJob.name} (scheduled)`,
+      scriptCode: templateJob.scriptCode,
+      status: "running",
+      targetRouterIds: templateJob.targetRouterIds,
+      targetGroupIds: templateJob.targetGroupIds,
+      excelData: templateJob.excelData,
+      autoConfirm: templateJob.autoConfirm,
+      timeoutSeconds: templateJob.timeoutSeconds,
+      retryCount: templateJob.retryCount,
+      retryBackoffSeconds: templateJob.retryBackoffSeconds,
+      totalTasks: routers.length,
+      completedTasks: 0,
+      failedTasks: 0,
+      createdBy: templateJob.createdBy,
+    }).returning();
+    if (routers.length > 0) {
+      await tx.insert(jobTasksTable).values(routers.map((r: any) => ({
+        jobId: created.id,
+        routerId: r.id,
+        routerName: r.name,
+        routerIp: r.ipAddress,
+        status: "pending" as const,
+      })));
+    }
+    return created;
+  });
 
   const excelData = templateJob.excelData as Record<string, string>[] | undefined;
   const { completedCount, failedCount } = await executeJobTasks(
@@ -242,7 +253,21 @@ function computeNextRun(schedule: typeof schedulesTable.$inferSelect): Date | nu
   const now = new Date();
 
   if (schedule.type === "interval" && schedule.intervalMinutes) {
-    return new Date(now.getTime() + schedule.intervalMinutes * 60 * 1000);
+    // Drift-resistant scheduling: anchor the next run on the previous
+    // nextRunAt rather than now(). Otherwise every late tick (scheduler
+    // backed up by a long-running job, container restart, etc.) silently
+    // shifts the entire cadence forward — a "every 60 min" schedule that
+    // misses by 7 minutes becomes "every 67 min from then on". Walk the
+    // anchor forward by N intervals until it lands in the future, so we
+    // skip any missed slots cleanly without compounding drift.
+    const intervalMs = schedule.intervalMinutes * 60 * 1000;
+    const anchor = schedule.nextRunAt ? new Date(schedule.nextRunAt).getTime() : now.getTime();
+    let next = anchor + intervalMs;
+    if (next <= now.getTime()) {
+      const missed = Math.ceil((now.getTime() - next) / intervalMs);
+      next += missed * intervalMs;
+    }
+    return new Date(next);
   }
 
   if (schedule.type === "daily" && schedule.timeOfDay) {

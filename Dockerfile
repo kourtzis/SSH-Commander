@@ -44,5 +44,22 @@ ENV PUBLIC_DIR=/app/public
 ENV PORT=3000
 EXPOSE 3000
 
+# Run as a non-root user. The base image's `node` user (uid/gid 1000) already
+# exists, so we just chown the app tree and switch to it. Without this, any
+# RCE in our process — or a malicious SSH script that abuses ssh2's local
+# socket APIs — runs as root with full container privileges. Container-only
+# defence in depth; capabilities can still be further dropped at `docker run`
+# time with --cap-drop=ALL --security-opt=no-new-privileges.
+RUN chown -R node:node /app
+USER node
+
+# Container-level liveness probe. Hits the public health endpoint we expose
+# at /api/healthz; node's built-in fetch (Node 18+) avoids needing wget/curl
+# in the slim image. Failing health flips the container to "unhealthy" so
+# orchestrators (Docker swarm, k8s, watchtower) can restart it. Start period
+# allows for the first-boot drizzle-kit push + seed step to complete.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/api/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", "artifacts/api-server/dist/index.cjs"]

@@ -84,6 +84,20 @@ const { Client } = require('pg');
       created_at timestamp NOT NULL DEFAULT now()\\
     )\",
     \"CREATE INDEX IF NOT EXISTS idx_saved_views_user_page ON saved_views (user_id, page_key)\",
+    // ── 1.13.0: orphan cleanup BEFORE adding FKs below ────────────
+    // Adding FK constraints to existing tables fails if any row already
+    // violates the constraint (orphaned join rows pointing at deleted
+    // parents, etc.). Clean those up first so the FK creation in the
+    // subsequent drizzle-kit push (or any future migration) succeeds.
+    \"DELETE FROM job_tasks WHERE job_id NOT IN (SELECT id FROM batch_jobs)\",
+    \"DELETE FROM schedules WHERE job_id NOT IN (SELECT id FROM batch_jobs)\",
+    \"DELETE FROM group_routers WHERE group_id NOT IN (SELECT id FROM router_groups) OR router_id NOT IN (SELECT id FROM routers)\",
+    \"DELETE FROM group_subgroups WHERE parent_group_id NOT IN (SELECT id FROM router_groups) OR child_group_id NOT IN (SELECT id FROM router_groups)\",
+    \"DELETE FROM saved_views WHERE user_id NOT IN (SELECT id FROM users)\",
+    \"DELETE FROM device_reachability WHERE router_id NOT IN (SELECT id FROM routers)\",
+    \"UPDATE routers SET credential_profile_id = NULL WHERE credential_profile_id IS NOT NULL AND credential_profile_id NOT IN (SELECT id FROM credential_profiles)\",
+    \"UPDATE credential_profiles SET jump_host_id = NULL WHERE jump_host_id IS NOT NULL AND jump_host_id NOT IN (SELECT id FROM credential_profiles)\",
+    \"UPDATE router_groups SET parent_id = NULL WHERE parent_id IS NOT NULL AND parent_id NOT IN (SELECT id FROM router_groups)\",
   ];
   for (const sql of stmts) {
     try {
@@ -111,7 +125,20 @@ echo "Running drizzle-kit push (catches any remaining schema drift)..."
 # immediately and exits non-zero rather than hanging the container start
 # forever. The defensive block above already created every table that
 # would trigger such a prompt.
-pnpm exec drizzle-kit push --force </dev/null 2>&1 || echo "drizzle-kit push warning (non-fatal — defensive ALTERs already applied)"
+#
+# `--force` is dangerous: it accepts data-destroying changes (column
+# drops, type changes, table renames mis-detected as drop+create) without
+# confirmation. We gate it behind ALLOW_DESTRUCTIVE_MIGRATIONS=1 so that
+# the default upgrade path uses plain `db:push`, which fails loudly on
+# anything destructive instead of silently wiping data. Operators who
+# WANT the legacy "always force" behaviour (e.g. CI deploys where the
+# DB is disposable) can opt back in by setting the env var.
+if [ "${ALLOW_DESTRUCTIVE_MIGRATIONS:-0}" = "1" ]; then
+  echo "  ALLOW_DESTRUCTIVE_MIGRATIONS=1 — using --force (data-destroying changes will apply silently)."
+  pnpm exec drizzle-kit push --force </dev/null 2>&1 || echo "drizzle-kit push warning (non-fatal — defensive ALTERs already applied)"
+else
+  pnpm exec drizzle-kit push </dev/null 2>&1 || echo "drizzle-kit push warning (non-fatal — defensive ALTERs already applied; set ALLOW_DESTRUCTIVE_MIGRATIONS=1 to allow destructive changes)"
+fi
 
 echo "Seeding default admin user..."
 cd /app

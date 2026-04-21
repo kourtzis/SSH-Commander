@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.12.0";
+export const APP_VERSION = "1.13.0";
 export const APP_VERSION_DATE = "2026-04-21";
 
 
@@ -14,6 +14,56 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.13.0",
+    date: "2026-04-21",
+    sections: [
+      {
+        title: "Schema",
+        items: [
+          "Foreign keys with explicit ON DELETE behaviour added to every join column in the database. Cascading deletes on join tables (group_routers, group_subgroups, job_tasks→batch_jobs, schedules→batch_jobs, saved_views→users, device_reachability→routers); SET NULL on optional refs (routers.credential_profile_id, credential_profiles.jump_host_id, router_groups.parent_id). The application-layer cascade in DELETE /jobs/:id is now belt-and-braces — the FK rules guarantee the same outcome even if the path is ever bypassed.",
+          "Audit trail preservation: batch_jobs.created_by, schedules.created_by, and job_tasks.router_id are intentionally NOT FK'd. User deletion preserves job/schedule attribution; router deletion preserves task history (router name + IP are snapshotted into the task row at creation time).",
+          "Docker entrypoint now runs an idempotent orphan-cleanup pass before the schema push so upgrades from older versions can't fail at FK creation. New index on schedules.created_by.",
+        ],
+      },
+      {
+        title: "SSH core",
+        items: [
+          "Per-line wire-log truncation (1024 chars). A single multi-MB line — binary dump, base64 backup, RouterOS pathological output — is truncated with a marker so the connection_log JSON column doesn't bloat even when the total line count is well under the existing 4000-line cap.",
+          "Enable-password redaction in the wire log. The auto-confirm shell handler now logs `[REDACTED password response]` instead of the cleartext characters when it types the stored enable secret in response to a `Password:` prompt.",
+        ],
+      },
+      {
+        title: "Scheduler",
+        items: [
+          "Atomic template-clone. Creating the new running batch_jobs row + inserting all child job_tasks is now one transaction. A crash between the two inserts no longer leaves a `running` job with zero tasks (the previously-impossible-to-resolve 0/N progress bar).",
+          "Drift-resistant interval scheduling. computeNextRun() for interval schedules anchors on the previous nextRunAt rather than now(), walking forward by N intervals until it lands in the future. A late tick — long-running job, container restart — no longer silently shifts the entire cadence (a 60-min schedule that misses by 7 min is no longer 67-min from then on).",
+        ],
+      },
+      {
+        title: "Backend security",
+        items: [
+          "Session lifetime tightened from 7 days to 12 hours. Still rolling — active operators never notice, but a forgotten tab on a shared workstation logs itself out by morning instead of holding a credential window open for a week.",
+        ],
+      },
+      {
+        title: "Infrastructure",
+        items: [
+          "Container now runs as the non-root `node` user (uid 1000). Any RCE in our process — or a malicious SSH script abusing ssh2's local socket APIs — is no longer running as root with full container privileges.",
+          "Built-in HEALTHCHECK against /api/healthz every 30s (60s startup grace). Failing health flips the container to \"unhealthy\" so Docker swarm, k8s, and watchtower can restart it.",
+          "Graceful shutdown on SIGTERM/SIGINT: stop the scheduler, drain in-flight HTTP (15s timeout), close the DB pool. No more \"client has already been closed\" errors during rolling deploys, and SSE/SSH streams get clean termination instead of a torn socket.",
+          "`drizzle-kit push --force` gated behind `ALLOW_DESTRUCTIVE_MIGRATIONS=1`. Default upgrades use plain push, which fails loudly on data-destroying changes (column drops, type changes, mis-detected renames) instead of silently wiping data.",
+        ],
+      },
+      {
+        title: "Notes",
+        items: [
+          "A handful of audit findings from the late-1.12 review were already addressed in tree before this release shipped — tag-substitution control-byte sanitization, preview-pane HTML escaping, EventSource visibility cleanup on all three SSE consumers, /respond payload validation, terminal input length cap, TOFU host-key verifier wiring. Re-verified during the 1.13.0 sweep and left as-is.",
+          "Structured logging (pino) and a unit-test suite (vitest) were considered for this release and deferred to 1.14.0 — quality-of-life, not security fixes; bundling them in would have delayed shipping the actual hardening work.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.12.0",
     date: "2026-04-21",

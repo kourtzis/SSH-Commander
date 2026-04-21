@@ -12,6 +12,124 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.13.0] - 2026-04-21
+
+A single audit-driven hardening release covering schema integrity, SSH-core
+safety, scheduler atomicity, and container infrastructure. No new features —
+this is the "make sure everything we've shipped doesn't bite us" release.
+
+### Schema (foreign keys + cascade behaviour)
+
+Every join column in the database now has an explicit FK constraint. Previously
+the parent/child relationships were enforced only at the application layer,
+which meant a crash mid-DELETE — or any forgotten cleanup path — could leave
+orphan rows pointing at deleted parents. The FK rules are tuned per relation:
+
+- `job_tasks.job_id → batch_jobs(id)` **ON DELETE CASCADE**. Deleting a job
+  now cleans up its tasks atomically; the manual cascade in `DELETE /jobs/:id`
+  becomes belt-and-braces.
+- `schedules.job_id → batch_jobs(id)` **ON DELETE CASCADE**. Same reasoning.
+  The scheduler tick's "template missing → disable schedule" defensive
+  fallback is now unreachable.
+- `group_routers.{group_id, router_id}` **ON DELETE CASCADE** on both sides.
+  Deleting a group or a router cleans up its membership rows automatically.
+- `group_subgroups.{parent_group_id, child_group_id}` **ON DELETE CASCADE**.
+- `saved_views.user_id → users(id)` **ON DELETE CASCADE**. Personal view
+  state goes with the user.
+- `device_reachability.router_id → routers(id)` **ON DELETE CASCADE**.
+- `routers.credential_profile_id → credential_profiles(id)` **ON DELETE
+  SET NULL** (already nullable). Deleting a profile orphans the routers
+  cleanly — they fall back to inline credentials.
+- `credential_profiles.jump_host_id → credential_profiles(id)` **ON DELETE
+  SET NULL**. Self-FK; deleting the bastion profile drops the reference.
+- `router_groups.parent_id → router_groups(id)` **ON DELETE SET NULL**.
+  Children become roots instead of vanishing.
+- `batch_jobs.created_by` and `schedules.created_by` are intentionally NOT
+  FK'd to `users(id)`. Audit history must survive user deletion.
+- `job_tasks.router_id` is intentionally NOT FK'd to `routers(id)`. Task
+  rows snapshot router name + IP at creation time so the audit trail
+  remains meaningful when a device is later removed.
+
+The Docker entrypoint now runs an idempotent orphan-cleanup pass before the
+schema push so upgrades from older versions can't fail at FK creation. New
+indexes added on `schedules.created_by` for the new FK.
+
+### Backend security
+
+- **Session lifetime tightened from 7 days to 12 hours** (still rolling, so
+  active operators never notice). A forgotten tab on a shared workstation
+  now logs itself out by morning instead of holding a credential window
+  open for a week.
+
+### SSH core
+
+- **Per-line wire-log truncation (1024 chars).** A single device line
+  longer than the cap is truncated with a marker so binary blob dumps,
+  base64 backups, or RouterOS multi-MB single lines can't bloat the
+  `batch_jobs.connection_log` JSON column even while the total line count
+  is well under the existing 4000-line cap.
+- **Enable-password redaction in the wire log.** When the auto-confirm
+  shell handler types the stored enable secret in response to a
+  `Password:` prompt, the wire log records `[REDACTED password response]`
+  instead of the cleartext characters. Without this, the secret was
+  captured into `connection_log` and visible to anyone with read access
+  to the jobs detail page or DB dumps.
+
+### Scheduler
+
+- **Atomic template-clone**. The "create new running batch_jobs row +
+  insert all child job_tasks" pair is now wrapped in a single
+  transaction. Without this, a crash or pool eviction between the two
+  inserts left a `running` job with zero tasks — a perpetually 0/N
+  progress bar the operator could never resolve. The transaction
+  guarantees both rows exist or neither does.
+- **Drift-resistant interval scheduling**. `computeNextRun()` for
+  interval schedules now anchors on the previous `nextRunAt` rather
+  than `now()`, walking forward by N intervals until it lands in the
+  future. A late tick — long-running job, container restart — no
+  longer silently shifts the entire cadence forward (a "every 60 min"
+  schedule that misses by 7 min is no longer "every 67 min from then
+  on"). Missed slots are skipped cleanly without compounding drift.
+
+### Infrastructure
+
+- **Container now runs as a non-root user (`node`, uid 1000)**. Any RCE
+  in our process — or a malicious SSH script that abuses ssh2's local
+  socket APIs — is no longer running as root with full container
+  privileges. Combine with `--cap-drop=ALL --security-opt=no-new-privileges`
+  at `docker run` for further hardening.
+- **Built-in `HEALTHCHECK`** hits `/api/healthz` every 30s after a 60s
+  startup grace period. Failing health flips the container to "unhealthy"
+  so orchestrators (Docker swarm, k8s, watchtower) can restart it.
+- **Graceful shutdown on SIGTERM / SIGINT**. The new handler in
+  `index.ts` stops the scheduler, drains in-flight HTTP requests (15s
+  timeout), then closes the DB pool before exiting. No more "client has
+  already been closed" errors during rolling deploys, and SSE / SSH
+  streams get a clean termination instead of a torn socket.
+- **`drizzle-kit push --force` is now gated behind
+  `ALLOW_DESTRUCTIVE_MIGRATIONS=1`**. Default upgrades use plain
+  `db:push`, which fails loudly on data-destroying changes (column
+  drops, type changes, table renames mis-detected as drop+create)
+  instead of silently wiping data. Operators with disposable databases
+  (CI deploys) can opt back into the legacy behaviour with the env var.
+
+### Notes
+
+A handful of audit findings from the late-1.12 review were already
+addressed in tree before this release shipped — tag-substitution
+control-byte sanitization, preview-pane HTML escaping, EventSource
+visibility cleanup on all three SSE consumers, /respond payload
+validation, terminal input length cap, TOFU host-key verifier wiring.
+Those were re-verified during the 1.13.0 sweep and left as-is.
+
+Structured logging (pino) and a unit-test suite (vitest) were
+considered for this release and deferred to 1.14.0 — they are
+quality-of-life improvements, not security fixes, and bundling them
+into this release would have delayed shipping the actual hardening
+work.
+
+---
+
 ## [1.12.0] - 2026-04-21
 
 ### Added

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, index, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, index, boolean, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -12,7 +12,12 @@ export const credentialProfilesTable = pgTable("credential_profiles", {
   sshUsername: text("ssh_username").notNull(),
   sshPassword: text("ssh_password"),
   enablePassword: text("enable_password"),
-  jumpHostId: integer("jump_host_id"),
+  // Self-FK to another credential profile used as the SSH bastion. ON DELETE
+  // SET NULL so deleting a profile that other profiles use as a jump host
+  // doesn't hard-fail — those profiles just lose their bastion reference and
+  // start refusing to connect with a clear "no jump host" error rather than
+  // a foreign-key violation at API surface.
+  jumpHostId: integer("jump_host_id").references((): AnyPgColumn => credentialProfilesTable.id, { onDelete: "set null" }),
   jumpHost: text("jump_host"),
   jumpPort: integer("jump_port"),
   description: text("description"),

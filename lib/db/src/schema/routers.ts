@@ -1,6 +1,7 @@
 import { pgTable, serial, text, integer, timestamp, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { credentialProfilesTable } from "./credential_profiles";
 
 // SSH-managed router/device — each entry represents one target device
 export const routersTable = pgTable("routers", {
@@ -12,7 +13,11 @@ export const routersTable = pgTable("routers", {
   sshPassword: text("ssh_password"),        // Stored in plaintext — encrypted at rest via DB-level encryption
   enablePassword: text("enable_password"),  // Optional sudo / enable mode password
   description: text("description"),         // Optional notes about the device
-  credentialProfileId: integer("credential_profile_id"), // Optional — preferred over inline credentials when set
+  // Optional FK to credential_profiles. ON DELETE SET NULL so deleting a
+  // profile doesn't orphan the routers that referenced it — they fall back
+  // to inline credentials (or fail loudly if there are none) rather than
+  // pointing at a phantom profile id forever.
+  credentialProfileId: integer("credential_profile_id").references(() => credentialProfilesTable.id, { onDelete: "set null" }),
   vendor: text("vendor"),                   // Auto-detected: e.g. "MikroTik", "Cisco", "Linux"
   model: text("model"),                     // Auto-detected: e.g. "RB4011iGS+", "WS-C2960-24TT-L"
   osVersion: text("os_version"),            // Auto-detected: e.g. "RouterOS 7.10.2"
