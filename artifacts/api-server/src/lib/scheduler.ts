@@ -63,7 +63,7 @@ async function executeJobTasks(
           r.ipAddress, r.sshPort ?? 22, creds.username, creds.password, finalScript,
           {
             timeoutMs: (options.timeoutSeconds || 30) * 1000,
-            autoConfirm: options.autoConfirm,
+            autoConfirm: options.autoConfirm ?? undefined,
             enablePassword: creds.enablePassword,
             jumpHost: creds.jumpHost,
             retryCount: options.retryCount || 0,

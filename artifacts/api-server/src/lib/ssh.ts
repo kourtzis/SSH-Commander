@@ -720,7 +720,7 @@ export function makeHostKeyVerifier(
 // ─── SSH Algorithm Configuration ────────────────────────────────────
 // Broad algorithm set for compatibility with older MikroTik RouterOS versions
 // and other network equipment that may not support modern ciphers.
-export const SSH_ALGORITHMS = {
+export const SSH_ALGORITHMS: import("ssh2").Algorithms = {
   kex: [
     "diffie-hellman-group14-sha256",
     "diffie-hellman-group14-sha1",

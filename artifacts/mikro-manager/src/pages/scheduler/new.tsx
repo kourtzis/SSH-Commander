@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
-import { useListJobs, useGetSchedule } from "@workspace/api-client-react";
+import { useListJobs, useGetSchedule, getGetScheduleQueryKey } from "@workspace/api-client-react";
 import { useSchedulesMutations } from "@/hooks/use-mutations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,7 @@ export default function NewSchedule() {
 
   const { data: jobs = [] } = useListJobs();
   const { data: existingSchedule } = useGetSchedule(editId ?? 0, {
-    query: { enabled: isEdit },
+    query: { queryKey: getGetScheduleQueryKey(editId ?? 0), enabled: isEdit },
   });
   const { createSchedule, updateSchedule } = useSchedulesMutations();
   const { toast } = useToast();

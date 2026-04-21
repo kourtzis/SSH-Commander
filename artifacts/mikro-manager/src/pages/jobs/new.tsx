@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
-import { useListRouters, useListGroups, useListSnippets, useGetJob, useDryRunJob, customFetch } from "@workspace/api-client-react";
+import { useListRouters, useListGroups, useListSnippets, useGetJob, useDryRunJob, customFetch, getGetJobQueryKey } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ScriptBuilder, ScriptBlock, buildCombinedScript } from "@/components/script-builder";
 import { useDragReorder } from "@/hooks/use-drag-reorder";
 import { useToast } from "@/hooks/use-toast";
+import { useConfirm } from "@/components/confirm-dialog";
 import { extractTags } from "@/lib/utils";
 import type ExcelJS from "exceljs";
 
@@ -94,6 +95,7 @@ export default function NewJob() {
   const isEditMode = !!editId;
 
   const { toast } = useToast();
+  const confirmDialog = useConfirm();
   const { createJob, updateJob } = useJobsMutations();
 
   const { data: routers = [], isSuccess: routersLoaded } = useListRouters();
@@ -101,7 +103,7 @@ export default function NewJob() {
   const { data: snippets = [] } = useListSnippets();
 
   const { data: sourceJob } = useGetJob(sourceJobId ? parseInt(sourceJobId) : 0, {
-    query: { enabled: !!sourceJobId },
+    query: { queryKey: getGetJobQueryKey(sourceJobId ? parseInt(sourceJobId) : 0), enabled: !!sourceJobId },
   });
 
   const [name, setName] = useState("");
@@ -487,9 +489,9 @@ export default function NewJob() {
                       {t.type === "router" && (
                         routerHasStatus ? (
                           routerReachable ? (
-                            <Wifi className="w-3.5 h-3.5 text-emerald-400 shrink-0" title="SSH port reachable" />
+                            <span title="SSH port reachable" className="inline-flex shrink-0"><Wifi className="w-3.5 h-3.5 text-emerald-400" /></span>
                           ) : (
-                            <WifiOff className="w-3.5 h-3.5 text-red-400 shrink-0" title="SSH port unreachable" />
+                            <span title="SSH port unreachable" className="inline-flex shrink-0"><WifiOff className="w-3.5 h-3.5 text-red-400" /></span>
                           )
                         ) : (
                           <span className="w-3.5 h-3.5 rounded-full bg-muted-foreground/30 shrink-0 animate-pulse" title="Checking..." />

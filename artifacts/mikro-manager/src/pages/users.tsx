@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListUsers } from "@workspace/api-client-react";
+import { useListUsers, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useUsersMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
@@ -19,7 +19,7 @@ import { formatDate } from "@/lib/utils";
 
 export default function Users() {
   const { user } = useAuth();
-  const { data: users = [], isLoading } = useListUsers({ query: { enabled: user?.role === 'admin' } });
+  const { data: users = [], isLoading } = useListUsers({ query: { queryKey: getListUsersQueryKey(), enabled: user?.role === 'admin' } });
   const { createUser, updateUser, deleteUser } = useUsersMutations();
   const { toast } = useToast();
   const confirm = useConfirm();

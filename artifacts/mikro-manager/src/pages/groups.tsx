@@ -100,7 +100,7 @@ export default function Groups() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<number>>(new Set());
   const [memberSearch, setMemberSearch] = useState("");
 
-  const { data: groupDetails } = useGetGroup(selectedGroup!, { query: { enabled: !!selectedGroup } });
+  const { data: groupDetails } = useGetGroup(selectedGroup!, { query: { queryKey: getGetGroupQueryKey(selectedGroup!), enabled: !!selectedGroup } });
 
   const selection = useSelection(groups.map(g => g.id));
 

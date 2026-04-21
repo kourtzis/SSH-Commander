@@ -32,7 +32,7 @@ import { Plus, KeyRound, Edit2, Trash2, ShieldAlert } from "lucide-react";
 export default function Credentials() {
   const { user } = useAuth();
   const { data: profiles = [], isLoading } = useListCredentialProfiles({
-    query: { enabled: user?.role === "admin" },
+    query: { queryKey: getListCredentialProfilesQueryKey(), enabled: user?.role === "admin" },
   });
   const createMut = useCreateCredentialProfile();
   const updateMut = useUpdateCredentialProfile();

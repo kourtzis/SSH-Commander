@@ -58,9 +58,7 @@ export default function AdminTerminals() {
     setLoading(true);
     setError(null);
     try {
-      const r = await customFetch(`${baseUrl}api/admin/terminals`, { credentials: "include" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const json: ListResponse = await r.json();
+      const json = await customFetch<ListResponse>(`${baseUrl}api/admin/terminals`, { credentials: "include" });
       setData(json);
     } catch (err: any) {
       setError(String(err?.message || err));
@@ -80,12 +78,10 @@ export default function AdminTerminals() {
   const disconnect = async (key: string, label: string) => {
     if (!confirm(`Force-disconnect terminal "${label}"?\n\nThe operator will see a "[disconnected by admin]" message and lose their session.`)) return;
     try {
-      const r = await customFetch(`${baseUrl}api/admin/terminals/${encodeURIComponent(key)}`, {
+      const json = await customFetch<{ message?: string }>(`${baseUrl}api/admin/terminals/${encodeURIComponent(key)}`, {
         method: "DELETE",
         credentials: "include",
       });
-      const json = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(json?.error || `HTTP ${r.status}`);
       toast({ title: "Terminal closed", description: json?.message || `Closed ${label}` });
       load();
     } catch (err: any) {

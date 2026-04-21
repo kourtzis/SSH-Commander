@@ -12,6 +12,22 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.10.1] - 2026-04-21
+
+### Internal
+- **TypeScript cleanup pass.** A wide LSP sweep surfaced ~50 pre-existing type errors that had accumulated under the radar — none of them caused by the 1.10.0 SSH refactor. The per-package `tsc` builds had been passing because cross-package errors only show up under `pnpm -r run typecheck`. All resolved with no behaviour change. Specifics:
+  - Disambiguated duplicate exports in `@workspace/api-zod` (orval emits the same param/response types in both `api.ts` and `types/`; explicit re-exports in the barrel file pick the canonical one).
+  - Rebuilt `@workspace/db` declarations (stale `tsbuildinfo` + missing `dist/index.d.ts` had cascaded into TS6305 across consumers and TS2339 on `db.update().set({}).cascade()` chains).
+  - Eight `useQuery` call sites now pass `queryKey` explicitly — TanStack Query v5 tightened `UseQueryOptions` so the orval-generated hook wrappers can no longer infer it for you when you also pass `enabled`/`refetchInterval`. Affected: `auth-context`, `credentials`, `groups`, `jobs/detail`, `jobs/new`, `scheduler/new`, `users`.
+  - `admin-terminals.tsx` was treating the `customFetch` return value as a raw browser `Response` (calling `.ok` and `.json()` on it). Same regression pattern fixed in 1.8.22 — `customFetch<T>()` returns the parsed body directly and throws `ApiError` on non-2xx. Rewrote both call sites to use try/catch.
+  - `jobs/new.tsx` was missing the `useConfirm` import + hook — the 5+ device safety prompt would have thrown `confirmDialog is not defined` at runtime the moment an operator tried to run a large-batch ad-hoc job.
+  - `lucide-react` v0.541 removed the `title` prop from icon SVGs — wrapped the two reachability indicators in `<span title=…>` so the tooltip still works.
+  - `useRef<…>()` calls now pass an explicit initial value (React 19 / `@types/react` 19 made the no-arg overload an error).
+  - `SSH_ALGORITHMS` now declares `import('ssh2').Algorithms` instead of the inferred `string[]` shape, so the four `conn.connect({ algorithms })` sites no longer need `any`-cast escape hatches.
+  - `scheduler.executeJobTasks` coerces `options.autoConfirm` from `boolean | null` to `boolean | undefined` at the `executeSSH` call site.
+
+---
+
 ## [1.10.0] - 2026-04-21
 
 ### Internal

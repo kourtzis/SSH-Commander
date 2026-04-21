@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
-import { useGetJob } from "@workspace/api-client-react";
+import { useGetJob, getGetJobQueryKey } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { useConfirm } from "@/components/confirm-dialog";
@@ -111,6 +111,7 @@ export default function JobDetail() {
 
   const { data: job, isLoading, refetch } = useGetJob(jobId, {
     query: {
+      queryKey: getGetJobQueryKey(jobId),
       refetchInterval: (query) => {
         const status = query.state.data?.status;
         return (status === 'running' || status === 'pending') ? 2000 : false;

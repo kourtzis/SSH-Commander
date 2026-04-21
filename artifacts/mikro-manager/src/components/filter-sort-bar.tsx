@@ -47,7 +47,7 @@ export function FilterSortBar({
 }: FilterSortBarProps) {
   const [showFilters, setShowFilters] = useState(false);
   const [localSearch, setLocalSearch] = useState(searchValue);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     setLocalSearch(searchValue);
