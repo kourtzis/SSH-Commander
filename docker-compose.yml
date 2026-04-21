@@ -24,20 +24,18 @@ services:
         condition: service_healthy
     ports:
       - "3000:3000"
+    # Load secret variables straight from .env into the container.
+    # The .env file must live next to this docker-compose.yml and contain:
+    #   SESSION_SECRET=<64-char hex>            (required, min 16 chars)
+    #   CREDENTIAL_ENCRYPTION_KEY=<64-char hex> (required, AES-256-GCM key)
+    #   DB_PASSWORD=<your-db-password>          (also used by ${DB_PASSWORD} below)
+    #   INITIAL_ADMIN_PASSWORD=<optional>       (only used on very first start)
+    # LOSING CREDENTIAL_ENCRYPTION_KEY PERMANENTLY BRICKS EVERY STORED
+    # DEVICE PASSWORD — back it up to a password manager / secrets vault.
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://mikromanager:${DB_PASSWORD}@db:5432/mikromanager
-      # Required. Min 16 chars. Cannot be a known placeholder string —
-      # the app will refuse to start in production if it is.
-      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
-      # Required as of 1.14.0. 32 bytes (64 hex chars or 44-char base64).
-      # AES-256-GCM master key for at-rest credential encryption.
-      # LOSING THIS KEY PERMANENTLY BRICKS EVERY STORED DEVICE PASSWORD.
-      # Back it up to your password manager / secrets vault.
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?set CREDENTIAL_ENCRYPTION_KEY in .env}
-      # Optional. Sets the admin password on the very first start (when
-      # no users exist). If unset, a random 24-char password is printed
-      # once to the container logs. Ignored on subsequent starts.
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       PORT: 3000
       NODE_ENV: production
       PUBLIC_DIR: /app/public
