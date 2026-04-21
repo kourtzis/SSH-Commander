@@ -9,7 +9,7 @@
 // secret to the browser.
 
 import { Router, type IRouter } from "express";
-import { db, credentialProfilesTable } from "@workspace/db";
+import { db, credentialProfilesTable, encryptSecret } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth, requireAdmin, getCurrentUser } from "../lib/auth.js";
 
@@ -75,8 +75,10 @@ router.post("/credentials", async (req, res) => {
     .insert(credentialProfilesTable)
     .values({
       name, sshUsername,
-      sshPassword: sshPassword || null,
-      enablePassword: enablePassword || null,
+      // 1.14.0: encrypt secrets at rest with AES-256-GCM. encryptSecret()
+      // returns null for null/empty input so optional secrets stay NULL.
+      sshPassword: encryptSecret(sshPassword || null),
+      enablePassword: encryptSecret(enablePassword || null),
       jumpHostId: toIntOrNull(jumpHostId),
       jumpHost: toStrOrNull(jumpHost),
       jumpPort: toIntOrNull(jumpPort),
@@ -98,8 +100,11 @@ router.put("/credentials/:id", async (req, res) => {
   // Only update secrets if a non-empty string is provided. This lets the UI
   // omit the field to "leave unchanged" without forcing the operator to
   // re-enter passwords every edit.
-  if (typeof b.sshPassword === "string" && b.sshPassword.length > 0) updates.sshPassword = b.sshPassword;
-  if (typeof b.enablePassword === "string" && b.enablePassword.length > 0) updates.enablePassword = b.enablePassword;
+  // 1.14.0: encrypt secrets at rest. We only update when the operator
+  // sent a non-empty string (so omitting the field still means "leave
+  // unchanged" — re-typing the password every edit would be hostile).
+  if (typeof b.sshPassword === "string" && b.sshPassword.length > 0) updates.sshPassword = encryptSecret(b.sshPassword);
+  if (typeof b.enablePassword === "string" && b.enablePassword.length > 0) updates.enablePassword = encryptSecret(b.enablePassword);
   const toIntOrNull = (v: unknown): number | null => {
     if (v === null || v === undefined || v === "") return null;
     const n = typeof v === "number" ? v : parseInt(String(v), 10);

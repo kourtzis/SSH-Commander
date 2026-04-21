@@ -12,6 +12,109 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.14.0] - 2026-04-21
+
+A focused security-hardening release driven by the post-1.13 audit. Addresses
+the two Critical and four High findings, plus two cheap Mediums. No feature
+changes — read the upgrade note before deploying.
+
+### ⚠ Required upgrade step
+
+Before starting the new container in production, generate and persist a
+**32-byte master key** for credential encryption:
+
+```
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Save the value in your deployment secret store as
+`CREDENTIAL_ENCRYPTION_KEY`. The API server refuses to start in production
+without it, and **losing this key permanently bricks every stored device
+password** (you'd have to re-enter them all by hand). In dev the server
+falls back to a deterministic key derived from your DATABASE_URL with a
+loud warning — never use a dev DB dump in prod.
+
+A one-shot migration runs at container start and encrypts every legacy
+plaintext row in place. The migration is idempotent — already-encrypted
+rows are skipped — so it's safe to re-run on every restart.
+
+### Security
+
+- **C-1 Credentials encrypted at rest.** `routers.ssh_password`,
+  `routers.enable_password`, `credential_profiles.ssh_password`, and
+  `credential_profiles.enable_password` are now stored as AES-256-GCM
+  ciphertext with a 12-byte IV and 16-byte auth tag, prefixed `enc:v1:`
+  so the read path can distinguish encrypted rows from legacy plaintext
+  during the upgrade window. A database dump leak no longer reveals the
+  device fleet's credentials. Decryption is best-effort on read (logs and
+  returns null on tag mismatch rather than crashing the request); writes
+  are encrypt-on-save and idempotent.
+- **C-2 SSH host-key verification is mandatory.** The `hostKeyTrust`
+  field on `SSHExecOptions`, `ConnectSSHOptions`, and the jump-host
+  helper has been promoted from optional to required, and a runtime
+  guard rejects any call that passes a missing or malformed trust
+  object. Previously, omitting the field silently disabled the verifier
+  (== accept any presented key), which meant a single forgotten call
+  site converted that connection into a MITM target. Type-level
+  enforcement plus the runtime guard means the only remaining way past
+  is an explicit `{ routerId, expectedFingerprint: null }` (TOFU pin on
+  first sight).
+- **H-1 Schedule IDOR fixed.** Schedules are now scoped per-user just
+  like jobs. The list endpoint filters by `created_by` for operators
+  (admins see all); GET / PUT / DELETE on `/schedules/:id` go through a
+  `requireScheduleAccess` helper that returns 403 if the caller doesn't
+  own the row (and isn't admin). Previously any logged-in user could
+  view, modify, or delete any other user's schedule by guessing IDs.
+- **H-4 Job-preview XSS removed.** The "preview resolved scripts"
+  dialog on the new-job page no longer renders user-controlled script
+  content via `dangerouslySetInnerHTML`. The same highlighting of
+  unresolved `{{TAG}}` placeholders is now achieved with React JSX:
+  the resolved script is split on the placeholder regex and each
+  segment renders as a text node (safely escaped by React) or a
+  `<mark>` element. Any HTML smuggled in via a script body or
+  Excel-substituted variable is now shown as literal text.
+- **H-7 No more well-known default admin password.** The seed script
+  reads `INITIAL_ADMIN_PASSWORD` from the env on first start. If unset,
+  it generates a 24-char random password and prints it once to the
+  container logs (banner-framed so it's hard to miss). Installs upgraded
+  from older versions that still have `admin123` in place get a loud
+  warning at every startup until the password is rotated.
+- **M-13 SESSION_SECRET placeholder rejection.** In addition to the
+  existing 16-char minimum, production startup now refuses four
+  well-known placeholder strings (`change-this-to-a-long-random-string`,
+  `your-secret-here`, `changeme`, and the codebase's own example dev
+  secret). Operators copy-pasting an example `.env` into prod get a
+  startup error instead of a forgable signer. The dev-mode fallback
+  was also removed: a non-prod boot with no SESSION_SECRET now
+  generates a random ephemeral secret per process (sessions don't
+  survive restart) instead of using the known dev placeholder string.
+- **M-14 Shell hygiene + post-migration crypto pass.** The Docker
+  entrypoint now runs with `set -u` (unset variables abort) in addition
+  to `set -e`, with `pipefail` guarded so minimal busybox shells don't
+  blow up at parse time. Typos in env names that used to expand to empty
+  strings — sometimes silently breaking migrations — now abort startup
+  explicitly. The entrypoint also runs the credential-encryption
+  migration after `drizzle-kit push` so legacy rows get encrypted on
+  every restart (idempotent; non-fatal).
+
+### Migration / upgrade notes
+
+- **Set `CREDENTIAL_ENCRYPTION_KEY` before first start in production.**
+  Without it, the API server refuses to boot. See the upgrade step at
+  the top of this entry.
+- **Set `INITIAL_ADMIN_PASSWORD` before first start of a fresh
+  deployment** if you want a known admin password. Otherwise capture the
+  random one printed in the container logs.
+- **Existing installs need no manual data migration.** Legacy plaintext
+  credential rows continue to read correctly until the next write or the
+  one-shot encrypt-credentials script runs at container start.
+- **Schedules created by other users will disappear from operators'
+  lists.** This is the IDOR fix — admins can still see and reassign
+  them. If you were relying on cross-user schedule visibility, all users
+  who need to see a given schedule now need admin role.
+
+---
+
 ## [1.13.0] - 2026-04-21
 
 A single audit-driven hardening release covering schema integrity, SSH-core

@@ -1,34 +1,59 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { db, schedulesTable, batchJobsTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { requireAuth, requireAdminAuth, getCurrentUser } from "../lib/auth.js";
 import { parsePagination } from "../lib/pagination.js";
 
 const router: IRouter = Router();
 
+// 1.14.0 IDOR fix: schedules are scoped per-user just like jobs. Operators
+// only see/modify their own; admins see everything. Throws 403 if the
+// caller is logged in but doesn't own the schedule (and isn't admin),
+// 404 if the schedule doesn't exist at all.
+async function requireScheduleAccess(req: Request, scheduleId: number) {
+  requireAuth(req);
+  const user = await getCurrentUser(req);
+  if (!user) { const e: any = new Error("Unauthorized"); e.status = 401; throw e; }
+  const [schedule] = await db
+    .select()
+    .from(schedulesTable)
+    .where(eq(schedulesTable.id, scheduleId))
+    .limit(1);
+  if (!schedule) {
+    const e: any = new Error("Schedule not found");
+    e.status = 404;
+    throw e;
+  }
+  if (user.role !== "admin" && schedule.createdBy !== user.id) {
+    const e: any = new Error("Forbidden");
+    e.status = 403;
+    throw e;
+  }
+  return { user, schedule };
+}
+
 router.get("/schedules", async (req, res) => {
   requireAuth(req);
+  const user = await getCurrentUser(req);
+  // 1.14.0 IDOR fix: operators only see their own schedules. Admins see all.
+  const isAdmin = user?.role === "admin";
+  const where = isAdmin ? undefined : eq(schedulesTable.createdBy, user!.id);
   const page = parsePagination(req);
   if (page) {
     const [items, totalRow] = await Promise.all([
-      db.select().from(schedulesTable).orderBy(schedulesTable.createdAt).limit(page.limit).offset(page.offset),
-      db.select({ n: sql<number>`count(*)::int` }).from(schedulesTable),
+      db.select().from(schedulesTable).where(where as any).orderBy(schedulesTable.createdAt).limit(page.limit).offset(page.offset),
+      db.select({ n: sql<number>`count(*)::int` }).from(schedulesTable).where(where as any),
     ]);
     res.json({ items, total: totalRow[0]?.n ?? 0, limit: page.limit, offset: page.offset });
     return;
   }
-  const schedules = await db.select().from(schedulesTable).orderBy(schedulesTable.createdAt);
+  const schedules = await db.select().from(schedulesTable).where(where as any).orderBy(schedulesTable.createdAt);
   res.json(schedules);
 });
 
 router.get("/schedules/:id", async (req, res) => {
-  requireAuth(req);
   const id = parseInt(req.params.id);
-  const [schedule] = await db.select().from(schedulesTable).where(eq(schedulesTable.id, id)).limit(1);
-  if (!schedule) {
-    res.status(404).json({ error: "Schedule not found" });
-    return;
-  }
+  const { schedule } = await requireScheduleAccess(req, id);
   res.json(schedule);
 });
 
@@ -196,8 +221,9 @@ router.post("/schedules", async (req, res) => {
 });
 
 router.put("/schedules/:id", async (req, res) => {
-  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
+  // 1.14.0: ownership-checked. Admin overrides via the requireScheduleAccess helper.
+  await requireScheduleAccess(req, id);
   const {
     name,
     enabled,
@@ -331,9 +357,10 @@ router.put("/schedules/:id", async (req, res) => {
 });
 
 router.delete("/schedules/:id", async (req, res) => {
-  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid schedule id" }); return; }
+  // 1.14.0: ownership-checked. Admin overrides via the requireScheduleAccess helper.
+  await requireScheduleAccess(req, id);
   await db.delete(schedulesTable).where(eq(schedulesTable.id, id));
   res.json({ message: "Schedule deleted" });
 });

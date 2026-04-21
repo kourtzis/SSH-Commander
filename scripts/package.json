@@ -6,6 +6,7 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "seed": "tsx ./src/seed.ts",
+    "encrypt-credentials": "tsx ./src/encrypt-credentials.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

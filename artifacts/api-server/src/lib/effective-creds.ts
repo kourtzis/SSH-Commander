@@ -21,9 +21,22 @@
 //     forcing a host string, and we don't want a misconfigured
 //     bastion row to make every SSH attempt fail mysteriously).
 
-import { db, routersTable, credentialProfilesTable } from "@workspace/db";
+import { db, routersTable, credentialProfilesTable, decryptSecret } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { JumpHostConfig } from "./ssh.js";
+
+// Helpers: decrypt-on-read. Sensitive columns (sshPassword,
+// enablePassword) are encrypted at rest with AES-256-GCM in 1.14.0+.
+// decryptSecret() is a pass-through for legacy plaintext rows so
+// upgrades from 1.13 keep working until the migration script (or the
+// next write) re-encrypts each row.
+function dec(v: string | null | undefined): string | null {
+  try { return decryptSecret(v); }
+  catch (e) {
+    console.warn("[effective-creds] decrypt failed (returning null):", (e as Error).message);
+    return null;
+  }
+}
 
 export interface EffectiveCreds {
   username: string;
@@ -43,8 +56,8 @@ export async function resolveEffectiveCreds(router: RouterRow): Promise<Effectiv
   if (!router.credentialProfileId) {
     return {
       username: router.sshUsername,
-      password: router.sshPassword ?? "",
-      enablePassword: router.enablePassword ?? undefined,
+      password: dec(router.sshPassword) ?? "",
+      enablePassword: dec(router.enablePassword) ?? undefined,
     };
   }
 
@@ -59,14 +72,14 @@ export async function resolveEffectiveCreds(router: RouterRow): Promise<Effectiv
   if (!profile) {
     return {
       username: router.sshUsername,
-      password: router.sshPassword ?? "",
-      enablePassword: router.enablePassword ?? undefined,
+      password: dec(router.sshPassword) ?? "",
+      enablePassword: dec(router.enablePassword) ?? undefined,
     };
   }
 
   const username = profile.sshUsername || router.sshUsername;
-  const password = profile.sshPassword ?? router.sshPassword ?? "";
-  const enablePassword = profile.enablePassword ?? router.enablePassword ?? undefined;
+  const password = dec(profile.sshPassword) ?? dec(router.sshPassword) ?? "";
+  const enablePassword = dec(profile.enablePassword) ?? dec(router.enablePassword) ?? undefined;
 
   const useLegacyAlgorithms = profile.useLegacyAlgorithms === true;
 
@@ -82,7 +95,7 @@ export async function resolveEffectiveCreds(router: RouterRow): Promise<Effectiv
         host: bastion.jumpHost,
         port: bastion.jumpPort ?? 22,
         username: bastion.sshUsername,
-        password: bastion.sshPassword ?? "",
+        password: dec(bastion.sshPassword) ?? "",
       };
     }
   }

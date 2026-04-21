@@ -10,8 +10,8 @@ export const routersTable = pgTable("routers", {
   ipAddress: text("ip_address").notNull(),  // Hostname or IP used for SSH connection
   sshPort: integer("ssh_port").notNull().default(22),
   sshUsername: text("ssh_username").notNull(),
-  sshPassword: text("ssh_password"),        // Stored in plaintext — encrypted at rest via DB-level encryption
-  enablePassword: text("enable_password"),  // Optional sudo / enable mode password
+  sshPassword: text("ssh_password"),        // 1.14.0+: encrypted at rest with AES-256-GCM (see lib/db/src/crypto.ts). Legacy plaintext rows are accepted on read and re-encrypted on next write / migration.
+  enablePassword: text("enable_password"),  // 1.14.0+: encrypted at rest (see sshPassword above).
   description: text("description"),         // Optional notes about the device
   // Optional FK to credential_profiles. ON DELETE SET NULL so deleting a
   // profile doesn't orphan the routers that referenced it — they fall back

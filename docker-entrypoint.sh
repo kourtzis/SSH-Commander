@@ -1,5 +1,15 @@
 #!/bin/sh
+# 1.14.0 M-14: shell hygiene. -e: abort on any unhandled error;
+# -u: abort on use of an unset variable (catches typos in env names);
+# pipefail: a failure anywhere in a pipeline propagates instead of being
+# swallowed by the success of the last stage. We deliberately keep /bin/sh
+# (POSIX) so this works on minimal alpine-style base images.
 set -e
+set -u
+# `pipefail` is a bash/dash extension; guard it so /bin/sh on truly minimal
+# busybox doesn't blow up at parse time. Most modern container images
+# (debian-slim, ubuntu, alpine 3.18+) have a sh that supports it.
+( set -o pipefail 2>/dev/null ) && set -o pipefail || true
 
 # ─── Schema bootstrap ────────────────────────────────────────────────
 # We run two layers of migration to make upgrades from older versions
@@ -140,8 +150,16 @@ else
   pnpm exec drizzle-kit push </dev/null 2>&1 || echo "drizzle-kit push warning (non-fatal — defensive ALTERs already applied; set ALLOW_DESTRUCTIVE_MIGRATIONS=1 to allow destructive changes)"
 fi
 
-echo "Seeding default admin user..."
+# 1.14.0 C-1: encrypt every legacy plaintext credential row with AES-256-GCM.
+# Idempotent — already-encrypted rows pass through. Non-fatal on missing
+# CREDENTIAL_ENCRYPTION_KEY in dev (the script logs and exits 0); fatal
+# refusal happens earlier when the API server starts in production without
+# the key.
+echo "Encrypting credentials at rest (idempotent)..."
 cd /app
+pnpm --filter @workspace/scripts run encrypt-credentials 2>&1 || echo "Credential encryption migration skipped (non-fatal)"
+
+echo "Seeding default admin user..."
 pnpm --filter @workspace/scripts run seed 2>&1 || echo "Seed skipped (admin user may already exist)"
 
 echo "Starting SSH Commander..."

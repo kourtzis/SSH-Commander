@@ -3,7 +3,7 @@
 // and TCP-based reachability checks for real-time status indicators.
 
 import { Router, type IRouter } from "express";
-import { db, routersTable, deviceReachabilityTable } from "@workspace/db";
+import { db, routersTable, deviceReachabilityTable, encryptSecret } from "@workspace/db";
 import { eq, inArray, and, gte, sql } from "drizzle-orm";
 import { CreateRouterBody, UpdateRouterBody } from "@workspace/api-zod";
 import { requireAuth, requireAdminAuth } from "../lib/auth.js";
@@ -97,10 +97,12 @@ router.post("/routers", async (req, res) => {
       ipAddress,
       sshPort: sshPort ?? 22,
       sshUsername,
-      sshPassword,
+      // 1.14.0: secrets are encrypted at rest. encryptSecret() is
+      // null-safe and idempotent (already-encrypted values pass through).
+      sshPassword: encryptSecret(sshPassword),
       description,
       credentialProfileId: credentialProfileId ?? null,
-      enablePassword: enablePassword ?? null,
+      enablePassword: encryptSecret(enablePassword),
     })
     .returning();
   res.status(201).json(sanitizeRouter(newRouter));
@@ -143,11 +145,12 @@ router.put("/routers/:id", async (req, res) => {
   if (ipAddress !== undefined) updates.ipAddress = ipAddress;
   if (sshPort !== undefined) updates.sshPort = sshPort;
   if (sshUsername !== undefined) updates.sshUsername = sshUsername;
-  if (sshPassword !== undefined) updates.sshPassword = sshPassword;
+  // 1.14.0: encrypt secrets at rest on every write.
+  if (sshPassword !== undefined) updates.sshPassword = encryptSecret(sshPassword);
   if (description !== undefined) updates.description = description;
   // credentialProfileId may be explicitly null to detach a profile.
   if (credentialProfileId !== undefined) updates.credentialProfileId = credentialProfileId;
-  if (enablePassword !== undefined) updates.enablePassword = enablePassword;
+  if (enablePassword !== undefined) updates.enablePassword = encryptSecret(enablePassword);
 
   const [updated] = await db
     .update(routersTable)
@@ -207,7 +210,7 @@ router.post("/routers/import", async (req, res) => {
       continue;
     }
 
-    validRows.push({ index: i, name, values: { name, ipAddress, sshPort, sshUsername, sshPassword, description } });
+    validRows.push({ index: i, name, values: { name, ipAddress, sshPort, sshUsername, sshPassword: encryptSecret(sshPassword) ?? undefined, description } });
   }
 
   // Phase 2: Try batch insert first (fast path), fall back to individual inserts on error

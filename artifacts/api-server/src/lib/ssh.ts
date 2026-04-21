@@ -1120,10 +1120,13 @@ export interface SSHExecOptions {
   retryBackoffSeconds?: number;
   /** Called for each attempt with attemptIndex (1-based). */
   onAttempt?: (attemptIndex: number) => void;
-  /** Trust-on-first-use host key pinning. When set, the first connection
-   * persists the device's host key fingerprint and every subsequent
-   * connection refuses to authenticate if the presented key changes. */
-  hostKeyTrust?: HostKeyTrust;
+  /** Trust-on-first-use host key pinning. **Required** as of 1.14.0 —
+   *  every caller must pass a HostKeyTrust object so we can never silently
+   *  fall back to "accept any host key" (the previous default behaviour
+   *  when the field was undefined was a quiet MITM bypass). For an
+   *  unpinned device, pass `{ routerId, expectedFingerprint: null }` and
+   *  the verifier will TOFU-pin on first sight. */
+  hostKeyTrust: HostKeyTrust;
   /** Per-profile opt-in for the LEGACY_SSH_ALGORITHMS set. Default modern. */
   useLegacyAlgorithms?: boolean;
   /** Job/task identity used when parking on an unrecognised prompt.
@@ -1169,7 +1172,7 @@ function isRetryableError(msg?: string): boolean {
 // Exported so interactive sessions (which don't go through executeSSH) can
 // also route through a bastion.
 export async function connectViaJumpHost(
-  target: { host: string; port: number; username: string; password: string; hostKeyTrust?: HostKeyTrust; useLegacyAlgorithms?: boolean },
+  target: { host: string; port: number; username: string; password: string; hostKeyTrust: HostKeyTrust; useLegacyAlgorithms?: boolean },
   jump: JumpHostConfig,
   timeoutMs: number,
   log: string[],
@@ -1205,7 +1208,7 @@ export async function connectViaJumpHost(
             readyTimeout: timeoutMs,
             algorithms: getSshAlgorithms(target.useLegacyAlgorithms),
           };
-          if (target.hostKeyTrust) {
+          if (target.hostKeyTrust) { // always truthy — required at the type level, kept guarded for defence-in-depth
             cfg.hostVerifier = makeHostKeyVerifier(target.hostKeyTrust, (presented, expected) => {
               log.push(`[${ts()}] ERROR: Host key MISMATCH for ${target.host} (presented ${presented}, expected ${expected})`);
             });
@@ -1264,10 +1267,8 @@ export interface ConnectSSHOptions {
   port: number;
   username: string;
   password: string;
-  /** Optional — if omitted, the connection skips TOFU host-key verification.
-   *  Only the legacy executeOnce ad-hoc/fingerprint path may pass undefined;
-   *  all router-attached operations pass a real trust object. */
-  hostKeyTrust?: HostKeyTrust;
+  /** Required as of 1.14.0 (see SSHExecOptions for rationale). */
+  hostKeyTrust: HostKeyTrust;
   jumpHost?: JumpHostConfig | null;
   /** Per-profile opt-in for the LEGACY_SSH_ALGORITHMS set. Default modern. */
   useLegacyAlgorithms?: boolean;
@@ -1304,6 +1305,15 @@ export async function connectSSH(
   listeners?: SSHListeners,
 ): Promise<Client> {
   const { host, port, username, password, hostKeyTrust, jumpHost, useLegacyAlgorithms, readyTimeoutMs, log, onHostKeyMismatch } = opts;
+  // 1.14.0 hardening: refuse to connect without an explicit host-key trust
+  // policy. A missing/undefined hostKeyTrust used to silently disable the
+  // verifier (== accept any presented key), which made every SSH path a
+  // potential MITM target if any caller forgot to pass it. Type-level
+  // required + this runtime guard means the only remaining way in is an
+  // explicit decision by the caller.
+  if (!hostKeyTrust || typeof hostKeyTrust.routerId !== "number") {
+    throw new Error("connectSSH: hostKeyTrust is required (pass { routerId, expectedFingerprint } — null fingerprint enables TOFU pinning)");
+  }
 
   if (jumpHost) {
     // connectViaJumpHost resolves AFTER the target Client is "ready"; we
@@ -1335,11 +1345,11 @@ export async function connectSSH(
         readyTimeout: readyTimeoutMs,
         algorithms: getSshAlgorithms(useLegacyAlgorithms),
       };
-      if (hostKeyTrust) {
-        cfg.hostVerifier = makeHostKeyVerifier(hostKeyTrust, (presented, expected) => {
-          onHostKeyMismatch?.(presented, expected);
-        });
-      }
+      // hostKeyTrust is required (validated above), so the verifier is
+      // always installed — there's no "accept any key" fallback.
+      cfg.hostVerifier = makeHostKeyVerifier(hostKeyTrust, (presented, expected) => {
+        onHostKeyMismatch?.(presented, expected);
+      });
       conn.connect(cfg);
     } catch (e) {
       reject(e as Error);
@@ -1428,6 +1438,14 @@ async function executeOnce(
   const enablePassword = options.enablePassword;
   const jumpHost = options.jumpHost;
   const hostKeyTrust = options.hostKeyTrust;
+  if (!hostKeyTrust) {
+    return {
+      success: false,
+      output: "",
+      errorMessage: "Internal error: SSH execution requires hostKeyTrust (caller bug)",
+      connectionLog: "",
+    };
+  }
   const log: string[] = [];
   let output = "";
   let stderr = "";
@@ -1757,7 +1775,10 @@ export async function executeSSH(
   username: string,
   password: string,
   command: string,
-  options: SSHExecOptions = {},
+  // 1.14.0: options is now required because SSHExecOptions.hostKeyTrust is
+  // required (no more silent "accept any key" by omission). All in-tree
+  // callers already pass an options object with hostKeyTrust populated.
+  options: SSHExecOptions,
 ): Promise<SSHResult & { attemptCount: number }> {
   const retryCount = Math.max(0, Math.min(10, options.retryCount ?? 0));
   const backoffMs = Math.max(0, options.retryBackoffSeconds ?? 5) * 1000;

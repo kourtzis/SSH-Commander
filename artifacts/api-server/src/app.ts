@@ -95,12 +95,40 @@ app.use(cookieParser());
 // In production the SESSION_SECRET MUST be provided. We refuse to start with
 // the placeholder fallback because anyone who knows it could forge sessions.
 const SESSION_SECRET = process.env.SESSION_SECRET;
-if (isProd && (!SESSION_SECRET || SESSION_SECRET.length < 16)) {
+// 1.14.0 M-13: refuse the well-known placeholder strings outright, even if
+// they're long enough to pass the length check. Operators copy-pasting an
+// example .env into prod would otherwise ship a forgable session signer.
+const KNOWN_PLACEHOLDER_SECRETS = new Set([
+  "change-this-to-a-long-random-string",
+  "ssh-commander-dev-only-secret-change-in-prod",
+  "your-secret-here",
+  "changeme",
+]);
+if (isProd && (!SESSION_SECRET || SESSION_SECRET.length < 16 || KNOWN_PLACEHOLDER_SECRETS.has(SESSION_SECRET))) {
   throw new Error(
-    "SESSION_SECRET environment variable is required in production (min 16 chars). " +
+    "SESSION_SECRET environment variable is required in production (min 16 chars, must not be a placeholder). " +
       "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
   );
 }
+// 1.14.0 M-13 follow-up: in dev (or any non-prod environment) where
+// SESSION_SECRET is unset OR matches a known placeholder, generate a
+// random ephemeral secret per process start instead of falling back to
+// a hardcoded literal that an attacker on the same machine could guess.
+// The trade-off is that all sessions are invalidated on every dev
+// server restart — which is the right behaviour for dev anyway.
+const EFFECTIVE_SESSION_SECRET: string = (() => {
+  if (SESSION_SECRET && SESSION_SECRET.length >= 16 && !KNOWN_PLACEHOLDER_SECRETS.has(SESSION_SECRET)) {
+    return SESSION_SECRET;
+  }
+  // Any non-prod path that gets here: generate fresh, warn loudly. We
+  // can't reach this branch in prod (the throw above already fired).
+  const ephemeral = require("crypto").randomBytes(32).toString("hex");
+  console.warn(
+    "[app] SESSION_SECRET is unset or a known placeholder — using an EPHEMERAL random secret for this process. " +
+    "Sessions will not survive a server restart. Set SESSION_SECRET in your environment to silence this warning.",
+  );
+  return ephemeral;
+})();
 
 // Whether the session cookie should carry the `Secure` flag. The `Secure`
 // flag tells the browser to send the cookie only over HTTPS, AND tells
@@ -130,7 +158,7 @@ if (isProd && !cookieSecure) {
 }
 
 const sessionConfig: session.SessionOptions = {
-  secret: SESSION_SECRET ?? "ssh-commander-dev-only-secret-change-in-prod",
+  secret: EFFECTIVE_SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   // `rolling: true` extends the cookie's `Max-Age` on every response, so an

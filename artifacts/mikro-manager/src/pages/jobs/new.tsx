@@ -726,18 +726,14 @@ export default function NewJob() {
               <p className="text-muted-foreground text-sm">No devices resolved.</p>
             )}
             {previewData.map((p) => {
-              // Escape HTML first (defends against XSS — script bodies and
-              // Excel-substituted values can contain arbitrary characters),
-              // then highlight any unresolved {{TAG}} placeholders so the
-              // operator can spot missing substitutions before firing.
-              const escaped = p.resolvedScript
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;");
-              const html = escaped.replace(
-                /\{\{\s*([A-Za-z0-9_-]+)\s*\}\}/g,
-                (m) => `<mark class="bg-destructive/30 text-destructive px-1 rounded">${m}</mark>`,
-              );
+              // 1.14.0 H-4: render via React JSX rather than innerHTML so an
+              // attacker can't smuggle a <script> tag through script bodies
+              // or Excel-substituted values. We split the resolvedScript on
+              // {{TAG}} placeholders and emit each segment as either a text
+              // node (safe by React's default escaping) or a <mark> for the
+              // unresolved tag — same visual outcome, zero raw HTML.
+              const PLACEHOLDER_RE = /(\{\{\s*[A-Za-z0-9_-]+\s*\}\})/g;
+              const parts = p.resolvedScript.split(PLACEHOLDER_RE);
               return (
                 <div key={p.routerId} className="border border-white/5 rounded-lg overflow-hidden">
                   <div className="bg-white/[0.02] px-4 py-2 flex items-center justify-between gap-3">
@@ -752,10 +748,15 @@ export default function NewJob() {
                       </Badge>
                     )}
                   </div>
-                  <pre
-                    className="bg-black/40 text-xs p-3 overflow-x-auto whitespace-pre-wrap font-mono"
-                    dangerouslySetInnerHTML={{ __html: html }}
-                  />
+                  <pre className="bg-black/40 text-xs p-3 overflow-x-auto whitespace-pre-wrap font-mono">
+                    {parts.map((part, i) =>
+                      PLACEHOLDER_RE.test(part) ? (
+                        <mark key={i} className="bg-destructive/30 text-destructive px-1 rounded">{part}</mark>
+                      ) : (
+                        <span key={i}>{part}</span>
+                      ),
+                    )}
+                  </pre>
                 </div>
               );
             })}

@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.13.0";
+export const APP_VERSION = "1.14.0";
 export const APP_VERSION_DATE = "2026-04-21";
 
 
@@ -14,6 +14,24 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.14.0",
+    date: "2026-04-21",
+    sections: [
+      {
+        title: "Security",
+        items: [
+          "Device passwords (sshPassword + enablePassword on routers and credential profiles) are now encrypted at rest with AES-256-GCM. The master key is read from the CREDENTIAL_ENCRYPTION_KEY env var (32 bytes, hex or base64); the API server refuses to start in production without it. A database dump or backup leak no longer exposes the device fleet's credentials directly. Existing plaintext rows keep working — they're transparently re-encrypted on the next write, and a one-shot migration runs at container start to encrypt every legacy row in place. Losing the key is unrecoverable, so persist it in your deployment secret store before upgrading.",
+          "Mandatory SSH host-key trust verification. Every code path that opens an SSH connection now requires a HostKeyTrust object; passing nothing used to silently disable host-key checking and made the entire app a possible MITM target if a single caller forgot to opt in. Both the type system and a runtime guard now enforce this.",
+          "Schedule access is now per-user. Operators can no longer view, edit, or delete schedules created by other users by guessing IDs (admins still see everything). The list endpoint also filters to only the operator's own schedules.",
+          "Job preview pane no longer renders user-controlled script content as raw HTML. The 'preview resolved scripts' dialog used dangerouslySetInnerHTML to highlight unresolved {{TAG}} placeholders, which meant a script body or Excel-substituted variable containing <script> would execute. The same visual highlighting is now achieved with React JSX (text nodes + <mark> elements), so any HTML in script content is shown as literal text.",
+          "Fresh deployments no longer ship with the well-known admin/admin123 default. The seed script reads INITIAL_ADMIN_PASSWORD from the env, or — if unset — generates a 24-char random password and prints it once to the container logs so the operator can capture it. Existing installs that still have admin123 in place get a loud warning at every startup until the password is changed.",
+          "SESSION_SECRET in production now refuses a list of well-known placeholder strings (change-this-to-a-long-random-string, your-secret-here, changeme, etc.) in addition to the existing min-length check. Operators copy-pasting an example .env into prod will get a startup error instead of a forgable session signer. The dev-mode fallback was also removed: a non-prod boot with no SESSION_SECRET now generates a random ephemeral secret per process (sessions don't survive a restart) instead of using a known literal.",
+          "Container entrypoint now uses POSIX-correct strict mode (set -e -u, with pipefail guarded for minimal busybox shells). Unset env-var typos that previously expanded to empty strings — sometimes silently breaking migrations — now abort startup explicitly.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.13.0",
     date: "2026-04-21",

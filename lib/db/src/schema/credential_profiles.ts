@@ -10,6 +10,9 @@ export const credentialProfilesTable = pgTable("credential_profiles", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   sshUsername: text("ssh_username").notNull(),
+  // 1.14.0+: encrypted at rest with AES-256-GCM (see lib/db/src/crypto.ts).
+  // Legacy plaintext rows are accepted on read and re-encrypted on next write
+  // / migration.
   sshPassword: text("ssh_password"),
   enablePassword: text("enable_password"),
   // Self-FK to another credential profile used as the SSH bastion. ON DELETE
