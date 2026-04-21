@@ -12,7 +12,7 @@ import {
   AddGroupMemberBody,
   RemoveGroupMemberBody,
 } from "@workspace/api-zod";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireAdminAuth } from "../lib/auth.js";
 
 const router: IRouter = Router();
 
@@ -46,9 +46,9 @@ router.get("/groups-counts", async (req, res) => {
   res.json(counts);
 });
 
-// POST /groups — Create a new group
+// POST /groups — Create a new group (admin only)
 router.post("/groups", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const parsed = CreateGroupBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid request body" });
@@ -128,7 +128,7 @@ router.get("/groups/:id", async (req, res) => {
 
 // PUT /groups/:id — Update group name/description/parentId (partial update)
 router.put("/groups/:id", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
   const parsed = UpdateGroupBody.safeParse(req.body);
   if (!parsed.success) {
@@ -156,7 +156,7 @@ router.put("/groups/:id", async (req, res) => {
 // Updates both the parentId column and the group_subgroups join table.
 // Prevents circular references by walking descendants before moving.
 router.put("/groups/:id/move", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid group ID" }); return; }
 
@@ -224,20 +224,25 @@ router.put("/groups/:id/move", async (req, res) => {
 // DELETE /groups/:id — Delete a group and clean up all its membership links.
 // Removes: router members, parent subgroup links, child subgroup links, then the group itself.
 router.delete("/groups/:id", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid group id" }); return; }
-  await db.delete(groupRoutersTable).where(eq(groupRoutersTable.groupId, id));
-  await db.delete(groupSubgroupsTable).where(eq(groupSubgroupsTable.parentGroupId, id));
-  await db.delete(groupSubgroupsTable).where(eq(groupSubgroupsTable.childGroupId, id));
-  await db.delete(routerGroupsTable).where(eq(routerGroupsTable.id, id));
+  // Wrap all four deletes in a transaction so a mid-cascade failure can't
+  // leave orphan rows in the join tables (e.g. group_routers entries
+  // pointing at a group_id that no longer exists). All-or-nothing.
+  await db.transaction(async (tx) => {
+    await tx.delete(groupRoutersTable).where(eq(groupRoutersTable.groupId, id));
+    await tx.delete(groupSubgroupsTable).where(eq(groupSubgroupsTable.parentGroupId, id));
+    await tx.delete(groupSubgroupsTable).where(eq(groupSubgroupsTable.childGroupId, id));
+    await tx.delete(routerGroupsTable).where(eq(routerGroupsTable.id, id));
+  });
   res.json({ message: "Group deleted" });
 });
 
 // POST /groups/:id/members — Add a router or subgroup to this group.
 // Uses onConflictDoNothing to safely handle duplicate additions.
 router.post("/groups/:id/members", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const groupId = parseInt(req.params.id);
   const parsed = AddGroupMemberBody.safeParse(req.body);
   if (!parsed.success) {
@@ -291,7 +296,7 @@ router.post("/groups/:id/members", async (req, res) => {
 // DELETE /groups/:id/members — Remove a specific router or subgroup from this group.
 // Filters by BOTH groupId AND memberId to avoid deleting unrelated links.
 router.delete("/groups/:id/members", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const groupId = parseInt(req.params.id);
   const parsed = RemoveGroupMemberBody.safeParse(req.body);
   if (!parsed.success) {

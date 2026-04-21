@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, schedulesTable, batchJobsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAuth, getCurrentUser } from "../lib/auth.js";
+import { requireAuth, requireAdminAuth, getCurrentUser } from "../lib/auth.js";
 
 const router: IRouter = Router();
 
@@ -103,8 +103,7 @@ function getNthWeekdayOfMonth(year: number, month: number, nth: number, weekday:
 }
 
 router.post("/schedules", async (req, res) => {
-  requireAuth(req);
-  const user = await getCurrentUser(req);
+  const user = await requireAdminAuth(req);
   const { name, jobId, type, scheduledAt, intervalMinutes, daysOfWeek, timeOfDay, dayOfMonth, monthlyMode, nthWeek, nthWeekday } = req.body;
 
   if (!name || !jobId || !type) {
@@ -187,7 +186,7 @@ router.post("/schedules", async (req, res) => {
 });
 
 router.put("/schedules/:id", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
   const {
     name,
@@ -322,7 +321,7 @@ router.put("/schedules/:id", async (req, res) => {
 });
 
 router.delete("/schedules/:id", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid schedule id" }); return; }
   await db.delete(schedulesTable).where(eq(schedulesTable.id, id));

@@ -66,3 +66,20 @@ export function requireAdmin(user: User): void {
     throw err;
   }
 }
+
+// Convenience: 401 if not signed in, 403 if not admin. Returns the user record
+// so callers can keep using it without a second DB lookup. Use at the top of
+// any state-changing endpoint that should be admin-only (router/group/schedule
+// CRUD, etc.). Operators authenticated as `operator` role get 403 — they can
+// still GET those collections (read-only) but cannot mutate them.
+export async function requireAdminAuth(req: Request): Promise<User> {
+  requireAuth(req);
+  const user = await getCurrentUser(req);
+  if (!user) {
+    const err: any = new Error("Unauthorized");
+    err.status = 401;
+    throw err;
+  }
+  requireAdmin(user);
+  return user;
+}

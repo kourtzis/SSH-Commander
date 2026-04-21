@@ -1686,6 +1686,12 @@ export async function executeSSH(
 // ─── Tag Substitution ───────────────────────────────────────────────
 // Replace {{TAG_NAME}} placeholders in a script with values from an Excel/CSV row.
 // Whitespace inside braces is tolerated: {{ TAG }} works the same as {{TAG}}.
+//
+// Substituted values are sanitized: control bytes (0x00–0x1F except newline,
+// plus 0x7F) are stripped, and any embedded \r is dropped. Without this a
+// hostile or accidentally-malformed CSV cell could inject extra script
+// lines into the SSH wire ("foo\nremove all\n" would substitute as two
+// commands), or wedge legacy CLIs with control bytes.
 export function applyTagSubstitution(
   script: string,
   row: Record<string, string>
@@ -1693,9 +1699,22 @@ export function applyTagSubstitution(
   let result = script;
   for (const [key, value] of Object.entries(row)) {
     const tag = new RegExp(`\\{\\{\\s*${escapeRegex(key)}\\s*\\}\\}`, "g");
-    result = result.replace(tag, value);
+    result = result.replace(tag, sanitizeTagValue(value));
   }
   return result;
+}
+
+// Strip control bytes from a tag substitution value. Newline (\n / 0x0A) is
+// the only allowed C0 control character — operators legitimately use
+// multi-line values for things like banner text. Carriage return is
+// dropped (we re-emit with \n line endings via the SSH stream wrapper).
+function sanitizeTagValue(value: string): string {
+  if (value == null) return "";
+  // \x00-\x09  → drop  (NUL, BEL, BS, HT, etc.)
+  // \x0A       → keep  (LF)
+  // \x0B-\x1F  → drop  (VT, FF, CR, SI, etc.)
+  // \x7F       → drop  (DEL)
+  return String(value).replace(/[\x00-\x09\x0B-\x1F\x7F]/g, "");
 }
 
 // Escape special regex characters in a string so it can be used in new RegExp()

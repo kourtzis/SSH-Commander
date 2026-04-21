@@ -183,6 +183,14 @@ if (process.env.DATABASE_URL) {
   } catch (err) {
     console.warn("Failed to initialize PostgreSQL session store, using memory store:", err);
   }
+} else if (isProd) {
+  // In production a missing DATABASE_URL would silently fall through to
+  // express-session's MemoryStore, which is single-process and wiped on
+  // every restart. That breaks login for multi-replica deployments and
+  // for any container that ever restarts. Refuse to start instead.
+  throw new Error(
+    "DATABASE_URL is required in production (memory session store is unsafe — sessions would be wiped on every restart and would not be shared across replicas).",
+  );
 } else {
   console.warn("[app] No DATABASE_URL — falling back to in-memory session store. Sessions will be wiped on server restart.");
 }

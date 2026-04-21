@@ -20,11 +20,74 @@ import {
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { CreateJobBody } from "@workspace/api-zod";
 import { getCurrentUser, requireAuth } from "../lib/auth.js";
+import type { Request } from "express";
+import type { User } from "@workspace/db";
 import { executeSSH, applyTagSubstitution } from "../lib/ssh.js";
 import { resolveEffectiveCreds } from "../lib/effective-creds.js";
 import { interactiveSessions, type LiveEvent } from "../lib/interactive-session.js";
 import { stuckPrompts } from "../lib/stuck-prompts.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "../lib/resolve-routers.js";
+
+// Authorization helper for /jobs/:id-style endpoints. Admins can access any
+// job; non-admin (operator) accounts can only access jobs they created.
+// Without this, a signed-in operator could read or mutate another operator's
+// job by guessing/iterating ids: the per-job endpoints (GET /jobs/:id,
+// /jobs/:id/live, /jobs/:id/export, PUT, DELETE, /rerun, /cancel,
+// /respond, parked-task input/abort) would otherwise only check that the
+// caller is logged in. Returns the resolved user and the row's createdBy
+// so callers don't need to re-fetch.
+async function requireJobAccess(req: Request, jobId: number): Promise<{ user: User; createdBy: number | null }> {
+  requireAuth(req);
+  const user = await getCurrentUser(req);
+  if (!user) {
+    const err: any = new Error("Unauthorized");
+    err.status = 401;
+    throw err;
+  }
+  if (Number.isNaN(jobId)) {
+    const err: any = new Error("Invalid job id");
+    err.status = 400;
+    throw err;
+  }
+  const [job] = await db
+    .select({ createdBy: batchJobsTable.createdBy })
+    .from(batchJobsTable)
+    .where(eq(batchJobsTable.id, jobId))
+    .limit(1);
+  if (!job) {
+    const err: any = new Error("Job not found");
+    err.status = 404;
+    throw err;
+  }
+  if (user.role !== "admin" && job.createdBy !== user.id) {
+    // Use 404 instead of 403 to avoid leaking job-id existence to operators.
+    const err: any = new Error("Job not found");
+    err.status = 404;
+    throw err;
+  }
+  return { user, createdBy: job.createdBy };
+}
+
+// Same idea for endpoints scoped to a (jobId, taskId) pair.
+async function requireTaskAccess(req: Request, jobId: number, taskId: number): Promise<{ user: User }> {
+  const { user } = await requireJobAccess(req, jobId);
+  if (Number.isNaN(taskId)) {
+    const err: any = new Error("Invalid task id");
+    err.status = 400;
+    throw err;
+  }
+  const [task] = await db
+    .select({ id: jobTasksTable.id })
+    .from(jobTasksTable)
+    .where(and(eq(jobTasksTable.id, taskId), eq(jobTasksTable.jobId, jobId)))
+    .limit(1);
+  if (!task) {
+    const err: any = new Error("Task not found");
+    err.status = 404;
+    throw err;
+  }
+  return { user };
+}
 
 const router: IRouter = Router();
 
@@ -41,13 +104,21 @@ router.post("/jobs/resolve-count", async (req, res) => {
   res.json({ count: allRouterIds.length });
 });
 
-// GET /jobs — List all jobs (most recent last)
+// GET /jobs — List jobs (most recent last).
+// Scope: admins see every job; non-admin (operator) accounts only see jobs
+// they themselves created. This prevents one operator from peeking at
+// another operator's batch output (which can include device names,
+// router IPs, and command output that may contain sensitive config).
 router.get("/jobs", async (req, res) => {
   requireAuth(req);
-  const jobs = await db
-    .select()
-    .from(batchJobsTable)
-    .orderBy(batchJobsTable.createdAt);
+  const user = await getCurrentUser(req);
+  const isAdmin = user?.role === "admin";
+  const baseQuery = db.select().from(batchJobsTable);
+  const jobs = isAdmin
+    ? await baseQuery.orderBy(batchJobsTable.createdAt)
+    : await baseQuery
+        .where(eq(batchJobsTable.createdBy, user!.id))
+        .orderBy(batchJobsTable.createdAt);
   res.json(
     jobs.map((j) => ({
       ...j,
@@ -119,43 +190,48 @@ router.post("/jobs", async (req, res) => {
   const routerMap = new Map(routersUnordered.map(r => [r.id, r]));
   const routers = allRouterIds.map(id => routerMap.get(id)!).filter(Boolean);
 
-  // Create the parent job record
-  const [job] = await db
-    .insert(batchJobsTable)
-    .values({
-      name,
-      scriptCode,
-      status: "pending",
-      targetRouterIds: targetRouterIds ?? [],
-      targetGroupIds: targetGroupIds ?? [],
-      excelData: excelData as any,
-      autoConfirm: autoConfirm ?? true,
-      timeoutSeconds: timeoutSeconds ?? 30,
-      retryCount: retryCount ?? 0,
-      retryBackoffSeconds: retryBackoffSeconds ?? 5,
-      totalTasks: routers.length,
-      completedTasks: 0,
-      failedTasks: 0,
-      createdBy: user!.id,
-    })
-    .returning();
+  // Wrap the three writes (parent job insert, per-router task inserts,
+  // status flip to "running") in a transaction so a partial failure
+  // can't leave behind a job row with no tasks (which would deadlock the
+  // UI: "0/0 tasks", never completes) or tasks with no parent.
+  const { job, insertedTasks } = await db.transaction(async (tx) => {
+    const [job] = await tx
+      .insert(batchJobsTable)
+      .values({
+        name,
+        scriptCode,
+        status: "pending",
+        targetRouterIds: targetRouterIds ?? [],
+        targetGroupIds: targetGroupIds ?? [],
+        excelData: excelData as any,
+        autoConfirm: autoConfirm ?? true,
+        timeoutSeconds: timeoutSeconds ?? 30,
+        retryCount: retryCount ?? 0,
+        retryBackoffSeconds: retryBackoffSeconds ?? 5,
+        totalTasks: routers.length,
+        completedTasks: 0,
+        failedTasks: 0,
+        createdBy: user!.id,
+      })
+      .returning();
 
-  // Create one pending task per router
-  const tasks = routers.map((r) => ({
-    jobId: job.id,
-    routerId: r.id,
-    routerName: r.name,
-    routerIp: r.ipAddress,
-    status: "pending" as const,
-  }));
+    const tasks = routers.map((r) => ({
+      jobId: job.id,
+      routerId: r.id,
+      routerName: r.name,
+      routerIp: r.ipAddress,
+      status: "pending" as const,
+    }));
 
-  const insertedTasks = await db.insert(jobTasksTable).values(tasks).returning();
+    const insertedTasks = await tx.insert(jobTasksTable).values(tasks).returning();
 
-  // Transition job to "running"
-  await db
-    .update(batchJobsTable)
-    .set({ status: "running" })
-    .where(eq(batchJobsTable.id, job.id));
+    await tx
+      .update(batchJobsTable)
+      .set({ status: "running" })
+      .where(eq(batchJobsTable.id, job.id));
+
+    return { job, insertedTasks };
+  });
 
   // Choose execution mode based on autoConfirm setting
   const useInteractive = !(autoConfirm ?? true);
@@ -356,9 +432,8 @@ async function runJobInBackground(
 // Internal consumers that DO need the full output (export endpoint, rerun)
 // query `jobTasksTable` directly and aren't affected.
 router.get("/jobs/:id", async (req, res) => {
-  requireAuth(req);
   const id = parseInt(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid job id" }); return; }
+  await requireJobAccess(req, id);
 
   const [job] = await db
     .select()
@@ -415,10 +490,9 @@ router.get("/jobs/:id", async (req, res) => {
 // (output + connectionLog) on demand. Used by the detail page when the
 // user expands a task row in lite mode.
 router.get("/jobs/:jobId/tasks/:taskId", async (req, res) => {
-  requireAuth(req);
   const jobId = parseInt(req.params.jobId);
   const taskId = parseInt(req.params.taskId);
-  if (isNaN(jobId) || isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await requireTaskAccess(req, jobId, taskId);
   const [task] = await db
     .select()
     .from(jobTasksTable)
@@ -433,8 +507,8 @@ router.get("/jobs/:jobId/tasks/:taskId", async (req, res) => {
 // Subscribes to the interactive session's event emitter and streams
 // task_status, task_output, input_required, and job_complete events.
 router.get("/jobs/:id/live", async (req, res) => {
-  requireAuth(req);
   const id = parseInt(req.params.id);
+  await requireJobAccess(req, id);
 
   // Set up SSE headers
   res.writeHead(200, {
@@ -492,12 +566,8 @@ router.get("/jobs/:id/live", async (req, res) => {
 // POST /jobs/:id/respond — Forward user input to waiting interactive SSH sessions.
 // Used when a prompt is detected and the UI collects the user's response.
 router.post("/jobs/:id/respond", async (req, res) => {
-  requireAuth(req);
   const id = parseInt(req.params.id);
-  if (isNaN(id)) {
-    res.status(400).json({ error: "Invalid job ID" });
-    return;
-  }
+  await requireJobAccess(req, id);
   const { taskIds, input } = req.body ?? {};
 
   // Validate: taskIds must be an array of integers, input must be a string
@@ -518,8 +588,8 @@ router.post("/jobs/:id/respond", async (req, res) => {
 
 // PUT /jobs/:id — Edit a scheduled (template) job. Only jobs with status="scheduled" can be edited.
 router.put("/jobs/:id", async (req, res) => {
-  requireAuth(req);
   const id = parseInt(req.params.id);
+  await requireJobAccess(req, id);
   const [job] = await db
     .select()
     .from(batchJobsTable)
@@ -562,8 +632,8 @@ router.put("/jobs/:id", async (req, res) => {
 // non-existent job. The response includes deletedSchedules so the UI can show
 // a confirmation toast.
 router.delete("/jobs/:id", async (req, res) => {
-  requireAuth(req);
   const id = parseInt(req.params.id);
+  await requireJobAccess(req, id);
   const [job] = await db
     .select()
     .from(batchJobsTable)
@@ -573,23 +643,27 @@ router.delete("/jobs/:id", async (req, res) => {
     res.status(404).json({ error: "Job not found" });
     return;
   }
-  // Cascade: remove any schedules that reference this job
-  const removedSchedules = await db
-    .delete(schedulesTable)
-    .where(eq(schedulesTable.jobId, id))
-    .returning({ id: schedulesTable.id });
-  // Delete tasks first (child records), then the parent job
-  await db.delete(jobTasksTable).where(eq(jobTasksTable.jobId, id));
-  await db.delete(batchJobsTable).where(eq(batchJobsTable.id, id));
+  // Cascade: remove any schedules + tasks atomically with the parent
+  // job so a partial failure can't leave orphan child rows pointing at
+  // a deleted job_id (UI would show empty rows; scheduler tick would
+  // explode trying to clone a missing template).
+  const removedSchedules = await db.transaction(async (tx) => {
+    const removed = await tx
+      .delete(schedulesTable)
+      .where(eq(schedulesTable.jobId, id))
+      .returning({ id: schedulesTable.id });
+    await tx.delete(jobTasksTable).where(eq(jobTasksTable.jobId, id));
+    await tx.delete(batchJobsTable).where(eq(batchJobsTable.id, id));
+    return removed;
+  });
   res.json({ message: "Job deleted", deletedSchedules: removedSchedules.length });
 });
 
 // POST /jobs/:id/rerun — Clone a completed/failed job and re-execute it.
 // Creates a new job with fresh tasks using the same script, targets, and Excel data.
 router.post("/jobs/:id/rerun", async (req, res) => {
-  requireAuth(req);
-  const user = await getCurrentUser(req);
   const id = parseInt(req.params.id);
+  const { user } = await requireJobAccess(req, id);
 
   const [sourceJob] = await db
     .select()
@@ -691,8 +765,8 @@ router.post("/jobs/:id/rerun", async (req, res) => {
 // POST /jobs/:id/cancel — Cancel a running or interactive job.
 // Cleans up any active SSH sessions and marks the job as cancelled.
 router.post("/jobs/:id/cancel", async (req, res) => {
-  requireAuth(req);
   const id = parseInt(req.params.id);
+  await requireJobAccess(req, id);
 
   // Clean up interactive sessions (closes SSH connections, fails pending tasks)
   await interactiveSessions.cleanupJob(id);
@@ -716,22 +790,39 @@ router.post("/jobs/:id/cancel", async (req, res) => {
 // any other /tasks/* below.
 router.get("/tasks/parked", async (req, res) => {
   requireAuth(req);
-  res.json(stuckPrompts.list());
+  const user = await getCurrentUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const parked = stuckPrompts.list();
+  // Admins see every parked task; operators only see tasks belonging to
+  // jobs they created. Without this filter the sidebar amber badge and
+  // the global parked-tasks list would leak the existence of other
+  // operators' parked jobs.
+  if (user.role === "admin" || parked.length === 0) {
+    res.json(parked);
+    return;
+  }
+  const jobIds = [...new Set(parked.map((p: any) => p.jobId).filter(Number.isInteger))];
+  if (jobIds.length === 0) { res.json([]); return; }
+  const jobs = await db
+    .select({ id: batchJobsTable.id, createdBy: batchJobsTable.createdBy })
+    .from(batchJobsTable)
+    .where(inArray(batchJobsTable.id, jobIds));
+  const ownedJobIds = new Set(jobs.filter((j) => j.createdBy === user.id).map((j) => j.id));
+  res.json(parked.filter((p: any) => ownedJobIds.has(p.jobId)));
 });
 
 // GET /jobs/:id/parked-tasks — per-job list, polled by job detail page.
 router.get("/jobs/:id/parked-tasks", async (req, res) => {
-  requireAuth(req);
   const id = parseInt(req.params.id);
-  if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid job id" }); return; }
+  await requireJobAccess(req, id);
   res.json(stuckPrompts.listByJob(id));
 });
 
 // POST /jobs/:jobId/tasks/:taskId/provide-input — operator answer.
 router.post("/jobs/:jobId/tasks/:taskId/provide-input", async (req, res) => {
-  requireAuth(req);
+  const jobId = parseInt(req.params.jobId);
   const taskId = parseInt(req.params.taskId);
-  if (Number.isNaN(taskId)) { res.status(400).json({ error: "Invalid task id" }); return; }
+  await requireTaskAccess(req, jobId, taskId);
   const input = typeof req.body?.input === "string" ? req.body.input : "";
   if (input.length > 4096) { res.status(400).json({ error: "Input too long (max 4096 chars)" }); return; }
   if (!stuckPrompts.has(taskId)) { res.status(404).json({ error: "Task is not parked" }); return; }
@@ -749,9 +840,9 @@ router.post("/jobs/:jobId/tasks/:taskId/provide-input", async (req, res) => {
 
 // POST /jobs/:jobId/tasks/:taskId/abort — operator-initiated abort.
 router.post("/jobs/:jobId/tasks/:taskId/abort", async (req, res) => {
-  requireAuth(req);
+  const jobId = parseInt(req.params.jobId);
   const taskId = parseInt(req.params.taskId);
-  if (Number.isNaN(taskId)) { res.status(400).json({ error: "Invalid task id" }); return; }
+  await requireTaskAccess(req, jobId, taskId);
   const reason = typeof req.body?.reason === "string" && req.body.reason.trim()
     ? req.body.reason.trim().slice(0, 200)
     : "Aborted by operator";
@@ -820,8 +911,8 @@ function csvField(s: string | null | undefined): string {
 }
 
 router.get("/jobs/:id/export", async (req, res) => {
-  requireAuth(req);
   const id = parseInt(req.params.id);
+  await requireJobAccess(req, id);
   const format = String(req.query.format || "").toLowerCase();
   if (!["csv", "txt", "zip"].includes(format)) {
     res.status(400).json({ error: "format must be one of csv, txt, zip" });

@@ -4,7 +4,7 @@
 // against all resolved routers (same execution logic as manual job runs).
 
 import { db, schedulesTable, batchJobsTable, jobTasksTable, routersTable } from "@workspace/db";
-import { eq, lte, and, inArray } from "drizzle-orm";
+import { eq, lte, and, inArray, sql } from "drizzle-orm";
 import { executeSSH, applyTagSubstitution, detectFailureSignals } from "./ssh.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "./resolve-routers.js";
 import { resolveEffectiveCreds } from "./effective-creds.js";
@@ -408,14 +408,64 @@ async function tick() {
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let tickInFlight = false;  // Prevents overlapping ticks if a run takes longer than 30s
 
+// Postgres advisory-lock key for the scheduler tick. A 32-bit integer is
+// fine; the value itself is arbitrary as long as no other process in the
+// same database uses it for a different purpose. 0x55h is "U" (for "Update
+// schedules") — picked just to be visibly meaningful in pg_locks output.
+const SCHEDULER_LOCK_KEY = 0x55_43_4d_44; // "UCMD"
+
 async function safeTick() {
+  // In-process guard: skip if a previous tick is still running on THIS
+  // instance. Cheap and short-circuits before we touch the DB.
   if (tickInFlight) {
     console.log("[Scheduler] Skipping tick (previous still running)");
     return;
   }
   tickInFlight = true;
   try {
-    await tick();
+    // Cross-instance guard: when SSH Commander is run with multiple API
+    // server replicas (HA / rolling deploy), without this every replica
+    // would race on the same due schedules and clone the template job
+    // N times.
+    //
+    // We use the *transaction*-scoped variant `pg_try_advisory_xact_lock`
+    // wrapped in a drizzle transaction so the lock is acquired and
+    // released on the SAME pooled backend (a transaction pins one
+    // connection for its lifetime) and is auto-released by Postgres
+    // when the transaction commits or rolls back. The session-scoped
+    // variant + a separate `pg_advisory_unlock` would be unsafe under
+    // pooling: the unlock could land on a different backend and silently
+    // do nothing, leaking the lock for the entire pool conn's lifetime.
+    //
+    // We deliberately do NOT route the actual tick() work through `tx`:
+    // tick() itself does many independent reads/updates that are fine on
+    // the regular pool, and pinning all of them to one connection for
+    // the full duration of a tick would starve the pool on busy fleets.
+    // The lock is purely a coordination primitive, not a data fence.
+    let locked = false;
+    try {
+      await db.transaction(async (tx) => {
+        const lockResult = await tx.execute<{ locked: boolean }>(
+          sql`select pg_try_advisory_xact_lock(${SCHEDULER_LOCK_KEY}) as locked`,
+        );
+        const lockedRow = (lockResult as any).rows?.[0]
+          ?? (Array.isArray(lockResult) ? (lockResult as any)[0] : undefined);
+        locked = lockedRow?.locked === true;
+        if (!locked) {
+          // Release the pooled tx conn immediately; another replica is ticking.
+          return;
+        }
+        // Run the tick INSIDE the transaction so the xact lock stays
+        // held for tick's full duration. Postgres releases it on commit.
+        await tick();
+      });
+    } catch (err) {
+      console.error("[Scheduler] tick failed:", err);
+      return;
+    }
+    if (!locked) {
+      console.log("[Scheduler] Skipping tick (advisory lock held by another instance)");
+    }
   } finally {
     tickInFlight = false;
   }

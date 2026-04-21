@@ -66,9 +66,29 @@ router.post("/auth/login", async (req, res) => {
   });
 });
 
-// POST /auth/logout — Destroy the session and clear the cookie
+// POST /auth/logout — Destroy the session AND clear the cookie.
+// Without the explicit clearCookie, destroy() only wipes the row from the
+// session store — the browser still holds the original session id cookie
+// and would happily re-attach it to the next request, where the store
+// would generate a brand-new empty session and silently re-issue the same
+// id. clearCookie sends Set-Cookie with Max-Age=0 so the browser drops it
+// immediately. Cookie attributes (path/sameSite/secure) MUST match the
+// attributes express-session set when issuing the cookie or the browser
+// ignores the clear request — so we mirror the exact same `cookieSecure`
+// resolution app.ts uses (env override → default to NODE_ENV==="production").
+const cookieSecureEnvLogout = process.env.COOKIE_SECURE?.toLowerCase();
+const cookieSecureForLogout = cookieSecureEnvLogout === "true" ? true
+  : cookieSecureEnvLogout === "false" ? false
+  : process.env.NODE_ENV === "production";
+
 router.post("/auth/logout", (req, res) => {
   req.session.destroy(() => {
+    res.clearCookie("connect.sid", {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: cookieSecureForLogout,
+    });
     res.json({ message: "Logged out" });
   });
 });

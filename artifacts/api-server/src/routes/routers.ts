@@ -6,7 +6,7 @@ import { Router, type IRouter } from "express";
 import { db, routersTable, deviceReachabilityTable } from "@workspace/db";
 import { eq, inArray, and, gte, sql } from "drizzle-orm";
 import { CreateRouterBody, UpdateRouterBody } from "@workspace/api-zod";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireAdminAuth } from "../lib/auth.js";
 import { executeSSH } from "../lib/ssh.js";
 import { resolveEffectiveCreds } from "../lib/effective-creds.js";
 import * as net from "net";
@@ -70,9 +70,9 @@ router.get("/routers", async (req, res) => {
   })));
 });
 
-// POST /routers — Create a single router
+// POST /routers — Create a single router (admin only — operators get 403)
 router.post("/routers", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const parsed = CreateRouterBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid request body" });
@@ -119,7 +119,7 @@ router.get("/routers/:id", async (req, res, next) => {
 
 // PUT /routers/:id — Update router fields (partial update — only provided fields are changed)
 router.put("/routers/:id", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
   const parsed = UpdateRouterBody.safeParse(req.body);
   if (!parsed.success) {
@@ -152,7 +152,7 @@ router.put("/routers/:id", async (req, res) => {
 
 // DELETE /routers/:id — Remove a router
 router.delete("/routers/:id", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid router id" }); return; }
   await db.delete(routersTable).where(eq(routersTable.id, id));
@@ -163,7 +163,7 @@ router.delete("/routers/:id", async (req, res) => {
 // Attempts a single batch insert first; if that fails (e.g. duplicate name),
 // falls back to inserting one-by-one so partial success is possible.
 router.post("/routers/import", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const { routers: items } = req.body as { routers: any[] };
   if (!Array.isArray(items) || items.length === 0) {
     res.status(400).json({ error: "No routers provided" });
@@ -568,8 +568,12 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
   return { success: false, errorMessage: lastErr || "no probe matched" };
 }
 
+// Admin-only: fingerprint persists vendor/osVersion/model/lastFingerprintAt
+// on the router row, which is a write to the device fleet. Operators can
+// still see fingerprint data in the device list; they just can't trigger
+// a refresh that mutates it.
 router.post("/routers/:id/fingerprint", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid router ID" }); return; }
   try {
@@ -586,7 +590,7 @@ router.post("/routers/:id/fingerprint", async (req, res) => {
 });
 
 router.post("/routers/fingerprint-all", async (req, res) => {
-  requireAuth(req);
+  await requireAdminAuth(req);
   const all = await db.select({ id: routersTable.id }).from(routersTable);
   let successCount = 0, failedCount = 0;
   // Bounded concurrency — fingerprinting is SSH-bound and we don't want to

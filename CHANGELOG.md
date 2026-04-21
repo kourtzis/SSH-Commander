@@ -12,6 +12,34 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.11.0] - 2026-04-21
+
+### Security
+- **Operator accounts can no longer mutate the device fleet.** The write endpoints on routers, groups, and schedules (POST/PUT/DELETE, plus router import, group member add/remove, and per-device + bulk fingerprint refresh — both of which persist `vendor/osVersion/model/lastFingerprintAt`) now require admin role — operators get 403. Previously any signed-in user could add, edit, or delete any device, group, schedule, or fingerprint row. Read access is unchanged: operators still see the lists and can run jobs against existing devices.
+- **Per-job authorization (IDOR fix).** Every `/jobs/:id*` endpoint — `GET /jobs/:id`, `/jobs/:jobId/tasks/:taskId`, `/jobs/:id/live` (SSE), `/jobs/:id/export`, `/jobs/:id/parked-tasks`, `PUT`, `DELETE`, `/rerun`, `/cancel`, `/respond`, parked-task `provide-input` and `abort`, and the global `GET /tasks/parked` — now enforces "admin OR you created the job". Previously these only checked `requireAuth`, so any signed-in operator could read or mutate another operator's job (and its connection logs / device output / sensitive command results) by guessing the id. Operators get a 404 (not 403) on someone else's job to avoid leaking job-id existence. The list-scope fix on `GET /jobs` is the same change.
+- **CSV/Excel tag substitution strips control bytes.** `applyTagSubstitution` now strips `\x00`–`\x1F` (except newline) and `\x7F` from substituted values, so a hostile or malformed cell can't smuggle ESC sequences, NUL bytes, or other C0 control characters onto the SSH wire and wedge legacy CLIs. Newline (`\n`) is deliberately preserved because operators legitimately substitute multi-line values (banner text, multi-step config blocks).
+- **Logout actually clears the session cookie.** `POST /auth/logout` was destroying the server-side session row but leaving the `connect.sid` cookie on the browser, which would then re-attach to the next request and silently issue a new empty session under the same id. The endpoint now sends `Set-Cookie` with `Max-Age=0` (and matching `path/httpOnly/sameSite/secure` attributes) so the browser drops the cookie immediately.
+
+### Fixed
+- **Multi-instance scheduler safety.** The 30-second tick is now wrapped in a Postgres *transaction-scoped* advisory lock (`pg_try_advisory_xact_lock`, run inside a drizzle transaction). On single-instance deployments this is a no-op (the lock is always free). On HA / rolling-deploy setups where two API replicas were briefly running together, both schedulers were racing on the same due schedules and cloning every template job N times. Only one replica's tick runs per round; the other(s) skip cleanly. The xact-scoped variant (vs. session-scoped) auto-releases on commit on the same pooled connection, so we can't leak the lock when pooled connections rotate.
+- **Atomic job and group deletes.** Three multi-step writes that could leave orphan rows on partial failure are now wrapped in transactions: `POST /jobs` (parent job + per-device tasks + status flip), `DELETE /jobs/:id` (schedules + tasks + parent), and `DELETE /groups/:id` (router members + parent links + child links + group). Previously, a mid-cascade failure could deadlock the UI showing 0/0 tasks forever or leave orphan join-table rows pointing at deleted ids.
+- **Production startup refuses memory-store sessions.** `app.ts` used to fall back to express-session's in-process `MemoryStore` with a warning when `DATABASE_URL` was missing. In production this silently breaks login on every container restart and on every multi-replica deployment (the store isn't shared across processes). It's now a hard error: the server refuses to start in production without a session store.
+
+### Internal
+- Added a `requireAdminAuth(req)` helper in `lib/auth.ts` that combines `requireAuth` + `getCurrentUser` + `requireAdmin` into one call and returns the resolved user. The eleven mutation endpoints touched in this release use this consistently instead of repeating the three-line pattern.
+
+### Future work (deliberately deferred)
+These items came out of the same audit but were skipped from 1.11.0 because they require destructive schema migrations, coordinated FE rewrites, or new schema columns:
+- Pagination (`?limit=&offset=`) on `GET /routers`, `GET /jobs`, and `GET /groups`. Large fleets currently round-trip every row on every list refresh.
+- `timestamp` → `timestamptz` schema migration. All time columns currently store naïve local time; cross-timezone deployments can show drift.
+- Foreign-key cascade indexes on `job_tasks.job_id`, `schedules.job_id`, `group_routers.group_id`, etc.
+- Per-credential-profile SSH algorithm split. Today every connection uses the same expanded legacy-friendly algorithm list.
+- Replace parked-task polling (sidebar amber badge) with an SSE channel.
+- Frontend `EventSource` cleanup on the job-detail page when the tab loses visibility.
+- `admin/terminals.tsx` `AbortController` cancellation of in-flight 5s refresh fetches on unmount.
+
+---
+
 ## [1.10.1] - 2026-04-21
 
 ### Internal
