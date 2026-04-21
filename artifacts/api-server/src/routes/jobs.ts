@@ -23,6 +23,7 @@ import { getCurrentUser, requireAuth } from "../lib/auth.js";
 import { executeSSH, applyTagSubstitution } from "../lib/ssh.js";
 import { resolveEffectiveCreds } from "../lib/effective-creds.js";
 import { interactiveSessions, type LiveEvent } from "../lib/interactive-session.js";
+import { stuckPrompts } from "../lib/stuck-prompts.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "../lib/resolve-routers.js";
 
 const router: IRouter = Router();
@@ -286,6 +287,18 @@ async function runJobInBackground(
           retryCount: reliability.retryCount,
           retryBackoffSeconds: reliability.retryBackoffSeconds,
           hostKeyTrust: { routerId: r.id, expectedFingerprint: r.sshHostKeyFingerprint ?? null },
+          // Mirror scheduler.ts wiring — see comment there. Only auto-confirm
+          // runs park; the interactive (autoConfirm=false) path uses the
+          // separate interactive-session.ts flow.
+          taskContext: autoConfirm
+            ? { taskId: taskId!, jobId, routerId: r.id, routerName: r.name, routerIp: r.ipAddress }
+            : undefined,
+          onPark: async ({ taskId: tid, promptText }) => {
+            await db.update(jobTasksTable).set({
+              status: "waiting_input",
+              promptText,
+            }).where(eq(jobTasksTable.id, tid));
+          },
         },
       );
 
@@ -689,6 +702,65 @@ router.post("/jobs/:id/cancel", async (req, res) => {
     .set({ status: "cancelled", completedAt: new Date() })
     .where(eq(batchJobsTable.id, id));
   res.json({ message: "Job cancelled" });
+});
+
+// ─── Parked-task endpoints (auto-confirm "needs attention" mid-session) ──
+// When the auto-confirm SSH path hits an unrecognised prompt it parks
+// the live session in `stuckPrompts` and flips the task to
+// `waiting_input`. These endpoints let the operator see what the device
+// is asking and either submit input or abort the run.
+
+// GET /tasks/parked — global list (sidebar badge / dashboard).
+// MUST be defined before /jobs/:id/parked-tasks so Express doesn't
+// match "tasks" as the :id parameter on a sibling route — and before
+// any other /tasks/* below.
+router.get("/tasks/parked", async (req, res) => {
+  requireAuth(req);
+  res.json(stuckPrompts.list());
+});
+
+// GET /jobs/:id/parked-tasks — per-job list, polled by job detail page.
+router.get("/jobs/:id/parked-tasks", async (req, res) => {
+  requireAuth(req);
+  const id = parseInt(req.params.id);
+  if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid job id" }); return; }
+  res.json(stuckPrompts.listByJob(id));
+});
+
+// POST /jobs/:jobId/tasks/:taskId/provide-input — operator answer.
+router.post("/jobs/:jobId/tasks/:taskId/provide-input", async (req, res) => {
+  requireAuth(req);
+  const taskId = parseInt(req.params.taskId);
+  if (Number.isNaN(taskId)) { res.status(400).json({ error: "Invalid task id" }); return; }
+  const input = typeof req.body?.input === "string" ? req.body.input : "";
+  if (input.length > 4096) { res.status(400).json({ error: "Input too long (max 4096 chars)" }); return; }
+  if (!stuckPrompts.has(taskId)) { res.status(404).json({ error: "Task is not parked" }); return; }
+
+  // Flip the row back to running before we let the SSH idle loop continue.
+  await db.update(jobTasksTable).set({
+    status: "running",
+    promptText: null,
+  }).where(eq(jobTasksTable.id, taskId));
+
+  const ok = stuckPrompts.provideInput(taskId, input);
+  if (!ok) { res.status(500).json({ error: "Failed to write input to session" }); return; }
+  res.json({ message: "Input submitted" });
+});
+
+// POST /jobs/:jobId/tasks/:taskId/abort — operator-initiated abort.
+router.post("/jobs/:jobId/tasks/:taskId/abort", async (req, res) => {
+  requireAuth(req);
+  const taskId = parseInt(req.params.taskId);
+  if (Number.isNaN(taskId)) { res.status(400).json({ error: "Invalid task id" }); return; }
+  const reason = typeof req.body?.reason === "string" && req.body.reason.trim()
+    ? req.body.reason.trim().slice(0, 200)
+    : "Aborted by operator";
+  if (!stuckPrompts.has(taskId)) { res.status(404).json({ error: "Task is not parked" }); return; }
+  // The SSH stream's close handler will mark the row failed (aborted=true
+  // path resolves the executeSSH promise as failed, scheduler/jobs.ts
+  // then writes status=failed in its own update). We just kick it.
+  stuckPrompts.abort(taskId, reason);
+  res.json({ message: "Abort requested" });
 });
 
 // ─── Dry-run / preview ───────────────────────────────────────────────

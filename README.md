@@ -45,7 +45,8 @@ Build and maintain a reusable library of RouterOS scripts:
 
 ### Batch SSH Job Execution
 The core of SSH Commander — run scripts across dozens or hundreds of routers in a single operation:
-- **Concurrent execution** — up to 10 SSH sessions run in parallel for dramatically faster batch jobs on large device sets
+- **Concurrent execution** — up to 20 SSH sessions run in parallel for dramatically faster batch jobs on large device sets
+- **"Needs Attention" mid-session** — when the auto-confirm shell encounters a prompt it doesn't recognise, the SSH session is parked instead of being closed on idle. The task flips to a `waiting_input` state, an amber panel appears on the job detail page with the captured prompt and per-device **Submit** / **Abort** controls, and the web UI plays a short attention beep. Operators can answer the prompt to let the run continue, or abort to mark the task failed. A 30-minute hard ceiling auto-aborts forgotten parked sessions. The sidebar shows a global parked-tasks badge so the cue is visible from any page.
 - **Target selection** — pick individual routers and/or entire groups; drag to reorder the execution sequence
 - **Modular script composition** — assemble the job's script from an arbitrary number of building blocks (snippet references and/or custom code); blocks can be inserted at any position, removed, and reordered via drag-and-drop with a visible dot-grid drag handle on each block
 - **Final script preview** — a collapsible "Final Script Preview" panel lets you review the fully combined script before executing

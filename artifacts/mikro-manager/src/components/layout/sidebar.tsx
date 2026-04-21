@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/auth-context";
+import { playAttentionSound } from "@/lib/attention-sound";
 import {
   LayoutDashboard,
   Server,
@@ -50,6 +52,29 @@ export function AppSidebar() {
   }, [mobileOpen]);
 
   const { theme, toggle: toggleTheme } = useTheme();
+
+  // Global parked-tasks badge. Polled every 10s; the API endpoint is in
+  // memory and effectively free to query. Plays a beep on the rising
+  // edge so an operator working in another tab gets pulled back here.
+  const baseUrl = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  const lastParkedRef = useRef(0);
+  const { data: parkedAll = [] } = useQuery({
+    queryKey: ["global-parked-tasks"],
+    queryFn: async () => {
+      const r = await fetch(`${baseUrl}/api/tasks/parked`, { credentials: "include" });
+      if (!r.ok) return [] as Array<{ taskId: number }>;
+      return r.json() as Promise<Array<{ taskId: number }>>;
+    },
+    enabled: !!user,
+    refetchInterval: 10_000,
+  });
+  useEffect(() => {
+    const prev = lastParkedRef.current;
+    const next = parkedAll.length;
+    if (next > prev) playAttentionSound();
+    lastParkedRef.current = next;
+  }, [parkedAll.length]);
+  const parkedCount = parkedAll.length;
   // Admins see "Credentials" inserted between Snippets and Batch Jobs (it
   // belongs with the other config-of-targets items), and "Users" appended
   // at the end of the nav.
@@ -105,7 +130,15 @@ export function AppSidebar() {
                   "w-5 h-5 transition-transform duration-200", 
                   isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground group-hover:scale-110"
                 )} />
-                {item.name}
+                <span className="flex-1">{item.name}</span>
+                {item.href === "/jobs" && parkedCount > 0 && (
+                  <span
+                    className="ml-auto inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-bold bg-amber-500 text-black animate-pulse"
+                    title={`${parkedCount} device${parkedCount !== 1 ? "s" : ""} waiting for input`}
+                  >
+                    {parkedCount}
+                  </span>
+                )}
               </div>
             </Link>
           );

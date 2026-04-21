@@ -1,5 +1,5 @@
-export const APP_VERSION = "1.8.29";  
-export const APP_VERSION_DATE = "2026-04-20";
+export const APP_VERSION = "1.9.0";
+export const APP_VERSION_DATE = "2026-04-21";
 
 
 export interface ChangelogSection {
@@ -14,6 +14,27 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.9.0",
+    date: "2026-04-21",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "\"Needs Attention\" mid-session for auto-confirm jobs. When the shell hits a prompt the auto-responder doesn't recognise, the SSH session is now parked instead of closed on idle. The task flips to waiting_input, timeouts are stood down (30-min ceiling), and the job page shows an amber panel with the prompt and per-device Submit / Abort controls.",
+          "Audio attention cue — short two-tone beep when a new device parks. Throttled to once every 2 seconds and only on the rising edge.",
+          "Sidebar parked-tasks badge: amber count next to Batch Jobs whenever any task is parked anywhere.",
+          "New endpoints: GET /api/tasks/parked, GET /api/jobs/:id/parked-tasks, POST /api/jobs/:jobId/tasks/:taskId/provide-input, POST .../abort.",
+        ],
+      },
+      {
+        title: "Improved",
+        items: [
+          "Destructive red lightened so failed badges and buttons are legible in dark mode. Text selection now uses explicit ::selection rules so highlighted text stays readable on every component.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.8.29",
     date: "2026-04-20",

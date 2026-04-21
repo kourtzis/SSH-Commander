@@ -18,6 +18,7 @@ import {
 import { formatDate } from "@/lib/utils";
 import { SnippetViewer } from "@/components/snippet-viewer";
 import { useToast } from "@/hooks/use-toast";
+import { playAttentionSound } from "@/lib/attention-sound";
 import { Download } from "lucide-react";
 import {
   DropdownMenu,
@@ -100,6 +101,14 @@ export default function JobDetail() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const responseInputRef = useRef<HTMLInputElement>(null);
 
+  // Auto-confirm parked tasks (mid-session "needs attention"). Distinct
+  // from `waitingDevices` above which is the SSE-driven interactive path.
+  // Polled every 3s while the job is running because the server-side
+  // parking lot is in-memory only — no SSE channel for auto-confirm.
+  const [parkedInputs, setParkedInputs] = useState<Record<number, string>>({});
+  const [parkedBusy, setParkedBusy] = useState<Record<number, boolean>>({});
+  const lastParkedCountRef = useRef(0);
+
   const { data: job, isLoading, refetch } = useGetJob(jobId, {
     query: {
       refetchInterval: (query) => {
@@ -136,6 +145,87 @@ export default function JobDetail() {
     enabled: !!expandedTask,
     refetchInterval: expandedTaskStatus === "running" ? 2000 : false,
   });
+
+  // Poll the parking lot while the job is running and uses auto-confirm.
+  // The interactive (autoConfirm=false) path uses SSE instead and never
+  // parks via this mechanism.
+  const { data: parkedTasks = [], refetch: refetchParked } = useQuery({
+    queryKey: ["job-parked-tasks", jobId],
+    queryFn: async () => {
+      const r = await fetch(`${baseUrl}/api/jobs/${jobId}/parked-tasks`, {
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json() as Promise<Array<{
+        taskId: number; jobId: number; routerId: number;
+        routerName: string; routerIp: string;
+        promptText: string; parkedAt: string; outputPreview: string;
+      }>>;
+    },
+    enabled: !!job && job.status === "running" && job.autoConfirm === true,
+    refetchInterval: 3000,
+  });
+
+  // Rising-edge sound cue when a new task parks. We only beep when the
+  // count goes UP — not on every poll, not when one is resolved.
+  useEffect(() => {
+    const prev = lastParkedCountRef.current;
+    const next = parkedTasks.length;
+    if (next > prev) playAttentionSound();
+    lastParkedCountRef.current = next;
+  }, [parkedTasks.length]);
+
+  const submitParkedInput = async (taskId: number) => {
+    const input = (parkedInputs[taskId] ?? "");
+    setParkedBusy((b) => ({ ...b, [taskId]: true }));
+    try {
+      const r = await fetch(`${baseUrl}/api/jobs/${jobId}/tasks/${taskId}/provide-input`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input }),
+      });
+      if (!r.ok) {
+        const msg = await r.json().catch(() => ({}));
+        throw new Error(msg.error || `HTTP ${r.status}`);
+      }
+      setParkedInputs((p) => { const n = { ...p }; delete n[taskId]; return n; });
+      toast({ title: "Input submitted" });
+      refetchParked();
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Failed to submit", description: e.message, variant: "destructive" });
+    } finally {
+      setParkedBusy((b) => ({ ...b, [taskId]: false }));
+    }
+  };
+
+  const abortParkedTask = async (taskId: number) => {
+    const ok = await confirmDialog({
+      title: "Abort parked task",
+      description: "This closes the SSH session and marks the task failed.",
+      confirmLabel: "Abort",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    setParkedBusy((b) => ({ ...b, [taskId]: true }));
+    try {
+      const r = await fetch(`${baseUrl}/api/jobs/${jobId}/tasks/${taskId}/abort`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Aborted by operator" }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      toast({ title: "Abort requested" });
+      refetchParked();
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Failed to abort", description: e.message, variant: "destructive" });
+    } finally {
+      setParkedBusy((b) => ({ ...b, [taskId]: false }));
+    }
+  };
 
   useEffect(() => {
     if (!job || job.status !== "running" || job.autoConfirm) return;
@@ -513,6 +603,72 @@ export default function JobDetail() {
                 Send to All ({waitingCount})
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {parkedTasks.length > 0 && (
+        <Card className="glass-panel border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.1)]">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-xl flex items-center gap-2 text-amber-400">
+              <AlertTriangle className="w-5 h-5 animate-pulse" />
+              {parkedTasks.length} Device{parkedTasks.length !== 1 ? "s" : ""} Need Attention
+            </CardTitle>
+            <p className="text-xs text-amber-400/70 mt-1">
+              The auto-confirm shell hit a prompt it doesn't recognise. Submit a response below or abort the run.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {parkedTasks.map((p) => (
+              <div
+                key={p.taskId}
+                className="rounded-xl border border-amber-500/20 bg-amber-500/5 overflow-hidden"
+              >
+                <div className="px-4 py-2.5 border-b border-amber-500/10 flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-sm">{p.routerName}</span>
+                  <span className="text-xs text-muted-foreground font-mono">{p.routerIp}</span>
+                  <span className="text-xs text-amber-400/60 ml-auto">parked {formatDate(p.parkedAt)}</span>
+                </div>
+                <div className="px-4 py-3 space-y-2">
+                  {p.outputPreview && (
+                    <pre className="text-[11px] text-muted-foreground font-mono bg-black/40 px-3 py-2 rounded max-h-32 overflow-y-auto whitespace-pre-wrap">{p.outputPreview}</pre>
+                  )}
+                  <pre className="text-xs text-amber-300 font-mono bg-black/40 px-3 py-2 rounded whitespace-pre-wrap">{p.promptText}</pre>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Type response (sent with newline)…"
+                      value={parkedInputs[p.taskId] ?? ""}
+                      onChange={(e) => setParkedInputs((s) => ({ ...s, [p.taskId]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          submitParkedInput(p.taskId);
+                        }
+                      }}
+                      disabled={parkedBusy[p.taskId]}
+                      className="flex-1 bg-black/30 border-amber-500/20 focus-visible:ring-amber-500/50"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => submitParkedInput(p.taskId)}
+                      disabled={parkedBusy[p.taskId]}
+                      className="gap-1 bg-amber-500 hover:bg-amber-600 text-black whitespace-nowrap"
+                    >
+                      <Send className="w-3.5 h-3.5" /> Submit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => abortParkedTask(p.taskId)}
+                      disabled={parkedBusy[p.taskId]}
+                      className="gap-1 border-destructive/40 text-destructive hover:bg-destructive/10 whitespace-nowrap"
+                    >
+                      <Ban className="w-3.5 h-3.5" /> Abort
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

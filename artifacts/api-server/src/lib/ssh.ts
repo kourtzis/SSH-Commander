@@ -1,4 +1,5 @@
 import { Client } from "ssh2";
+import { stuckPrompts } from "./stuck-prompts.js";
 
 // Result returned by executeSSHCommand after an SSH session completes
 export interface SSHResult {
@@ -1045,6 +1046,22 @@ export interface SSHExecOptions {
    * persists the device's host key fingerprint and every subsequent
    * connection refuses to authenticate if the presented key changes. */
   hostKeyTrust?: HostKeyTrust;
+  /** Job/task identity used when parking on an unrecognised prompt.
+   * Without this the auto-confirm shell behaves exactly as before
+   * (post-command idle = session done). */
+  taskContext?: {
+    taskId: number;
+    jobId: number;
+    routerId: number;
+    routerName: string;
+    routerIp: string;
+  };
+  /** Called when the auto-confirm shell sees an unrecognised prompt and
+   * parks the live session in the stuck-prompts registry. The caller
+   * should mark the task as `waiting_input` in the DB. The original SSH
+   * promise stays unresolved until the operator submits input (and the
+   * session eventually idles or finishes) or aborts. */
+  onPark?: (info: { taskId: number; promptText: string; outputPreview: string }) => void | Promise<void>;
 }
 
 // Detect transient/connection-level failures that are worth retrying.
@@ -1220,6 +1237,10 @@ async function executeOnce(
         let pagerAdvanceCount = 0;
         let lastPagerChecked = "";
         let enableSent = false;
+        let parked = false;          // True while the session is parked in the stuck-prompts registry
+        let parkCount = 0;
+        let lastParkChecked = "";    // Dedup the parked-prompt window so we don't re-park instantly
+        let aborted: { reason: string } | null = null;  // Set by stuckPrompts.abort()
         const cursorRespond = makeCursorResponder(stream, 24, 200);
         let promptTick: ReturnType<typeof setInterval> | null = null;
         // Per-direction line buffers for the wire log.
@@ -1231,6 +1252,9 @@ async function executeOnce(
         const idleTimer = { ref: null as ReturnType<typeof setTimeout> | null };
         const resetIdleTimer = () => {
           if (idleTimer.ref) clearTimeout(idleTimer.ref);
+          // Don't arm the idle close while parked — only the registry's
+          // 30-min hard ceiling applies until the operator responds.
+          if (parked) return;
           idleTimer.ref = setTimeout(() => {
             // Rescue hook — see executeSSHCommand for full rationale.
             // If a pager / confirm prompt is sitting in the buffer but no
@@ -1252,6 +1276,70 @@ async function executeOnce(
               resetIdleTimer();
               return;
             }
+            // Park hook — only when an unrecognised input prompt is
+            // sitting at the buffer tail and a job/task context was
+            // supplied. Without taskContext (fingerprint, ad-hoc tests,
+            // standalone terminal) the original close-on-idle behaviour
+            // is preserved exactly.
+            const parkTail = shellBuffer.slice(-200);
+            if (
+              commandSent &&
+              options.taskContext &&
+              parkTail !== lastParkChecked &&
+              looksLikeInputPrompt(shellBuffer)
+            ) {
+              parked = true;
+              parkCount++;
+              lastParkChecked = parkTail;
+              const promptText = extractPromptText(stripAnsi(shellBuffer));
+              const outputPreview = tidyText(shellBuffer).slice(-600);
+              log.push(`[${ts()}] Unrecognised prompt #${parkCount} — parking session for operator input`);
+              log.push(`[${ts()}] Prompt: ${promptText.replace(/\n/g, " ⏎ ").slice(-200)}`);
+              // Stand down both global + idle timers; the registry's
+              // 30-min hard ceiling is the only clock now.
+              clearTimeout(timer);
+              if (idleTimer.ref) { clearTimeout(idleTimer.ref); idleTimer.ref = null; }
+
+              const ctx = options.taskContext;
+              stuckPrompts.park({
+                taskId: ctx.taskId,
+                jobId: ctx.jobId,
+                routerId: ctx.routerId,
+                routerName: ctx.routerName,
+                routerIp: ctx.routerIp,
+                promptText,
+                outputPreview,
+                conn,
+                stream,
+                resumeIdle: () => {
+                  parked = false;
+                  log.push(`[${ts()}] Operator input received — resuming session`);
+                  // Re-arm the per-attempt SSH timer with a fresh
+                  // window so the resumed run still has bounded life.
+                  // We cannot restart `timer` (already cleared), but
+                  // resetIdleTimer() drives the post-input idle close
+                  // which is what actually finishes the run.
+                  resetIdleTimer();
+                },
+                abortFn: (reason) => {
+                  aborted = { reason };
+                  log.push(`[${ts()}] Operator aborted parked session: ${reason}`);
+                  try { stream.end(); } catch {}
+                  try { conn.end(); } catch {}
+                },
+                onAutoAbort: (_id, reason) => {
+                  log.push(`[${ts()}] Auto-aborted parked session: ${reason}`);
+                },
+              });
+
+              // Hand off to the caller so the DB row flips to waiting_input.
+              Promise.resolve(options.onPark?.({
+                taskId: ctx.taskId,
+                promptText,
+                outputPreview,
+              })).catch((e) => log.push(`[${ts()}] onPark callback error: ${(e as Error).message}`));
+              return;
+            }
             clearTimeout(timer);
             if (promptTick) { clearInterval(promptTick); promptTick = null; }
             flushWireLog(log, recvBuf, "<<");  recvBuf = "";
@@ -1259,6 +1347,7 @@ async function executeOnce(
             log.push(`[${ts()}] ──────────────────────────────────`);
             log.push(`[${ts()}] Shell session idle — closing`);
             if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
+            if (parkCount > 0) log.push(`[${ts()}] Operator-handled ${parkCount} prompt(s)`);
             log.push(`[${ts()}] Session closed`);
             try { conn.end(); } catch {}
             if (!timedOut) resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
@@ -1268,13 +1357,22 @@ async function executeOnce(
           clearTimeout(timer);
           if (idleTimer.ref) clearTimeout(idleTimer.ref);
           if (promptTick) { clearInterval(promptTick); promptTick = null; }
+          // If the stream dies while parked (device reboot, network
+          // drop, etc.) make sure we don't leak the registry entry.
+          if (options.taskContext) stuckPrompts.forget(options.taskContext.taskId);
           flushWireLog(log, recvBuf, "<<");  recvBuf = "";
           flushWireLog(log, stderrBuf, "<<E"); stderrBuf = "";
           log.push(`[${ts()}] ──────────────────────────────────`);
           if (autoConfirmCount > 0) log.push(`[${ts()}] Auto-confirmed ${autoConfirmCount} prompt(s)`);
+          if (parkCount > 0) log.push(`[${ts()}] Operator-handled ${parkCount} prompt(s)`);
           log.push(`[${ts()}] Session closed`);
           try { conn.end(); } catch {}
-          if (!timedOut) resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
+          if (timedOut) return;
+          if (aborted) {
+            resolve({ success: false, output: tidyText(shellBuffer), errorMessage: aborted.reason, connectionLog: log.join("\n") });
+          } else {
+            resolve({ success: true, output: tidyText(shellBuffer), connectionLog: log.join("\n") });
+          }
         });
         stream.on("data", (data: Buffer) => {
           const chunk = data.toString("binary");

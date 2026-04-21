@@ -12,6 +12,23 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.9.0] - 2026-04-21
+
+### Added
+- **"Needs Attention" mid-session for auto-confirm jobs.** When the shell hits a prompt the auto-responder doesn't recognise, the SSH session is now parked instead of closed on idle. The task flips to `waiting_input`, the timeout is stood down (30-min hard ceiling), and the job detail page shows an amber panel with the prompt and per-device **Submit** / **Abort** controls. Submitting writes the input into the still-open stream and the run continues; aborting marks the task failed.
+- **Audio attention cue.** Short two-tone Web Audio beep when a new device parks. Throttled to once per 2s and only fires on the rising edge.
+- **Sidebar parked-tasks badge.** Amber count badge next to "Batch Jobs" whenever any task is parked. Polled every 10s.
+- **New REST endpoints:** `GET /api/tasks/parked`, `GET /api/jobs/:id/parked-tasks`, `POST /api/jobs/:jobId/tasks/:taskId/provide-input`, `POST .../abort`.
+
+### Improved
+- **Theme legibility.** Destructive red lightened (`0 63% 31%` → `0 84% 65%`, white foreground) so failed badges and buttons are legible in dark mode. Text selection now uses explicit `::selection` rules so highlighted text stays readable on every component.
+
+### Notes
+- Parking is opt-in via a new `taskContext` on `executeSSHCommand`; fingerprint, the standalone terminal, and the interactive (`autoConfirm=false`) path are unchanged.
+- No schema migration — `waiting_input` and `prompt_text` already exist.
+
+---
+
 ## [1.8.29] - 2026-04-20
 
 ### Added

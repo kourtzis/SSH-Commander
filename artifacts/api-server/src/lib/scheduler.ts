@@ -69,6 +69,21 @@ async function executeJobTasks(
             retryCount: options.retryCount || 0,
             retryBackoffSeconds: options.retryBackoffSeconds || 5,
             hostKeyTrust: { routerId: r.id, expectedFingerprint: (r as any).sshHostKeyFingerprint ?? null },
+            // When the auto-confirm shell sees an unrecognised prompt
+            // it parks the live SSH session and calls onPark so we can
+            // flip the task to waiting_input. The awaited promise
+            // stays unresolved until the operator submits input (or
+            // the parked session is aborted), so completed/failed
+            // counters do not move while waiting.
+            taskContext: options.autoConfirm !== false
+              ? { taskId, jobId, routerId: r.id, routerName: r.name, routerIp: r.ipAddress }
+              : undefined,
+            onPark: async ({ taskId: tid, promptText }) => {
+              await db.update(jobTasksTable).set({
+                status: "waiting_input",
+                promptText,
+              }).where(eq(jobTasksTable.id, tid));
+            },
           }
         );
         if (result.success) {
