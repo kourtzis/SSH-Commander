@@ -142,16 +142,19 @@ Stop re-typing the same filters:
 
 ### Security Hardening
 SSH Commander treats production deployments seriously:
-- **SSH host-key TOFU pinning** — the first successful SSH connection to each device records its host-key SHA256 fingerprint. Every subsequent connection (interactive terminal, batch jobs, scheduled jobs, fingerprint probes, reachability checks via the SSH path, jump-host targets) refuses to authenticate if the device presents a different key. Admins can clear a pinned fingerprint from the device list (KeyRound icon) when a device legitimately rotates its key.
+- **Credentials encrypted at rest (AES-256-GCM)** — every device password and enable / sudo password (`routers.sshPassword`, `routers.enablePassword`, `credential_profiles.sshPassword`, `credential_profiles.enablePassword`) is stored as authenticated ciphertext with a 12-byte IV and 16-byte auth tag, prefixed `enc:v1:`. The master key is read from the `CREDENTIAL_ENCRYPTION_KEY` env var (32 bytes, hex or base64); the API server refuses to start in production without it. A database dump or backup leak no longer reveals the device fleet's credentials. A one-shot, idempotent migration runs at every container start to encrypt any legacy plaintext rows in place.
+- **SSH host-key TOFU pinning (mandatory)** — the first successful SSH connection to each device records its host-key SHA256 fingerprint. Every subsequent connection (interactive terminal, batch jobs, scheduled jobs, fingerprint probes, reachability checks via the SSH path, jump-host targets) refuses to authenticate if the device presents a different key. The `hostKeyTrust` option is required at the type level *and* runtime-guarded — a forgotten call site can no longer silently disable verification. Admins can clear a pinned fingerprint from the device list (KeyRound icon) when a device legitimately rotates its key.
 - **CSRF protection** via the `X-Requested-With: XMLHttpRequest` header pattern. Every state-changing `/api` request must carry this header; the frontend wrapper sets it automatically. Combined with the CORS allow-list, cross-site forgery of authenticated state-changing requests is blocked.
 - **CORS allow-list** — production deployments require `ALLOWED_ORIGINS` (comma-separated). Unknown cross-origin browser requests are refused.
-- **Mandatory `SESSION_SECRET`** in production (min 16 chars) — the app refuses to start without one when `NODE_ENV=production`.
+- **Mandatory `SESSION_SECRET`** in production (min 16 chars, must not be a known placeholder string) — the app refuses to start without one when `NODE_ENV=production`. In dev with no SESSION_SECRET, an ephemeral random secret is generated per process start (sessions don't survive a restart) instead of using a hardcoded literal.
+- **Per-user schedule scoping** — operators only see/edit/delete their own schedules; admins see all. The list endpoint and every `:id` route enforce ownership.
 - **Login rate limiting** — `/api/auth/login` is capped at 10 attempts per IP per 15-minute window.
 - **Session regenerated on login** (defence against session-fixation).
 - **PostgreSQL-backed sessions with rolling expiry** — sessions live in the database and survive API server restarts. The 7-day cookie window slides forward on every authenticated request, so an active operator is never logged out by timeout.
 - **Secure cookies in production** with `TRUST_PROXY_HOPS` and `COOKIE_SECURE` env knobs for proxies that don't forward `X-Forwarded-Proto`.
 - **bcrypt cost factor 12** for new and rotated user passwords.
-- Body-size limits, terminal-input length caps, admin-only user-by-id reads, and `isNaN` guards on every `DELETE /:id` route.
+- **No well-known default admin password** — fresh deployments read `INITIAL_ADMIN_PASSWORD` from the env, or generate a random 24-char password and print it once to the container logs. Existing installs that still have the legacy `admin123` get a loud warning at every startup until the password is rotated.
+- Body-size limits, terminal-input length caps, admin-only user-by-id reads, `isNaN` guards on every `DELETE /:id` route, and React-JSX (no `dangerouslySetInnerHTML`) in the script-preview pane.
 
 ### Control Character Injection
 Scripts and snippets support inline control character tags using `<<NAME>>` syntax:
@@ -185,7 +188,8 @@ The entire interface is fully responsive and usable on tablets and phones:
 | **Frontend** | React 19, Vite, TailwindCSS, shadcn/ui, React Query (TanStack) |
 | **Backend** | Node.js 24, Express 5, express-session |
 | **Database** | PostgreSQL 16, Drizzle ORM |
-| **SSH** | ssh2 with Mikrotik-compatible algorithm negotiation |
+| **SSH** | ssh2 with Mikrotik-compatible algorithm negotiation, mandatory host-key TOFU pinning |
+| **Crypto** | AES-256-GCM (Node `crypto`) for at-rest credential encryption |
 | **API** | OpenAPI 3.1 specification, Orval codegen (type-safe React Query hooks + Zod schemas) |
 | **Validation** | Zod v4, drizzle-zod |
 | **Auth** | bcrypt password hashing, cookie-based sessions |
@@ -200,51 +204,73 @@ The entire interface is fully responsive and usable on tablets and phones:
 ```
 ssh-commander/
 ├── artifacts/
-│   ├── api-server/              # Express 5 API server
+│   ├── api-server/                      # Express 5 API server
 │   │   └── src/
+│   │       ├── app.ts                   # Express app setup, sessions, CORS, CSRF, SESSION_SECRET guards
+│   │       ├── index.ts                 # HTTP server bootstrap + graceful shutdown
 │   │       ├── lib/
 │   │       │   ├── auth.ts              # Session authentication & middleware
-│   │       │   ├── ssh.ts               # SSH execution engine + control chars
+│   │       │   ├── ssh.ts               # SSH execution engine + mandatory host-key trust + control chars
 │   │       │   ├── interactive-session.ts # Parallel interactive SSH session manager
+│   │       │   ├── effective-creds.ts   # Resolve router creds (profile fallback + decrypt-on-read)
 │   │       │   ├── resolve-routers.ts   # Shared BFS group resolution + Excel helpers + concurrency limiter
+│   │       │   ├── pagination.ts        # Shared pagination helper
 │   │       │   └── scheduler.ts         # Recurring job scheduler engine
 │   │       └── routes/                  # REST API route handlers
 │   │           ├── auth.ts              # Login/logout/session
-│   │           ├── users.ts             # User management (admin)
-│   │           ├── routers.ts           # Device CRUD + mass import + reachability
+│   │           ├── users.ts             # User management (admin) + per-user canTerminal grant
+│   │           ├── routers.ts           # Device CRUD + mass import + reachability + encrypt-on-write
+│   │           ├── router-terminal.ts   # Per-device persistent SSH shell (SSE)
 │   │           ├── groups.ts            # Hierarchical group management
 │   │           ├── snippets.ts          # Script snippet library
-│   │           ├── jobs.ts              # Batch jobs + SSE live + interactive input
-│   │           └── schedules.ts         # Job scheduling
-│   └── mikro-manager/           # React + Vite frontend application
-│       └── src/
-│           ├── contexts/        # Auth context provider
-│           ├── components/      # Reusable UI components, layout, viewers
-│           └── pages/           # All application pages
-│               ├── dashboard.tsx
-│               ├── routers.tsx          # Device list + mass import
-│               ├── groups.tsx           # Group tree + multi-select members
-│               ├── snippets.tsx         # Snippet library + composer
-│               ├── jobs/                # Job list, creation, detail views
-│               ├── scheduler.tsx        # Schedule management
-│               ├── users.tsx            # User admin
-│               └── login.tsx            # Authentication
+│   │           ├── credentials.ts       # Credential profile CRUD + encrypt-on-write
+│   │           ├── jobs.ts              # Batch jobs + SSE live + interactive input + parked-task input
+│   │           ├── schedules.ts         # Job scheduling (per-user scoping + admin override)
+│   │           └── saved_views.ts       # Per-user saved filters/sorts
+│   ├── mikro-manager/                   # React + Vite frontend application
+│   │   └── src/
+│   │       ├── contexts/                # Auth context provider
+│   │       ├── components/              # Reusable UI components, layout, viewers
+│   │       ├── lib/
+│   │       │   └── version.ts           # Inline changelog + APP_VERSION constant
+│   │       └── pages/                   # All application pages
+│   │           ├── dashboard.tsx
+│   │           ├── routers.tsx          # Device list + mass import
+│   │           ├── router-terminal.tsx  # Per-device interactive terminal
+│   │           ├── groups.tsx           # Group tree + multi-select members
+│   │           ├── snippets.tsx         # Snippet library + composer
+│   │           ├── credentials.tsx      # Credential profile management
+│   │           ├── jobs/                # Job list, creation (XSS-safe preview), detail views
+│   │           ├── scheduler.tsx        # Schedule management + month-grid calendar view
+│   │           ├── users.tsx            # User admin
+│   │           └── login.tsx            # Authentication
+│   └── mockup-sandbox/                  # Internal: design-iteration sandbox (not deployed)
 ├── lib/
-│   ├── api-spec/                # OpenAPI 3.1 specification + Orval config
-│   ├── api-client-react/        # Auto-generated React Query hooks
-│   ├── api-zod/                 # Auto-generated Zod validation schemas
-│   └── db/                      # Drizzle ORM schema definitions
-│       └── src/schema/
-│           ├── users.ts
-│           ├── routers.ts
-│           ├── groups.ts
-│           ├── snippets.ts
-│           └── jobs.ts
+│   ├── api-spec/                        # OpenAPI 3.1 specification + Orval config
+│   ├── api-client-react/                # Auto-generated React Query hooks
+│   ├── api-zod/                         # Auto-generated Zod validation schemas
+│   └── db/                              # Drizzle ORM schema definitions
+│       └── src/
+│           ├── index.ts                 # Pool + db instance + re-exports
+│           ├── crypto.ts                # AES-256-GCM encryptSecret / decryptSecret (1.14.0+)
+│           └── schema/
+│               ├── users.ts
+│               ├── routers.ts                  # ssh_password / enable_password are AES-256-GCM at rest
+│               ├── credential_profiles.ts      # ssh_password / enable_password are AES-256-GCM at rest
+│               ├── groups.ts
+│               ├── snippets.ts
+│               ├── jobs.ts
+│               ├── schedules.ts
+│               ├── device_reachability.ts
+│               └── saved_views.ts
 ├── scripts/
-│   └── src/seed.ts              # Database seeding (admin user)
-├── Dockerfile                   # Multi-stage production build
-├── docker-compose.yml           # App + PostgreSQL orchestration
-└── docker-entrypoint.sh         # Auto-migration + admin seed on startup
+│   └── src/
+│       ├── seed.ts                      # Default admin seed (INITIAL_ADMIN_PASSWORD or random)
+│       └── encrypt-credentials.ts       # Idempotent migration: legacy plaintext → AES-256-GCM
+├── CHANGELOG.md                         # Per-release notes
+├── Dockerfile                           # Multi-stage production build (non-root, healthcheck)
+├── docker-compose.yml                   # App + PostgreSQL orchestration
+└── docker-entrypoint.sh                 # Defensive ALTERs → drizzle push → encrypt-credentials → seed → start
 ```
 
 ---
@@ -266,6 +292,15 @@ pnpm install
 export DATABASE_URL="postgresql://user:password@localhost:5432/sshcommander"
 pnpm --filter @workspace/db run push
 pnpm --filter @workspace/scripts run seed
+
+# (Optional) Set a credential-encryption key for dev. If unset, a deterministic
+# dev-only key is derived from your DATABASE_URL with a loud warning. The
+# server REFUSES to start in production without it.
+export CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -hex 32)
+
+# (Optional) Set a session secret for dev. If unset, an ephemeral random
+# secret is generated per process start (sessions reset on every restart).
+export SESSION_SECRET=$(openssl rand -hex 32)
 
 # Start the API server
 pnpm --filter @workspace/api-server run dev
@@ -302,7 +337,7 @@ services:
     environment:
       POSTGRES_DB: mikromanager
       POSTGRES_USER: mikromanager
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -320,8 +355,15 @@ services:
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
-      DATABASE_URL: postgresql://mikromanager:${DB_PASSWORD:-changeme}@db:5432/mikromanager
-      SESSION_SECRET: ${SESSION_SECRET:-change-this-to-a-long-random-string}
+      DATABASE_URL: postgresql://mikromanager:${DB_PASSWORD}@db:5432/mikromanager
+      # Required in production (>= 16 chars, must not be a known placeholder).
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      # Required in production. 32 bytes hex/base64. LOSING THIS KEY
+      # PERMANENTLY BRICKS EVERY STORED DEVICE PASSWORD — back it up.
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?set CREDENTIAL_ENCRYPTION_KEY in .env}
+      # Optional: set on the very first start to choose the admin password.
+      # If unset, a 24-char random one is printed to the container logs.
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       PORT: 3000
       NODE_ENV: production
       PUBLIC_DIR: /app/public
@@ -330,15 +372,41 @@ volumes:
   pgdata:
 ```
 
-3. Set secure passwords and start:
+3. Generate strong values for the three required secrets and put them in a `.env` file next to your `docker-compose.yml`:
 
 ```bash
-export DB_PASSWORD=your-strong-database-password
-export SESSION_SECRET=$(openssl rand -hex 32)
+cat > .env <<EOF
+DB_PASSWORD=$(openssl rand -hex 16)
+SESSION_SECRET=$(openssl rand -hex 32)
+CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -hex 32)
+# Optional — set this on the very first start to choose your admin password.
+# Leave commented out to have a random 24-char one printed to the logs.
+# INITIAL_ADMIN_PASSWORD=pick-something-strong
+EOF
+chmod 600 .env
+```
+
+> **CRITICAL: back up your `.env` (or just `CREDENTIAL_ENCRYPTION_KEY`) before starting.** Losing the key permanently turns every stored device password into unrecoverable ciphertext — you'd have to re-enter them all by hand. Save the value in your password manager / secrets vault before running anything.
+
+4. Start the stack:
+
+```bash
 docker compose up -d
 ```
 
-4. Open `http://your-server-ip:3000` in your browser.
+5. Open `http://your-server-ip:3000` in your browser. If you didn't set `INITIAL_ADMIN_PASSWORD`, run `docker compose logs app | grep -A 5 "Created admin user"` to see the auto-generated admin password (it's only printed once).
+
+**Generating secret values without `openssl`:**
+
+If `openssl` isn't available, any of these produce the same kind of 64-char hex string:
+
+| Tool | Command |
+|------|---------|
+| Linux (no extras) | `head -c 32 /dev/urandom \| xxd -p -c 64` |
+| Python (any) | `python3 -c "import secrets; print(secrets.token_hex(32))"` |
+| Node.js | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| PowerShell (Windows) | `-join ((1..32) \| ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })` |
+| Throwaway container | `docker run --rm alpine sh -c "apk add -q openssl && openssl rand -hex 32"` |
 
 **Building from source instead of Docker Hub:**
 
@@ -394,7 +462,16 @@ docker exec ssh-commander-db pg_isready -U mikromanager
 
 You should see `accepting connections`.
 
-4. Start the application:
+4. Generate the two required secrets up front and save them somewhere safe (the `CREDENTIAL_ENCRYPTION_KEY` especially — losing it makes every stored device password unrecoverable):
+
+```bash
+SESSION_SECRET=$(openssl rand -hex 32)
+CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -hex 32)
+echo "SESSION_SECRET=$SESSION_SECRET"
+echo "CREDENTIAL_ENCRYPTION_KEY=$CREDENTIAL_ENCRYPTION_KEY  # BACK THIS UP"
+```
+
+5. Start the application:
 
 ```bash
 docker run -d \
@@ -403,14 +480,17 @@ docker run -d \
   --restart unless-stopped \
   -p 3000:3000 \
   -e DATABASE_URL=postgresql://mikromanager:your-strong-db-password@ssh-commander-db:5432/mikromanager \
-  -e SESSION_SECRET=$(openssl rand -hex 32) \
+  -e SESSION_SECRET=$SESSION_SECRET \
+  -e CREDENTIAL_ENCRYPTION_KEY=$CREDENTIAL_ENCRYPTION_KEY \
   -e PORT=3000 \
   -e NODE_ENV=production \
   -e PUBLIC_DIR=/app/public \
   kourtzis/ssh-commander:latest
 ```
 
-5. Open `http://your-server-ip:3000` in your browser.
+> **Optional**: add `-e INITIAL_ADMIN_PASSWORD=pick-something-strong` on the first run to set your admin password. Otherwise a random one is printed once to the container logs (`docker logs ssh-commander-app | grep -A 5 "Created admin user"`).
+
+6. Open `http://your-server-ip:3000` in your browser.
 
 **Useful manual commands:**
 - View app logs: `docker logs -f ssh-commander-app`
@@ -424,19 +504,58 @@ docker run -d \
 
 Open your browser and navigate to the application.
 
-### Default Credentials
+### Initial Admin Credentials
+
+As of 1.14.0, SSH Commander **no longer ships with a well-known default password**. On the very first start (when no users exist in the database), the seed script creates a single admin account using one of:
+
+1. **`INITIAL_ADMIN_PASSWORD`** — if you set this env var, it's used verbatim (must be ≥ 8 chars).
+2. **Auto-generated** — otherwise, a 24-char random password is generated and printed once to the container logs in a banner-framed block:
+
+   ```
+   ─────────────────────────────────────────────────────────────
+   Created admin user.
+     username: admin
+     password: <random 24-char string>
+   Save this password now — it WILL NOT be shown again. Set
+   INITIAL_ADMIN_PASSWORD before first start to avoid the random one.
+   ─────────────────────────────────────────────────────────────
+   ```
+
+   Capture it with `docker compose logs app | grep -A 5 "Created admin user"`.
 
 | Username | Password | Role |
 |----------|----------|------|
-| `admin` | `admin123` | Administrator |
+| `admin` | `INITIAL_ADMIN_PASSWORD` env, or auto-generated and logged once | Administrator |
 
-> **Important:** Change the default admin password immediately after your first login via the Users page.
+> **Upgrading from ≤ 1.13?** Your existing admin user is preserved as-is. If you're still using the legacy `admin123`, the seed script will warn loudly at every container start until you change it via Profile → Change Password.
+
+---
+
+## Required Environment Variables
+
+These are read by the API server container at startup. Production deployments **refuse to start** unless the first three are set correctly.
+
+| Variable | Required in prod | Purpose |
+|----------|---|---|
+| `DATABASE_URL` | yes | PostgreSQL connection string |
+| `SESSION_SECRET` | yes | Session-cookie signing key. Min 16 chars; rejected if it matches a known placeholder. In dev, an ephemeral random one is generated per process if unset. |
+| `CREDENTIAL_ENCRYPTION_KEY` | yes | 32 bytes (64 hex chars or 44-char base64). AES-256-GCM master key for at-rest credential encryption. **Back this up before first start — losing it permanently bricks every stored device password.** In dev, a deterministic key derived from `DATABASE_URL` is used with a loud warning. |
+| `INITIAL_ADMIN_PASSWORD` | no | Password for the seeded admin user on the very first start. If unset, a random 24-char password is printed once to the container logs. Ignored if any users already exist. |
+| `NODE_ENV` | yes (`production`) | Selects production-mode hardening (HTTPS-only cookies, mandatory secrets, etc.). |
+| `PORT` | no (`3000`) | HTTP listen port inside the container. |
+| `PUBLIC_DIR` | no (`/app/public`) | Path the API server serves the built frontend from. |
+| `ALLOWED_ORIGINS` | recommended | Comma-separated CORS allow-list. Required if the frontend is served from a different origin than the API. |
+| `TRUST_PROXY_HOPS` | no (`1`) | Number of reverse-proxy hops to trust for `X-Forwarded-*` headers. |
+| `COOKIE_SECURE` | no | `true` / `false` override for the session-cookie `Secure` flag. Defaults to `true` in production. Set to `false` for plain-HTTP intranet deployments. |
+| `ALLOW_DESTRUCTIVE_MIGRATIONS` | no (`0`) | Set to `1` to opt back into `drizzle-kit push --force` (legacy behaviour). Default uses plain `db:push` which fails loudly on data-destroying drift. |
 
 ---
 
 ## Upgrading
 
 SSH Commander is designed for safe, zero-data-loss upgrades. Your data lives in the PostgreSQL database which is stored in a persistent Docker volume, completely separate from the application container.
+
+> **Upgrading from ≤ 1.13 to 1.14.0?** You **must** set `CREDENTIAL_ENCRYPTION_KEY` (32-byte hex/base64 — see [Required Environment Variables](#required-environment-variables)) before starting the new container. The server refuses to boot in production without it. On first start with the key set, every existing plaintext device password is automatically encrypted in place by the entrypoint script.
 
 ### Docker Upgrade Steps
 
@@ -455,7 +574,9 @@ docker compose up -d
 ```
 
 On startup, the entrypoint script automatically:
-- Runs database migrations to apply any new schema changes (new tables, new columns)
+- Runs an idempotent **defensive ALTER pass** for every column added in past releases (handles upgrades from very old versions where `drizzle-kit push` alone wouldn't catch the drift)
+- Runs `drizzle-kit push` to catch any remaining schema drift (gated to non-destructive mode by default; set `ALLOW_DESTRUCTIVE_MIGRATIONS=1` to opt back into `--force`)
+- Encrypts any legacy plaintext device passwords in place using `CREDENTIAL_ENCRYPTION_KEY` (idempotent — already-encrypted rows are skipped)
 - Seeds the admin user only if no users exist (your existing accounts are untouched)
 
 ### Why your data is safe
@@ -557,8 +678,8 @@ pnpm --filter @workspace/api-spec run codegen
 The application uses PostgreSQL with [Drizzle ORM](https://orm.drizzle.team/). Key tables:
 
 - **users** — Multi-user accounts with bcrypt-hashed (cost 12) passwords, admin/operator roles, and per-user `canTerminal` grant
-- **routers** — Device inventory with SSH connection details (IP, port, credentials), pinned host-key fingerprint, optional `credentialProfileId`, and detected `vendor` / `model` / `osVersion` / `lastFingerprintAt`
-- **credential_profiles** — Reusable named SSH credentials with optional `enablePassword` and self-referencing `jumpHostId` for bastion routing
+- **routers** — Device inventory with SSH connection details (IP, port, encrypted-at-rest `sshPassword` and `enablePassword`), pinned host-key fingerprint, optional `credentialProfileId`, and detected `vendor` / `model` / `osVersion` / `lastFingerprintAt`
+- **credential_profiles** — Reusable named SSH credentials with encrypted-at-rest `sshPassword` and `enablePassword`, optional self-referencing `jumpHostId` for bastion routing
 - **router_groups** — Hierarchical group definitions with self-referencing parent
 - **group_routers / group_subgroups** — Many-to-many join tables for group membership
 - **snippets** — Reusable script library with categories
@@ -580,8 +701,11 @@ pnpm install
 # Push database schema changes
 pnpm --filter @workspace/db run push
 
-# Seed the database with admin user
+# Seed the database with admin user (uses INITIAL_ADMIN_PASSWORD env, or generates one)
 pnpm --filter @workspace/scripts run seed
+
+# Re-encrypt any legacy plaintext credential rows (idempotent; runs at every container start)
+pnpm --filter @workspace/scripts run encrypt-credentials
 
 # Regenerate API client from OpenAPI spec
 pnpm --filter @workspace/api-spec run codegen
