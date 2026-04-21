@@ -25,16 +25,7 @@ import { Client, type ClientChannel } from "ssh2";
 import { db, routersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth, getCurrentUser, requireAdmin } from "../lib/auth.js";
-import {
-  makeHostKeyVerifier,
-  SSH_ALGORITHMS,
-  connectViaJumpHost,
-  makeCursorResponder,
-  stripAnsiStream,
-  flushStripState,
-  makeStripState,
-  type StripState,
-} from "../lib/ssh.js";
+import { connectSSH, openInteractiveShell } from "../lib/ssh.js";
 import { resolveEffectiveCreds } from "../lib/effective-creds.js";
 
 const router: IRouter = Router();
@@ -189,115 +180,57 @@ router.get("/routers/:id/terminal", async (req, res) => {
   // different key (MITM defense). Operators clear the pinned fingerprint
   // via POST /routers/:id/repin-host-key when the device legitimately
   // rotates its key.
+  //
+  // Connect (direct or via bastion) and open the standard PTY shell using
+  // the shared SSHSession primitive. The primitive owns connect-and-shell
+  // lifecycle (algorithm list, host-key TOFU, PTY config, cursor responder,
+  // ANSI stripper) so RouterOS / Cisco quirks behave identically here, in
+  // batch jobs, and in interactive sessions — fix once, applies everywhere.
   const hostKeyTrust = { routerId: id, expectedFingerprint: router_.sshHostKeyFingerprint ?? null };
-  const hostVerifier = makeHostKeyVerifier(hostKeyTrust, (presented, expected) => {
-    sendEvent(res, {
-      type: "error",
-      message: `Host key MISMATCH — presented ${presented}, pinned ${expected}. Refusing to connect. If the device legitimately rotated its key, an admin can re-pin from the device page.`,
-    });
-  });
-
-  // Once we have a connected ssh2 Client (either direct or via bastion),
-  // wire up the shell stream identically. Mirrors the per-device handler
-  // in interactive-session.ts so RouterOS / Cisco quirks behave the same
-  // here as in batch jobs.
-  const onClientReady = (conn: Client) => {
-    session.conn = conn;
-    sendEvent(res, { type: "data", data: `Connected to ${router_.name} (${router_.ipAddress})\n` });
-    // Explicit PTY config — same as ssh.ts/interactive-session.ts. cols=200
-    // stops RouterOS from auto-wrapping, term=vt100 + the cursor responder
-    // below stops devices that probe with \x1b[6n from blocking on a DSR
-    // reply that would otherwise never arrive.
-    conn.shell({ rows: 24, cols: 200, term: "vt100" }, (err, stream) => {
-      if (err) {
-        sendEvent(res, { type: "error", message: `shell error: ${err.message}` });
-        cleanup();
-        return;
-      }
-      session.stream = stream;
-
-      // Stream-aware ANSI stripper state. SSH chunks can split a single
-      // escape sequence across two TCP frames; without state, the lone
-      // trailing \x1b of frame A gets dropped and `[6n` arrives in frame
-      // B with nothing to anchor on, leaking visible junk to the UI. The
-      // frontend renders a plain <pre>, not a real ANSI terminal, so we
-      // strip ANSI here (xterm.js would do this itself, but we don't use
-      // it for this lightweight terminal page).
-      const stripState: StripState = makeStripState();
-      // Smart DSR responder — replies to \x1b[6n with a believable cursor
-      // position so RouterOS-style devices stop blocking and emit their
-      // prompt. The bytes go DIRECTLY back on the SSH stream (not through
-      // the user's input path), so it works even if the frontend hasn't
-      // sent any keystrokes yet.
-      const cursorRespond = makeCursorResponder(stream, 24, 200);
-
-      stream.on("data", (chunk: Buffer) => {
-        // Decode as binary to preserve C1 control bytes (e.g. RouterOS
-        // emits the single-byte CSI 0x9B on some firmwares; utf8 mangles
-        // it). The cursor responder and ANSI stripper both expect raw
-        // 8-bit bytes anyway.
-        const raw = chunk.toString("binary");
-        resetIdleTimer();
-        cursorRespond(raw);
-        const clean = stripAnsiStream(stripState, raw);
-        if (clean) sendEvent(res, { type: "data", data: clean });
-      });
-      stream.stderr?.on("data", (chunk: Buffer) => {
-        const raw = chunk.toString("binary");
-        resetIdleTimer();
-        const clean = stripAnsiStream(stripState, raw);
-        if (clean) sendEvent(res, { type: "data", data: clean });
-      });
-      stream.on("close", () => {
-        // Drain any partial-escape bytes still held by the stripper so the
-        // user sees the very last line of output (typically a prompt).
-        const tail = flushStripState(stripState);
-        if (tail) sendEvent(res, { type: "data", data: tail });
-        sendEvent(res, { type: "data", data: "\n[session closed]\n" });
-        cleanup();
-      });
-    });
-  };
-
-  // Open the SSH connection — through the jump host if a profile-attached
-  // bastion was resolved, otherwise directly. Both paths use the same
-  // algorithm list (SSH_ALGORITHMS) so legacy MikroTik / Cisco devices
-  // negotiate successfully.
-  const timeoutMs = 15_000;
-  if (creds.jumpHost) {
-    try {
-      const conn = await connectViaJumpHost(
-        { host: router_.ipAddress, port: sshPort, username: creds.username, password: creds.password, hostKeyTrust },
-        creds.jumpHost,
-        timeoutMs,
-        [],
-      );
-      conn.on("error", (err) => { sendEvent(res, { type: "error", message: err.message }); cleanup(); });
-      // connectViaJumpHost resolves AFTER the target is "ready", so we can
-      // open the shell immediately rather than waiting for another event.
-      onClientReady(conn);
-    } catch (err: any) {
-      sendEvent(res, { type: "error", message: String(err?.message || err) });
-      cleanup();
-    }
-    return;
-  }
-
-  const conn = new Client();
-  conn.on("ready", () => onClientReady(conn));
-  conn.on("error", (err) => { sendEvent(res, { type: "error", message: err.message }); cleanup(); });
   try {
-    conn.connect({
+    const conn = await connectSSH({
       host: router_.ipAddress,
       port: sshPort,
       username: creds.username,
       password: creds.password,
-      readyTimeout: timeoutMs,
-      algorithms: SSH_ALGORITHMS,
-      hostVerifier,
-    } as any);
+      hostKeyTrust,
+      jumpHost: creds.jumpHost ?? null,
+      readyTimeoutMs: 15_000,
+      onHostKeyMismatch: (presented, expected) => {
+        sendEvent(res, {
+          type: "error",
+          message: `Host key MISMATCH — presented ${presented}, pinned ${expected}. Refusing to connect. If the device legitimately rotated its key, an admin can re-pin from the device page.`,
+        });
+      },
+    }, {
+      onError: (err) => { sendEvent(res, { type: "error", message: err.message }); cleanup(); },
+    });
+    session.conn = conn;
+    sendEvent(res, { type: "data", data: `Connected to ${router_.name} (${router_.ipAddress})\n` });
+
+    const shell = await openInteractiveShell(conn);
+    session.stream = shell.stream;
+
+    shell.stream.on("data", (chunk: Buffer) => {
+      resetIdleTimer();
+      const clean = shell.processData(chunk, "stdout");
+      if (clean) sendEvent(res, { type: "data", data: clean });
+    });
+    shell.stream.stderr?.on("data", (chunk: Buffer) => {
+      resetIdleTimer();
+      const clean = shell.processData(chunk, "stderr");
+      if (clean) sendEvent(res, { type: "data", data: clean });
+    });
+    shell.stream.on("close", () => {
+      // Drain any partial-escape bytes still held by the stripper so the
+      // user sees the very last line of output (typically a prompt).
+      const tail = shell.flushTail();
+      if (tail) sendEvent(res, { type: "data", data: tail });
+      sendEvent(res, { type: "data", data: "\n[session closed]\n" });
+      cleanup();
+    });
   } catch (err: any) {
-    sendEvent(res, { type: "error", message: String(err?.message || err) });
+    sendEvent(res, { type: "error", message: `${err?.message || err}` });
     cleanup();
   }
 });

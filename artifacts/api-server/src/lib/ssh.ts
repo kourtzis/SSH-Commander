@@ -1155,6 +1155,178 @@ export async function connectViaJumpHost(
   });
 }
 
+// =============================================================================
+// SSHSession primitive (added 1.10.0)
+// -----------------------------------------------------------------------------
+// Encapsulates the lower-level SSH lifecycle that was previously hand-coded in
+// three places (this file's executeOnce, interactive-session.ts, and
+// router-terminal.ts):
+//   1) Connect via direct or jump-host path with the project's standard
+//      algorithm list (SSH_ALGORITHMS) and host-key TOFU policy.
+//   2) Open a shell with the standard PTY config (rows=24, cols=200,
+//      term="vt100") that side-steps the RouterOS terminal-size probe.
+//   3) Wire up the cursor-position-report responder (DSR fix) and the
+//      stateful ANSI stripper (escape-sequences-split-across-TCP-frames fix).
+//
+// Each consumer's *upper* state machine (script runner / multi-device SSE
+// coordinator / raw byte pipe) stays in its own module — this primitive only
+// owns the bits that have to behave identically across all three. Bugs that
+// previously needed three near-identical fixes in 1.8.25 / 1.8.26 / 1.8.29
+// now have exactly one home.
+// =============================================================================
+
+export interface ConnectSSHOptions {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  /** Optional — if omitted, the connection skips TOFU host-key verification.
+   *  Only the legacy executeOnce ad-hoc/fingerprint path may pass undefined;
+   *  all router-attached operations pass a real trust object. */
+  hostKeyTrust?: HostKeyTrust;
+  jumpHost?: JumpHostConfig | null;
+  readyTimeoutMs: number;
+  /** If provided, jump-host setup messages are appended here (preserves the
+   *  wire-log output that interactive-session and ssh.ts already emit). */
+  log?: string[];
+  /** Called when host-key TOFU rejects the presented key. Consumers use this
+   *  to surface the mismatch to their UI / wire log before the connection
+   *  fails. */
+  onHostKeyMismatch?: (presented: string, expected: string) => void;
+}
+
+export interface SSHListeners {
+  /** Fires once during the SSH handshake (KEX completion). NOT delivered on
+   *  the jump-host path because the handshake has already completed by the
+   *  time connectViaJumpHost resolves — consumers that need handshake info
+   *  for both paths should fall back to logging the connect-success line. */
+  onHandshake?: (negotiated: any) => void;
+  onError?: (err: Error) => void;
+  onClose?: () => void;
+}
+
+/**
+ * Open an authenticated SSH connection (direct or via a jump host) using the
+ * project's standard algorithm list and host-key TOFU policy. Resolves with
+ * a Client that is in the "ready" state.
+ *
+ * Listeners passed in `listeners` are attached BEFORE connect() so they
+ * receive the handshake event reliably (direct path only — see SSHListeners).
+ */
+export async function connectSSH(
+  opts: ConnectSSHOptions,
+  listeners?: SSHListeners,
+): Promise<Client> {
+  const { host, port, username, password, hostKeyTrust, jumpHost, readyTimeoutMs, log, onHostKeyMismatch } = opts;
+
+  if (jumpHost) {
+    // connectViaJumpHost resolves AFTER the target Client is "ready"; we
+    // therefore attach error/close listeners on the resolved Client. The
+    // handshake event has already fired and cannot be replayed — consumers
+    // requiring handshake details on both paths should treat the absence as
+    // expected on the bastion path.
+    const conn = await connectViaJumpHost(
+      { host, port, username, password, hostKeyTrust },
+      jumpHost,
+      readyTimeoutMs,
+      log ?? [],
+    );
+    if (listeners?.onError) conn.on("error", listeners.onError);
+    if (listeners?.onClose) conn.on("close", listeners.onClose);
+    return conn;
+  }
+
+  return new Promise<Client>((resolve, reject) => {
+    const conn = new Client();
+    if (listeners?.onHandshake) conn.on("handshake", listeners.onHandshake);
+    if (listeners?.onError) conn.on("error", listeners.onError);
+    if (listeners?.onClose) conn.on("close", listeners.onClose);
+    conn.once("ready", () => resolve(conn));
+    conn.once("error", (e) => reject(e));
+    try {
+      const cfg: any = {
+        host, port, username, password,
+        readyTimeout: readyTimeoutMs,
+        algorithms: SSH_ALGORITHMS,
+      };
+      if (hostKeyTrust) {
+        cfg.hostVerifier = makeHostKeyVerifier(hostKeyTrust, (presented, expected) => {
+          onHostKeyMismatch?.(presented, expected);
+        });
+      }
+      conn.connect(cfg);
+    } catch (e) {
+      reject(e as Error);
+    }
+  });
+}
+
+export interface SSHShellHandle {
+  stream: import("ssh2").ClientChannel;
+  /** Replies to \x1b[6n cursor-position-report probes in-band on the stream
+   *  (the RouterOS DSR fix). Exposed for consumers like executeOnce that
+   *  hold a RAW shell buffer and run stripAnsi() on it on demand at prompt-
+   *  inspection time, rather than stripping each chunk on receipt. Such
+   *  consumers must call this on every stdout chunk to remain unblocked. */
+  cursorRespond(chunk: Buffer | string): void;
+  /** Process a chunk of bytes. For source="stdout" the cursor responder runs
+   *  first (replies to \x1b[6n DSR probes in-band) and then the stateful
+   *  ANSI stripper returns a clean (display-safe) string. For source="stderr"
+   *  the cursor responder is skipped (stderr does not normally carry cursor
+   *  escapes) but the SAME stripState is shared so partial escapes split
+   *  across stdout/stderr boundaries still resolve correctly.
+   *
+   *  Use this when the consumer wants display-safe text per chunk (e.g. SSE
+   *  streaming to the browser); use cursorRespond directly + your own
+   *  stripAnsi-on-demand when the consumer holds raw bytes. */
+  processData(chunk: Buffer | string, source?: "stdout" | "stderr"): string;
+  /** Drain any partial-escape bytes still held by the stripper. Call from
+   *  the stream "close" handler so the very last line of output (often a
+   *  prompt) reaches the consumer instead of being silently dropped. Only
+   *  meaningful for consumers that use processData(); a no-op otherwise. */
+  flushTail(): string;
+}
+
+/**
+ * Open an interactive shell with the project's standard PTY config and wire
+ * up the cursor responder + stateful ANSI stripper. Returns a handle whose
+ * `stream` the caller binds its own data/close handlers to, calling
+ * `processData(chunk)` on each chunk to get clean text.
+ */
+export function openInteractiveShell(
+  conn: Client,
+  opts: { rows?: number; cols?: number; term?: string } = {},
+): Promise<SSHShellHandle> {
+  const rows = opts.rows ?? 24;
+  const cols = opts.cols ?? 200;
+  const term = opts.term ?? "vt100";
+  return new Promise<SSHShellHandle>((resolve, reject) => {
+    conn.shell({ rows, cols, term }, (err, stream) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      const cursorResponder = makeCursorResponder(stream, rows, cols);
+      const stripState = makeStripState();
+      resolve({
+        stream,
+        cursorRespond(chunk) {
+          const raw = typeof chunk === "string" ? chunk : chunk.toString("binary");
+          cursorResponder(raw);
+        },
+        processData(chunk, source = "stdout") {
+          const raw = typeof chunk === "string" ? chunk : chunk.toString("binary");
+          if (source === "stdout") cursorResponder(raw);
+          return stripAnsiStream(stripState, raw);
+        },
+        flushTail() {
+          return flushStripState(stripState);
+        },
+      });
+    });
+  });
+}
+
 // Run executeSSHCommand once with a custom Client factory, supporting jump host
 // and an optional enable-password handler. This is the primary single-attempt path.
 async function executeOnce(
@@ -1184,22 +1356,16 @@ async function executeOnce(
 
   let conn: Client;
   try {
-    conn = jumpHost
-      ? await connectViaJumpHost({ host, port, username, password, hostKeyTrust }, jumpHost, timeoutMs, log)
-      : await new Promise<Client>((resolve, reject) => {
-          const c = new Client();
-          c.once("ready", () => resolve(c));
-          c.once("error", (e) => reject(e));
-          try {
-            const cfg: any = { host, port, username, password, readyTimeout: timeoutMs, algorithms: SSH_ALGORITHMS };
-            if (hostKeyTrust) {
-              cfg.hostVerifier = makeHostKeyVerifier(hostKeyTrust, (presented, expected) => {
-                log.push(`[${ts()}] ERROR: Host key MISMATCH for ${host} (presented ${presented}, expected ${expected})`);
-              });
-            }
-            c.connect(cfg);
-          } catch (e: any) { reject(e); }
-        });
+    conn = await connectSSH({
+      host, port, username, password,
+      hostKeyTrust,
+      jumpHost: jumpHost ?? null,
+      readyTimeoutMs: timeoutMs,
+      log,
+      onHostKeyMismatch: (presented, expected) => {
+        log.push(`[${ts()}] ERROR: Host key MISMATCH for ${host} (presented ${presented}, expected ${expected})`);
+      },
+    });
   } catch (err: any) {
     log.push(`[${ts()}] ERROR: ${err.message}`);
     return { success: false, output: "", errorMessage: err.message, connectionLog: log.join("\n") };
@@ -1219,17 +1385,16 @@ async function executeOnce(
     }, timeoutMs);
 
     if (autoConfirm) {
-      // PTY: explicit rows/cols/term — see interactive-session.ts for the
-      // full reasoning. Skips the RouterOS terminal-size probe that would
-      // otherwise pin the shell waiting for a DSR reply.
-      conn.shell({ rows: 24, cols: 200, term: "vt100" }, (err, stream) => {
-        if (err) {
-          clearTimeout(timer);
-          log.push(`[${ts()}] ERROR: shell failed — ${err.message}`);
-          try { conn.end(); } catch {}
-          resolve({ success: false, output: "", errorMessage: err.message, connectionLog: log.join("\n") });
-          return;
-        }
+      // Open the standard PTY shell via the shared SSHSession primitive so
+      // the cursor-DSR responder and PTY config (rows/cols/term) match the
+      // interactive-session and standalone-terminal paths exactly. We
+      // deliberately use the handle's cursorRespond rather than processData
+      // here because executeOnce holds a RAW shellBuffer and runs
+      // stripAnsi() on it on demand at prompt-inspection time — switching
+      // to per-chunk stripping would change the bytes the prompt detectors
+      // see and potentially their behaviour.
+      openInteractiveShell(conn).then((shell) => {
+        const stream = shell.stream;
         let shellBuffer = "";
         let commandSent = false;
         let autoConfirmCount = 0;
@@ -1241,7 +1406,7 @@ async function executeOnce(
         let parkCount = 0;
         let lastParkChecked = "";    // Dedup the parked-prompt window so we don't re-park instantly
         let aborted: { reason: string } | null = null;  // Set by stuckPrompts.abort()
-        const cursorRespond = makeCursorResponder(stream, 24, 200);
+        const cursorRespond = (chunk: string) => shell.cursorRespond(chunk);
         let promptTick: ReturnType<typeof setInterval> | null = null;
         // Per-direction line buffers for the wire log.
         let recvBuf = "";

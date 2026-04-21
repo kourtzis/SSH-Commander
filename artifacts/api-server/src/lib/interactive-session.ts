@@ -13,24 +13,18 @@ import { EventEmitter } from "events";
 import { db, jobTasksTable, batchJobsTable } from "@workspace/db";
 import { eq, and, inArray } from "drizzle-orm";
 import {
-  SSH_ALGORITHMS,
   looksLikeConfirmPrompt,
   looksLikePagerPrompt,
   detectPromptType,
   extractPromptText,
   applyTagSubstitution,
   writeCommandWithControlChars,
-  makeHostKeyVerifier,
-  connectViaJumpHost,
   appendWireLog,
   flushWireLog,
   stripAnsi,
-  stripAnsiStream,
-  makeCursorResponder,
   tidyText,
-  flushStripState,
-  makeStripState,
-  type StripState,
+  connectSSH,
+  openInteractiveShell,
 } from "./ssh.js";
 import { resolveEffectiveCreds } from "./effective-creds.js";
 
@@ -343,7 +337,11 @@ class InteractiveSessionManager {
     const job = this.jobs.get(jobId);
     if (!job) return;
 
-    const conn = new Client();
+    // dev.conn is assigned after connectSSH resolves (below). Keep the field
+    // typed as Client (not nullable) to avoid threading null-checks through
+    // every cleanup path; the placeholder is replaced before any handler can
+    // reference it.
+    let conn: Client = null as unknown as Client;
     const log: string[] = [];
     // Per-device global timeout. Honors the per-job value chosen on the New
     // Job page; clamped to 5s..2h for sanity.
@@ -387,33 +385,59 @@ class InteractiveSessionManager {
       this.finalizeDevice(jobId, taskId, false, "Global timeout exceeded");
     }, timeoutMs);
 
-    conn.on("handshake", (negotiated) => {
-      log.push(`[${ts()}] Handshake complete`);
-      log.push(`[${ts()}]   KEX: ${negotiated.kex}`);
-      log.push(`[${ts()}]   Cipher (C→S): ${negotiated.cs.cipher}`);
-      log.push(`[${ts()}]   Server host key: ${negotiated.serverHostKey}`);
-    });
+    // Open the connection (direct or via bastion) and the standard PTY
+    // shell using the shared SSHSession primitive. The primitive owns the
+    // connect-and-shell lifecycle (algorithm list, host-key TOFU, PTY
+    // config, cursor-DSR responder, stateful ANSI stripper) so RouterOS /
+    // Cisco quirks behave identically here, in standalone terminals, and
+    // in auto-confirm batch jobs. Per-device upper-level state machine
+    // (prompt detection, sequenced send, multi-device SSE coordination)
+    // remains here; only the lower-level scaffolding moved to ssh.ts.
+    (async () => {
+      try {
+        if (router.jumpHost) {
+          log.push(`[${ts()}] Routing through jump host ${router.jumpHost.username}@${router.jumpHost.host}:${router.jumpHost.port}`);
+        }
+        conn = await connectSSH({
+          host: router.ipAddress,
+          port: router.sshPort,
+          username: router.sshUsername,
+          password: router.sshPassword!,
+          hostKeyTrust: { routerId: router.id, expectedFingerprint: router.sshHostKeyFingerprint ?? null },
+          jumpHost: router.jumpHost ?? null,
+          readyTimeoutMs: 30000,
+          log,
+          onHostKeyMismatch: (presented, expected) => {
+            log.push(`[${ts()}] ERROR: Host key MISMATCH for ${router.ipAddress} (presented ${presented}, expected ${expected})`);
+          },
+        }, {
+          onHandshake: (negotiated) => {
+            log.push(`[${ts()}] Handshake complete`);
+            log.push(`[${ts()}]   KEX: ${negotiated.kex}`);
+            log.push(`[${ts()}]   Cipher (C→S): ${negotiated.cs.cipher}`);
+            log.push(`[${ts()}]   Server host key: ${negotiated.serverHostKey}`);
+          },
+          onError: (err) => {
+            log.push(`[${ts()}] ERROR: ${err.message}`);
+            this.finalizeDevice(jobId, taskId, false, err.message);
+          },
+        });
+        dev.conn = conn;
 
-    conn.on("ready", () => {
-      log.push(`[${ts()}] Authentication successful`);
-      log.push(`[${ts()}] Opening interactive shell...`);
-      log.push(`[${ts()}] ──────────────────────────────────`);
-      dev.state = "running";
+        log.push(`[${ts()}] Authentication successful`);
+        log.push(`[${ts()}] Opening interactive shell...`);
+        log.push(`[${ts()}] ──────────────────────────────────`);
+        dev.state = "running";
 
-      // Pass an explicit PTY config so devices like MikroTik RouterOS don't
-      // fire terminal-size-probing escape sequences (\x1b[999;999H\x1b[6n)
-      // and then *block* waiting for a Device Status Report reply. With
-      // explicit rows/cols/term most devices skip the probe entirely. The
-      // <<DSR_RESPONDER>> handler below is a belt-and-braces fallback in
-      // case a device probes anyway. cols=200 avoids RouterOS auto-wrapping
-      // long output lines.
-      conn.shell({ rows: 24, cols: 200, term: "vt100" }, (err, stream) => {
-        if (err) {
+        let shell;
+        try {
+          shell = await openInteractiveShell(conn);
+        } catch (err: any) {
           log.push(`[${ts()}] ERROR: shell failed — ${err.message}`);
           this.finalizeDevice(jobId, taskId, false, err.message);
           return;
         }
-
+        const stream = shell.stream;
         dev.stream = stream;
 
         // Per-direction line buffers so partial chunks don't show as
@@ -421,17 +445,6 @@ class InteractiveSessionManager {
         // in ssh.ts for the full rationale.
         let recvBuf = "";
         let stderrBuf = "";
-        // Stream-aware ANSI stripper state. SSH chunks can split a single
-        // escape sequence (e.g. `\x1b[6n`) across two TCP frames; without
-        // state, the lone trailing `\x1b` of frame A gets eaten by the C0
-        // control-char rule and `[6n` arrives in frame B with nothing to
-        // anchor on, leaking to the UI as visible junk. stripState carries
-        // any trailing partial escape over to the next chunk.
-        const stripState: StripState = makeStripState();
-        // Smart DSR responder — replies to \x1b[6n with believable cursor
-        // positions so RouterOS-style devices stop probing and show their
-        // prompt. See makeCursorResponder() in ssh.ts for the full story.
-        const cursorRespond = makeCursorResponder(stream, 24, 200);
 
         // Idle timer: if no new data for 5s, check for prompts or close
         const resetIdleTimer = () => {
@@ -458,7 +471,7 @@ class InteractiveSessionManager {
           // Drain any partial-escape bytes still held by the stream stripper
           // — emit them as a final SSE chunk so the user sees the very last
           // line of output (typically a prompt).
-          const tail = flushStripState(stripState);
+          const tail = shell.flushTail();
           if (tail) {
             job.emitter.emit("event", {
               type: "task_output",
@@ -481,15 +494,13 @@ class InteractiveSessionManager {
           dev.shellBuffer += chunk;
           recvBuf = appendWireLog(log, recvBuf, "<<", chunk);
           resetIdleTimer();
-          cursorRespond(chunk);
 
-          // Stream output to SSE subscribers in real-time. Strip ANSI/control
-          // bytes so the live "Output" pane stays readable — raw bytes still
-          // go to the wire log via appendWireLog above for debugging. Use the
-          // stateful stripper so escape sequences split across TCP chunk
-          // boundaries are reassembled before stripping, instead of leaking
-          // their tail (e.g. `[6n`, `[9999B`) to the UI.
-          const cleanChunk = stripAnsiStream(stripState, chunk);
+          // shell.processData runs the cursor-DSR responder on the raw bytes
+          // (replies to \x1b[6n in-band so RouterOS stops blocking) and the
+          // stateful ANSI stripper that survives escape sequences split
+          // across TCP frames. Returns the cleaned text safe to forward to
+          // SSE subscribers — raw bytes still go to the wire log above.
+          const cleanChunk = shell.processData(chunk, "stdout");
           if (cleanChunk) {
             job.emitter.emit("event", {
               type: "task_output",
@@ -643,67 +654,15 @@ class InteractiveSessionManager {
           log.push(`[${ts()}] ERROR while waiting for shell prompt: ${err?.message ?? err}`);
           this.finalizeDevice(jobId, taskId, false, "prompt-wait error");
         });
-      });
-    });
-
-    conn.on("error", (err) => {
-      log.push(`[${ts()}] ERROR: ${err.message}`);
-      this.finalizeDevice(jobId, taskId, false, err.message);
-    });
-
-    try {
-      if (router.jumpHost) {
-        // Bastion path. connectViaJumpHost returns a fully authenticated
-        // Client; we then attach the same handlers we'd use for a direct
-        // connection by re-emitting the "ready" event ourselves so the
-        // shell-open code path runs identically.
-        log.push(`[${ts()}] Routing through jump host ${router.jumpHost.username}@${router.jumpHost.host}:${router.jumpHost.port}`);
-        connectViaJumpHost(
-          {
-            host: router.ipAddress,
-            port: router.sshPort,
-            username: router.sshUsername,
-            password: router.sshPassword!,
-            hostKeyTrust: { routerId: router.id, expectedFingerprint: router.sshHostKeyFingerprint ?? null },
-          },
-          router.jumpHost,
-          30000,
-          log,
-        ).then((readyConn) => {
-          // Swap conn references so cleanup paths still close the real one.
-          dev.conn = readyConn;
-          readyConn.on("error", (err) => {
-            log.push(`[${ts()}] ERROR: ${err.message}`);
-            this.finalizeDevice(jobId, taskId, false, err.message);
-          });
-          // Manually trigger the "ready" handler we pre-attached to the
-          // original placeholder — it knows how to open the shell.
-          readyConn.emit("ready");
-        }).catch((err: any) => {
-          log.push(`[${ts()}] ERROR: jump host connect failed — ${err.message}`);
-          this.finalizeDevice(jobId, taskId, false, err.message);
-        });
-      } else {
-        const cfg: any = {
-          host: router.ipAddress,
-          port: router.sshPort,
-          username: router.sshUsername,
-          password: router.sshPassword!,
-          readyTimeout: 30000,
-          algorithms: SSH_ALGORITHMS,
-        };
-        cfg.hostVerifier = makeHostKeyVerifier(
-          { routerId: router.id, expectedFingerprint: router.sshHostKeyFingerprint ?? null },
-          (presented, expected) => {
-            log.push(`[${ts()}] ERROR: Host key MISMATCH for ${router.ipAddress} (presented ${presented}, expected ${expected})`);
-          },
-        );
-        conn.connect(cfg);
+      } catch (err: any) {
+        // Catches connectSSH rejects (auth fail, network unreachable, host-key
+        // mismatch, jump-host failure) and any unexpected error inside the
+        // shell wiring above. Mirrors the old top-level try/catch behaviour
+        // and the now-removed conn.on("error") handler.
+        log.push(`[${ts()}] ERROR: ${err?.message ?? err}`);
+        this.finalizeDevice(jobId, taskId, false, err?.message ?? String(err));
       }
-    } catch (err: any) {
-      log.push(`[${ts()}] ERROR: Failed to initiate — ${err.message}`);
-      this.finalizeDevice(jobId, taskId, false, err.message);
-    }
+    })();
   }
 
   // Pause execution and emit an SSE event to request user input
