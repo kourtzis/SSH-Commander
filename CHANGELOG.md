@@ -12,6 +12,28 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.10.0] - 2026-04-21
+
+### Internal
+- **SSH primitive consolidation.** The connect-and-PTY logic was duplicated across three places:
+  - the auto-confirm batch path in `lib/ssh.ts` (`executeOnce`),
+  - the per-device standalone terminal in `routes/router-terminal.ts`,
+  - and the interactive job runner in `lib/interactive-session.ts`.
+
+  Each had its own copy of: dial-and-handshake, `connectViaJumpHost` wiring, host-key TOFU, the shared `SSH_ALGORITHMS` list, the `24×200 vt100` PTY config, the smart cursor-DSR responder (`makeCursorResponder`), and the stateful ANSI stripper (`stripAnsiStream` + `flushStripState`). Every fix from 1.8.20 onward (DSR responder, binary-decode ANSI stripping, explicit PTY dimensions, post-prompt idle timer) had to be applied three times by hand, and one of the three paths always lagged.
+
+  Extracted a shared **SSHSession primitive** in `lib/ssh.ts`:
+  - `connectSSH(opts, listeners)` — opens a direct or jump-host SSH connection with the project's standard algorithm list, optional host-key TOFU, and listener attachment that's safe across both paths (handshake fires only on the direct path; bastion path resolves post-handshake — documented).
+  - `openInteractiveShell(conn, opts?)` — opens a PTY shell with the standard `24×200 vt100` config and returns a handle exposing the underlying `stream`, a `cursorRespond(chunk)` for raw-byte consumers, a `processData(chunk, source?)` for stream-stripped consumers, and a `flushTail()` for end-of-stream drainage.
+
+  The three upper state machines on top (auto-confirm prompt detection + parking in `executeOnce`, multi-device SSE coordinator + sequenced send in `interactive-session`, raw-byte browser pipe in `router-terminal`) are unchanged.
+
+### Notes
+- No user-visible behaviour change. Same wire-log lines, same prompt detection, same parking, same terminal rendering, same fingerprinting. Strictly an internal cleanup so the next SSH-layer fix only has to be made once.
+- `ConnectSSHOptions.hostKeyTrust` is optional (only the legacy `executeOnce` ad-hoc / fingerprint path may pass undefined; all router-attached operations pass a real trust object).
+
+---
+
 ## [1.9.0] - 2026-04-21
 
 ### Added

@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.9.0";
+export const APP_VERSION = "1.10.0";
 export const APP_VERSION_DATE = "2026-04-21";
 
 
@@ -14,6 +14,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.10.0",
+    date: "2026-04-21",
+    sections: [
+      {
+        title: "Internal",
+        items: [
+          "SSH primitive consolidation. The connect-and-PTY logic was duplicated across three places (the auto-confirm batch path in ssh.ts, the per-device standalone terminal in router-terminal.ts, and the interactive job runner in interactive-session.ts). Each had its own copy of: dial-and-handshake, jump-host wiring, host-key TOFU, the SSH algorithm list, the 24×200 vt100 PTY config, the smart cursor-DSR responder, and the stateful ANSI stripper. Every fix from 1.8.20 onward had to be applied three times and one path always lagged. Extracted a shared SSHSession primitive (connectSSH + openInteractiveShell) that owns all of the above. The three upper state machines (auto-confirm prompt detection, multi-device SSE coordinator, raw-byte browser pipe) are unchanged on top of it.",
+          "No user-visible behaviour change. Same wire log lines, same prompt detection, same parking, same terminal rendering, same fingerprinting. This was strictly an internal cleanup so the next SSH-layer fix only has to be made once.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.9.0",
     date: "2026-04-21",
