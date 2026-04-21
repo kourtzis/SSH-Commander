@@ -76,8 +76,8 @@
   --accent: 216 34% 17%;
   --accent-foreground: 210 40% 98%;
   
-  --destructive: 0 63% 31%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive: 0 84% 65%;
+  --destructive-foreground: 0 0% 100%;
   
   --border: 216 34% 17%;
   --input: 216 34% 17%;
@@ -143,8 +143,18 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground antialiased selection:bg-primary/40 selection:text-white;
+    @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  /* Theme-aware text selection. White text on the light primary tint was
+     unreadable in light mode; use a darker selection text colour there. */
+  ::selection {
+    background-color: hsl(var(--primary) / 0.45);
+    color: hsl(var(--primary-foreground));
+  }
+  :root.light ::selection {
+    background-color: hsl(var(--primary) / 0.30);
+    color: hsl(var(--foreground));
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
