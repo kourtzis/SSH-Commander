@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: mikromanager
       POSTGRES_USER: mikromanager
-      POSTGRES_PASSWORD: changeme
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
@@ -25,8 +25,19 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://mikromanager:changeme@db:5432/mikromanager
-      SESSION_SECRET: change-this-to-a-long-random-string
+      DATABASE_URL: postgresql://mikromanager:${DB_PASSWORD}@db:5432/mikromanager
+      # Required. Min 16 chars. Cannot be a known placeholder string —
+      # the app will refuse to start in production if it is.
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      # Required as of 1.14.0. 32 bytes (64 hex chars or 44-char base64).
+      # AES-256-GCM master key for at-rest credential encryption.
+      # LOSING THIS KEY PERMANENTLY BRICKS EVERY STORED DEVICE PASSWORD.
+      # Back it up to your password manager / secrets vault.
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?set CREDENTIAL_ENCRYPTION_KEY in .env}
+      # Optional. Sets the admin password on the very first start (when
+      # no users exist). If unset, a random 24-char password is printed
+      # once to the container logs. Ignored on subsequent starts.
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       PORT: 3000
       NODE_ENV: production
       PUBLIC_DIR: /app/public
