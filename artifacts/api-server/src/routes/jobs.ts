@@ -25,7 +25,8 @@ import type { User } from "@workspace/db";
 import { executeSSH, applyTagSubstitution } from "../lib/ssh.js";
 import { resolveEffectiveCreds } from "../lib/effective-creds.js";
 import { interactiveSessions, type LiveEvent } from "../lib/interactive-session.js";
-import { stuckPrompts } from "../lib/stuck-prompts.js";
+import { stuckPrompts, type ParkedEvent } from "../lib/stuck-prompts.js";
+import { parsePagination } from "../lib/pagination.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "../lib/resolve-routers.js";
 
 // Authorization helper for /jobs/:id-style endpoints. Admins can access any
@@ -113,18 +114,113 @@ router.get("/jobs", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);
   const isAdmin = user?.role === "admin";
+  const page = parsePagination(req);
+  const where = isAdmin ? undefined : eq(batchJobsTable.createdBy, user!.id);
+  const orderCol = sql`${batchJobsTable.createdAt} DESC`;
+  if (page) {
+    // Paginated mode (opt-in via ?limit=). Single-row count uses the same
+    // WHERE so admins/operators see consistent totals matching the rows
+    // returned. Drizzle has no native COUNT(*) helper here so we use the
+    // SQL builder directly.
+    const baseSelect = db.select().from(batchJobsTable);
+    const baseCount = db.select({ n: sql<number>`count(*)::int` }).from(batchJobsTable);
+    const [items, totalRow] = await Promise.all([
+      where
+        ? baseSelect.where(where).orderBy(orderCol).limit(page.limit).offset(page.offset)
+        : baseSelect.orderBy(orderCol).limit(page.limit).offset(page.offset),
+      where ? baseCount.where(where) : baseCount,
+    ]);
+    res.json({
+      items: items.map((j) => ({ ...j, completedAt: j.completedAt ?? null })),
+      total: totalRow[0]?.n ?? 0,
+      limit: page.limit,
+      offset: page.offset,
+    });
+    return;
+  }
+  // Backward-compat: no `limit` param → return raw array as before.
+  // Ordering matches the paginated branch (newest first) so the response
+  // shape is the only thing that differs between the two modes.
   const baseQuery = db.select().from(batchJobsTable);
-  const jobs = isAdmin
-    ? await baseQuery.orderBy(batchJobsTable.createdAt)
-    : await baseQuery
-        .where(eq(batchJobsTable.createdBy, user!.id))
-        .orderBy(batchJobsTable.createdAt);
+  const jobs = where
+    ? await baseQuery.where(where).orderBy(orderCol)
+    : await baseQuery.orderBy(orderCol);
   res.json(
     jobs.map((j) => ({
       ...j,
       completedAt: j.completedAt ?? null,
     }))
   );
+});
+
+// ─── SSE: live parked-task feed ───────────────────────────────────
+// Replaces the every-3s `useQuery` poll on jobs/detail.tsx and the
+// sidebar "X parked" badge. Operators see a parked prompt the moment
+// the SSH side parks it instead of up to 3s later, and we no longer
+// burn one HTTP round-trip per polling client per 3s.
+//
+// Scope: admins see all parked tasks; operators see only tasks whose
+// jobs they own. Filter is enforced at emit time so a slow-network
+// operator can't see another operator's data even briefly.
+router.get("/tasks/parked/stream", async (req, res) => {
+  requireAuth(req);
+  const user = await getCurrentUser(req);
+  if (!user) { res.status(401).end(); return; }
+  const isAdmin = user.role === "admin";
+
+  // Cache job→ownership lookups so we don't hit Postgres on every
+  // emitted event during a busy run.
+  const ownsCache = new Map<number, boolean>();
+  async function operatorOwnsJob(jobId: number): Promise<boolean> {
+    if (isAdmin) return true;
+    const cached = ownsCache.get(jobId);
+    if (cached !== undefined) return cached;
+    const [j] = await db
+      .select({ createdBy: batchJobsTable.createdBy })
+      .from(batchJobsTable)
+      .where(eq(batchJobsTable.id, jobId))
+      .limit(1);
+    const owns = !!j && j.createdBy === user!.id;
+    ownsCache.set(jobId, owns);
+    return owns;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders?.();
+
+  // Initial snapshot — filter to the caller's scope.
+  const snapshot = stuckPrompts.list();
+  const visible = [];
+  for (const t of snapshot) {
+    if (await operatorOwnsJob(t.jobId)) visible.push(t);
+  }
+  res.write(`data: ${JSON.stringify({ type: "snapshot", tasks: visible })}\n\n`);
+
+  // Heartbeat so proxies / browsers don't time out an idle long-lived
+  // connection. SSE comments (lines starting with `:`) are ignored by
+  // the client but reset proxy idle timers.
+  const heartbeat = setInterval(() => {
+    try { res.write(`: ping\n\n`); } catch {}
+  }, 25_000);
+
+  const onChange = async (evt: ParkedEvent) => {
+    try {
+      if (!(await operatorOwnsJob(evt.task.jobId))) return;
+      res.write(`data: ${JSON.stringify(evt)}\n\n`);
+    } catch {}
+  };
+  stuckPrompts.on("change", onChange);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    stuckPrompts.off("change", onChange);
+    try { res.end(); } catch {}
+  });
 });
 
 // POST /jobs — Create and execute a new batch job.
@@ -360,6 +456,7 @@ async function runJobInBackground(
           autoConfirm,
           enablePassword: creds.enablePassword,
           jumpHost: creds.jumpHost,
+          useLegacyAlgorithms: creds.useLegacyAlgorithms,
           retryCount: reliability.retryCount,
           retryBackoffSeconds: reliability.retryBackoffSeconds,
           hostKeyTrust: { routerId: r.id, expectedFingerprint: r.sshHostKeyFingerprint ?? null },

@@ -30,6 +30,10 @@ export interface EffectiveCreds {
   password: string;
   enablePassword?: string;
   jumpHost?: JumpHostConfig;
+  /** Per-profile opt-in for the legacy SSH algorithm set. False (modern
+   *  defaults) when the router has no profile attached or the profile
+   *  has the flag unset. Surfaces directly from credential_profiles. */
+  useLegacyAlgorithms?: boolean;
 }
 
 type RouterRow = typeof routersTable.$inferSelect;
@@ -64,6 +68,8 @@ export async function resolveEffectiveCreds(router: RouterRow): Promise<Effectiv
   const password = profile.sshPassword ?? router.sshPassword ?? "";
   const enablePassword = profile.enablePassword ?? router.enablePassword ?? undefined;
 
+  const useLegacyAlgorithms = profile.useLegacyAlgorithms === true;
+
   let jumpHost: JumpHostConfig | undefined;
   if (profile.jumpHostId) {
     const [bastion] = await db
@@ -81,5 +87,5 @@ export async function resolveEffectiveCreds(router: RouterRow): Promise<Effectiv
     }
   }
 
-  return { username, password, enablePassword, jumpHost };
+  return { username, password, enablePassword, jumpHost, useLegacyAlgorithms };
 }

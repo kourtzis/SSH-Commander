@@ -66,6 +66,7 @@ async function executeJobTasks(
             autoConfirm: options.autoConfirm ?? undefined,
             enablePassword: creds.enablePassword,
             jumpHost: creds.jumpHost,
+            useLegacyAlgorithms: creds.useLegacyAlgorithms,
             retryCount: options.retryCount || 0,
             retryBackoffSeconds: options.retryBackoffSeconds || 5,
             hostKeyTrust: { routerId: r.id, expectedFingerprint: (r as any).sshHostKeyFingerprint ?? null },

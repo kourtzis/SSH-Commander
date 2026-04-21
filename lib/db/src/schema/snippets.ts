@@ -12,8 +12,8 @@ export const snippetsTable = pgTable("snippets", {
   tags: text("tags").array().notNull().default([]),  // Filterable labels (e.g. ["mikrotik", "firewall"])
   code: text("code").notNull(),                      // SSH command template — may contain {{TAG}} placeholders
   description: text("description"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_snippets_tags").using("gin", table.tags), // GIN index for fast @> containment queries
 ]);

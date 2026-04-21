@@ -147,25 +147,73 @@ export default function JobDetail() {
     refetchInterval: expandedTaskStatus === "running" ? 2000 : false,
   });
 
-  // Poll the parking lot while the job is running and uses auto-confirm.
-  // The interactive (autoConfirm=false) path uses SSE instead and never
-  // parks via this mechanism.
-  const { data: parkedTasks = [], refetch: refetchParked } = useQuery({
-    queryKey: ["job-parked-tasks", jobId],
-    queryFn: async () => {
-      const r = await fetch(`${baseUrl}/api/jobs/${jobId}/parked-tasks`, {
-        credentials: "include",
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json() as Promise<Array<{
-        taskId: number; jobId: number; routerId: number;
-        routerName: string; routerIp: string;
-        promptText: string; parkedAt: string; outputPreview: string;
-      }>>;
-    },
-    enabled: !!job && job.status === "running" && job.autoConfirm === true,
-    refetchInterval: 3000,
-  });
+  // Live parked-tasks stream. Replaces the previous 3s polling — operators
+  // see new prompts the moment SSH parks them. Filter to *this* job
+  // client-side (the SSE endpoint is global / scope-aware: admins see all
+  // jobs, operators see their own).
+  type Parked = {
+    taskId: number; jobId: number; routerId: number;
+    routerName: string; routerIp: string;
+    promptText: string; parkedAt: string; outputPreview: string;
+  };
+  const [parkedAll, setParkedAll] = useState<Parked[]>([]);
+  const parkedTasks = parkedAll.filter((p) => p.jobId === jobId);
+  // Stable callback — exposed so submit/abort handlers can manually drop a
+  // task before the SSE event arrives (instant UI response).
+  const refetchParked = () => {
+    // No-op; SSE keeps this fresh. Kept as a stable function so existing
+    // call sites (handler tail) compile unchanged.
+  };
+  useEffect(() => {
+    // Only stream while it actually matters. Auto-confirm jobs are the
+    // only ones that park; finished jobs no longer change.
+    if (!job || job.status !== "running" || job.autoConfirm !== true) return;
+
+    let es: EventSource | null = null;
+    let cancelled = false;
+
+    const open = () => {
+      if (cancelled) return;
+      es = new EventSource(`${baseUrl}/api/tasks/parked/stream`, { withCredentials: true });
+      es.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === "snapshot") {
+            setParkedAll(msg.tasks as Parked[]);
+          } else if (msg.type === "parked") {
+            setParkedAll((prev) => {
+              if (prev.some((p) => p.taskId === msg.task.taskId)) return prev;
+              return [...prev, msg.task as Parked];
+            });
+          } else if (msg.type === "unparked") {
+            setParkedAll((prev) => prev.filter((p) => p.taskId !== msg.task.taskId));
+          }
+        } catch {}
+      };
+      // EventSource auto-reconnects on transient errors; only intervene on
+      // visibility-loss (handled below) and explicit close on unmount.
+    };
+
+    // Visibility-loss cleanup: when the tab is backgrounded, browsers may
+    // throttle or hold the SSE connection open indefinitely. Close it on
+    // hide and reopen on visible to free the server-side resources and
+    // give the user a fresh snapshot when they return.
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        if (es) { try { es.close(); } catch {} es = null; }
+      } else if (document.visibilityState === "visible" && !es) {
+        open();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    open();
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
+      if (es) { try { es.close(); } catch {} es = null; }
+    };
+  }, [job?.status, job?.autoConfirm, jobId, baseUrl]);
 
   // Rising-edge sound cue when a new task parks. We only beep when the
   // count goes UP — not on every poll, not when one is resolved.
@@ -234,13 +282,29 @@ export default function JobDetail() {
     const baseUrl = import.meta.env.BASE_URL || "/";
     const url = `${baseUrl}api/jobs/${jobId}/live`;
 
-    const es = new EventSource(url, { withCredentials: true });
+    let es: EventSource | null = new EventSource(url, { withCredentials: true });
     eventSourceRef.current = es;
 
-    es.onopen = () => setSseConnected(true);
-    es.onerror = () => setSseConnected(false);
+    // Visibility-loss cleanup mirroring the parked-tasks stream above:
+    // background tabs can hold SSE conns open forever, exhausting server
+    // resources. Close on hide, reopen on visible.
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        if (es) { try { es.close(); } catch {} es = null; eventSourceRef.current = null; setSseConnected(false); }
+      } else if (document.visibilityState === "visible" && !es && job?.status === "running" && !job?.autoConfirm) {
+        es = new EventSource(url, { withCredentials: true });
+        eventSourceRef.current = es;
+        attach(es);
+      }
+    };
 
-    es.onmessage = (evt) => {
+    const attach = (src: EventSource) => {
+      src.onopen = () => setSseConnected(true);
+      src.onerror = () => setSseConnected(false);
+      src.onmessage = onMessage;
+    };
+
+    const onMessage = (evt: MessageEvent) => {
       try {
         const event: LiveEvent = JSON.parse(evt.data);
 
@@ -283,7 +347,7 @@ export default function JobDetail() {
 
         if (event.type === "job_complete") {
           refetch();
-          es.close();
+          if (es) { try { es.close(); } catch {} es = null; eventSourceRef.current = null; }
           setSseConnected(false);
         }
 
@@ -293,8 +357,13 @@ export default function JobDetail() {
       } catch {}
     };
 
+    attach(es);
+    document.addEventListener("visibilitychange", onVis);
+
     return () => {
-      es.close();
+      document.removeEventListener("visibilitychange", onVis);
+      if (es) { try { es.close(); } catch {} es = null; }
+      eventSourceRef.current = null;
       setSseConnected(false);
     };
   }, [job?.status, job?.autoConfirm, jobId]);

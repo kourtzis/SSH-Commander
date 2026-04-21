@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, index, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -16,7 +16,16 @@ export const credentialProfilesTable = pgTable("credential_profiles", {
   jumpHost: text("jump_host"),
   jumpPort: integer("jump_port"),
   description: text("description"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Opt-in switch: enable legacy/insecure SSH algorithms (ssh-rsa server
+  // host key, diffie-hellman-group1-sha1 KEX, 3des-cbc cipher, hmac-md5)
+  // for this profile only. Defaults off — modern openssh-9 + RouterOS-7
+  // negotiate fine without them. Turn on for old hardware (Cisco IOS 12,
+  // ancient HP ProCurve, RouterOS-6 with stock crypto) where the
+  // connection otherwise dies at "no matching host key/kex/mac". Scoped
+  // per profile so a single legacy device doesn't widen the algorithm
+  // surface for the whole fleet.
+  useLegacyAlgorithms: boolean("use_legacy_algorithms").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_credential_profiles_jump_host_id").on(table.jumpHostId),
 ]);

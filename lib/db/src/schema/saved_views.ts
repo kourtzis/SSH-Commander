@@ -11,7 +11,7 @@ export const savedViewsTable = pgTable("saved_views", {
   pageKey: text("page_key").notNull(),
   name: text("name").notNull(),
   viewState: json("view_state").$type<Record<string, unknown>>().notNull().default({}),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_saved_views_user_page").on(table.userId, table.pageKey),
 ]);

@@ -11,8 +11,17 @@
 // own state machines — this registry is not used by either.
 
 import type { Client, ClientChannel } from "ssh2";
+import { EventEmitter } from "node:events";
 
 const HARD_CEILING_MS = 30 * 60 * 1000;  // 30 min — auto-abort if no input
+
+// Event payload — matches PublicParkedTask exactly so SSE consumers can
+// JSON.stringify it without re-mapping. The "unparked" event uses the
+// same payload (so the UI can correlate with the row it just removed).
+export interface ParkedEvent {
+  type: "parked" | "unparked";
+  task: PublicParkedTask;
+}
 
 export interface ParkedTask {
   taskId: number;
@@ -43,7 +52,7 @@ export interface PublicParkedTask {
   outputPreview: string;
 }
 
-class StuckPromptRegistry {
+class StuckPromptRegistry extends EventEmitter {
   private parked = new Map<number, ParkedTask>();
 
   park(entry: Omit<ParkedTask, "parkedAt" | "hardTimer"> & { onAutoAbort: (taskId: number, reason: string) => void }): ParkedTask {
@@ -52,6 +61,9 @@ class StuckPromptRegistry {
     if (existing) {
       clearTimeout(existing.hardTimer);
       this.parked.delete(entry.taskId);
+      // Suppress the unparked event for the stale row — the new one is
+      // about to fire `parked` immediately and a flicker would confuse
+      // SSE consumers that diff by taskId.
     }
 
     const reason = `No operator input within ${HARD_CEILING_MS / 60_000} minutes — aborted`;
@@ -61,6 +73,7 @@ class StuckPromptRegistry {
       this.parked.delete(entry.taskId);
       try { live.abortFn(reason); } catch {}
       try { entry.onAutoAbort(entry.taskId, reason); } catch {}
+      this.emitChange("unparked", live);
     }, HARD_CEILING_MS);
 
     const record: ParkedTask = {
@@ -69,6 +82,7 @@ class StuckPromptRegistry {
       hardTimer,
     };
     this.parked.set(entry.taskId, record);
+    this.emitChange("parked", record);
     return record;
   }
 
@@ -86,6 +100,7 @@ class StuckPromptRegistry {
       live.stream.write(input + "\n");
     } catch {}
     try { live.resumeIdle(); } catch {}
+    this.emitChange("unparked", live);
     return true;
   }
 
@@ -96,6 +111,7 @@ class StuckPromptRegistry {
     this.parked.delete(taskId);
     clearTimeout(live.hardTimer);
     try { live.abortFn(reason); } catch {}
+    this.emitChange("unparked", live);
     return true;
   }
 
@@ -110,6 +126,17 @@ class StuckPromptRegistry {
     if (!live) return;
     clearTimeout(live.hardTimer);
     this.parked.delete(taskId);
+    this.emitChange("unparked", live);
+  }
+
+  private emitChange(type: "parked" | "unparked", record: ParkedTask) {
+    const evt: ParkedEvent = { type, task: toPublic(record) };
+    // setImmediate so the emit doesn't reenter under the caller's stack
+    // (e.g. abort() inside an SSH error handler) and accidentally observe
+    // a half-mutated registry state from an SSE listener.
+    setImmediate(() => {
+      try { this.emit("change", evt); } catch {}
+    });
   }
 
   list(): PublicParkedTask[] {

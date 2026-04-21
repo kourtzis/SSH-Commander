@@ -58,8 +58,8 @@ export const batchJobsTable = pgTable("batch_jobs", {
   completedTasks: integer("completed_tasks").notNull().default(0),  // Running counters updated as tasks finish
   failedTasks: integer("failed_tasks").notNull().default(0),
   createdBy: integer("created_by").notNull(),   // FK to users.id
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  completedAt: timestamp("completed_at"),       // Set when all tasks finish
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),       // Set when all tasks finish
 }, (table) => [
   index("idx_batch_jobs_status").on(table.status),
   index("idx_batch_jobs_created_by").on(table.createdBy),
@@ -81,8 +81,8 @@ export const jobTasksTable = pgTable("job_tasks", {
   promptText: text("prompt_text"),              // Current interactive prompt text (cleared on resume)
   failureReason: text("failure_reason"),        // For status="needs_attention": which signal word(s) matched + the line containing them
   attemptCount: integer("attempt_count").notNull().default(0), // How many SSH attempts were made
-  startedAt: timestamp("started_at"),
-  completedAt: timestamp("completed_at"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (table) => [
   index("idx_job_tasks_job_id").on(table.jobId),
   index("idx_job_tasks_router_id").on(table.routerId),

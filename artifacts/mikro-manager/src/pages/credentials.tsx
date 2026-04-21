@@ -55,6 +55,12 @@ export default function Credentials() {
   const [jumpHost, setJumpHost] = useState("");
   const [jumpPort, setJumpPort] = useState<string>("");
   const [description, setDescription] = useState("");
+  // Per-profile opt-in for the LEGACY_SSH_ALGORITHMS set on the backend
+  // (ssh-rsa server keys, dh-group1-sha1 KEX, hmac-sha1, 3des-cbc, …).
+  // Defaults off so the rest of the fleet keeps the modern algorithm
+  // surface. Operators only need to enable this for ancient gear that
+  // refuses to negotiate without legacy primitives.
+  const [useLegacyAlgorithms, setUseLegacyAlgorithms] = useState(false);
 
   if (user?.role !== "admin") {
     return (
@@ -77,6 +83,7 @@ export default function Credentials() {
       setJumpHost(p.jumpHost ?? "");
       setJumpPort(p.jumpPort ? String(p.jumpPort) : "");
       setDescription(p.description ?? "");
+      setUseLegacyAlgorithms(p.useLegacyAlgorithms === true);
     } else {
       setEditing(null);
       setName("");
@@ -87,6 +94,7 @@ export default function Credentials() {
       setJumpHost("");
       setJumpPort("");
       setDescription("");
+      setUseLegacyAlgorithms(false);
     }
     setIsOpen(true);
   };
@@ -103,6 +111,7 @@ export default function Credentials() {
       jumpHostId: jumpHostId ? parseInt(jumpHostId) : null,
       jumpHost: jumpHost.trim() || null,
       jumpPort: jumpPort ? parseInt(jumpPort) : null,
+      useLegacyAlgorithms,
     };
     // Only send password fields when non-empty so editing without retyping
     // them preserves the existing secret.
@@ -290,6 +299,25 @@ export default function Credentials() {
             <div className="space-y-2">
               <Label>Description</Label>
               <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Notes…" />
+            </div>
+            <div className="border-t border-white/5 pt-4">
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={useLegacyAlgorithms}
+                  onChange={(e) => setUseLegacyAlgorithms(e.target.checked)}
+                  data-testid="legacy-algorithms-checkbox"
+                />
+                <div>
+                  <div className="text-sm font-medium">Allow legacy SSH algorithms</div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Enables ssh-rsa host keys, diffie-hellman-group1/14-sha1, hmac-sha1, 3des-cbc, aes-cbc.
+                    Only needed for very old devices (RouterOS 6 stock crypto, Cisco IOS 12, legacy ProCurve).
+                    Leave off for modern gear.
+                  </p>
+                </div>
+              </label>
             </div>
           </div>
           <DialogFooter>

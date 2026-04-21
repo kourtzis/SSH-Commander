@@ -5,9 +5,10 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { CreateUserBody, UpdateUserBody } from "@workspace/api-zod";
 import { getCurrentUser, requireAuth, requireAdmin } from "../lib/auth.js";
+import { parsePagination } from "../lib/pagination.js";
 
 const router: IRouter = Router();
 
@@ -28,6 +29,20 @@ router.get("/users", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);
   requireAdmin(user!);
+  const page = parsePagination(req);
+  if (page) {
+    const [items, totalRow] = await Promise.all([
+      db.select().from(usersTable).orderBy(usersTable.createdAt).limit(page.limit).offset(page.offset),
+      db.select({ n: sql<number>`count(*)::int` }).from(usersTable),
+    ]);
+    res.json({
+      items: items.map(sanitizeUser),
+      total: totalRow[0]?.n ?? 0,
+      limit: page.limit,
+      offset: page.offset,
+    });
+    return;
+  }
   const users = await db.select().from(usersTable).orderBy(usersTable.createdAt);
   res.json(users.map(sanitizeUser));
 });

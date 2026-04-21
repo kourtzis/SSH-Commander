@@ -16,7 +16,7 @@ export const usersTable = pgTable("users", {
   // have terminal access; operators must be explicitly granted because a
   // terminal is a raw root shell on production gear with no audit trail.
   canTerminal: boolean("can_terminal").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Zod schema for inserting new users (auto-fields excluded)

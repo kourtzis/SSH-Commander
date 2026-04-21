@@ -12,6 +12,30 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.12.0] - 2026-04-21
+
+### Added
+- **Per-credential-profile legacy SSH algorithms.** Each credential profile now has an "Allow legacy SSH algorithms" toggle. When off (the default), connections negotiate only the modern algorithm set (curve25519/ecdh KEX, AES-GCM/CTR ciphers, ed25519/ecdsa host keys, hmac-sha2 MACs) — which is what openssh-9 and RouterOS-7 want. Turn it on per profile to add `ssh-rsa` host keys, `diffie-hellman-group1-sha1` / `group14-sha1` KEX, `3des-cbc` / `aes128-cbc` ciphers, and `hmac-sha1` / `hmac-md5` MACs for old hardware (Cisco IOS 12, ancient HP ProCurve, RouterOS-6 with stock crypto). Scoped per profile so a single legacy device doesn't widen the algorithm surface for the whole fleet. Flag flows through one-shot jobs, the interactive web terminal, and the scheduler.
+- **Opt-in pagination on list endpoints.** `GET /routers`, `GET /jobs`, `GET /snippets`, `GET /users`, and `GET /schedules` now accept `?limit=N&offset=M`. With `limit` set, the response is `{ items, total, limit, offset }`; without it, the endpoint still returns a bare array (fully backward compatible — existing UI keeps working unchanged). Limit is hard-capped at 500 to keep large fleets from blowing memory on a single request. New shared helper `lib/pagination.ts` parses + validates query params in one place.
+- **Live SSE channel for parked tasks.** New endpoint `GET /api/tasks/parked/stream` (Server-Sent Events) emits an initial snapshot then live `parked` / `unparked` events. Scope-aware: admins see every parked task across the fleet, operators see only tasks on jobs they own (with an in-memory ownership cache). 25-second heartbeat keeps proxies from killing the connection. The job-detail page now subscribes to this stream instead of polling `GET /jobs/:id/parked-tasks` every 3 s — same UX, no busy-poll.
+
+### Schema
+- **All user-facing time columns moved to `timestamptz`** across routers, schedules, users, snippets, credential_profiles, jobs, and groups. Sessions (`sessions.expire`) is unchanged because it's owned by express-session. Stored values are unchanged on existing rows — Postgres reinterprets the wall-clock timestamp as UTC by default — but new writes record an explicit timezone, so cross-timezone deployments no longer drift on the daily summary timestamps shown in the UI.
+- **Foreign-key cascade indexes** added on `credential_profiles.jump_host_id` and other FK columns that were doing sequential scans on cascade delete / lookup. Verified every FK column on the high-traffic tables (routers, jobs, job_tasks, schedules, group_routers) has a covering index.
+- **`credential_profiles.use_legacy_algorithms boolean not null default false`** — backs the new per-profile algorithm toggle (see Added).
+
+### Fixed
+- **EventSource streams now release on tab background.** The job-detail page (both the live SSE feed and the new parked-tasks stream) and the router-terminal page used to keep their `EventSource` open indefinitely after the user switched away. With many operators that meant dozens of half-dead long-lived connections per API replica. Now we close on `visibilitychange → hidden` and reopen cleanly on visible. Catches up on missed events through the snapshot the SSE endpoints emit on (re)subscribe.
+- **Admin-disconnect race in the interactive terminal.** The web terminal's SSE handler (`routes/router-terminal.ts`) had a window between "request comes in" and "ssh2 client.connect resolves" where an early client `req.on("close")` would skip cleanup, leaving the SSH socket and connect timer dangling until ssh2 timed out on its own. We now register the close handler before the connect call and have it fire idempotently against whatever resources exist at the time of close. When an admin force-closes an operator's terminal, the operator sees an explicit "Terminal closed by administrator" line in their stream instead of the connection just going silent.
+
+### Internal
+- New `lib/pagination.ts` (shared `parsePagination(req)` helper) is the single source of truth for limit/offset parsing across all list endpoints.
+- New `lib/stuck-prompts.ts` `EventEmitter` decouples the parked/unparked state machine from any specific transport — the SSE endpoint subscribes to it, but the same emitter is reused for the sidebar badge counter without re-running the DB query.
+- `routes/router-terminal.ts` connection-cleanup logic refactored to a single `cleanup()` closure that's safe to call multiple times. Eliminates the four overlapping cleanup paths the file used to have.
+- Frontend pagination UI (Prev/Next + page-size selector) for the routers and jobs lists is intentionally deferred to a follow-up — the backend is in place, the existing UI keeps working against the bare-array shape.
+
+---
+
 ## [1.11.0] - 2026-04-21
 
 ### Security

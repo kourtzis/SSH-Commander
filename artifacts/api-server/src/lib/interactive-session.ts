@@ -405,6 +405,7 @@ class InteractiveSessionManager {
           password: router.sshPassword!,
           hostKeyTrust: { routerId: router.id, expectedFingerprint: router.sshHostKeyFingerprint ?? null },
           jumpHost: router.jumpHost ?? null,
+          useLegacyAlgorithms: (router as any).useLegacyAlgorithms === true,
           readyTimeoutMs: 30000,
           log,
           onHostKeyMismatch: (presented, expected) => {

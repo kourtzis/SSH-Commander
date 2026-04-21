@@ -8,6 +8,7 @@ import { db, snippetsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { CreateSnippetBody, UpdateSnippetBody } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth.js";
+import { parsePagination } from "../lib/pagination.js";
 
 const router: IRouter = Router();
 
@@ -16,14 +17,25 @@ const router: IRouter = Router();
 router.get("/snippets", async (req, res) => {
   requireAuth(req);
   const tag = req.query.tag as string | undefined;
-  let query = db.select().from(snippetsTable).orderBy(snippetsTable.name);
-  if (tag) {
-    const filtered = await db.select().from(snippetsTable)
-      .where(sql`${snippetsTable.tags} @> ARRAY[${tag}]::text[]`)
-      .orderBy(snippetsTable.name);
-    res.json(filtered);
+  const page = parsePagination(req);
+  const tagFilter = tag ? sql`${snippetsTable.tags} @> ARRAY[${tag}]::text[]` : undefined;
+  if (page) {
+    const baseSelect = db.select().from(snippetsTable);
+    const baseCount = db.select({ n: sql<number>`count(*)::int` }).from(snippetsTable);
+    const [items, totalRow] = await Promise.all([
+      (tagFilter
+        ? baseSelect.where(tagFilter)
+        : baseSelect
+      ).orderBy(snippetsTable.name).limit(page.limit).offset(page.offset),
+      tagFilter ? baseCount.where(tagFilter) : baseCount,
+    ]);
+    res.json({ items, total: totalRow[0]?.n ?? 0, limit: page.limit, offset: page.offset });
+    return;
+  }
+  if (tagFilter) {
+    res.json(await db.select().from(snippetsTable).where(tagFilter).orderBy(snippetsTable.name));
   } else {
-    res.json(await query);
+    res.json(await db.select().from(snippetsTable).orderBy(snippetsTable.name));
   }
 });
 

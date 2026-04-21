@@ -9,6 +9,7 @@ import { CreateRouterBody, UpdateRouterBody } from "@workspace/api-zod";
 import { requireAuth, requireAdminAuth } from "../lib/auth.js";
 import { executeSSH } from "../lib/ssh.js";
 import { resolveEffectiveCreds } from "../lib/effective-creds.js";
+import { parsePagination } from "../lib/pagination.js";
 import * as net from "net";
 
 const router: IRouter = Router();
@@ -32,28 +33,28 @@ function sanitizeRouter(r: typeof routersTable.$inferSelect) {
   };
 }
 
-// GET /routers — List all routers (column-selective: excludes sshPassword)
+// GET /routers — List all routers (column-selective: excludes sshPassword).
+// Pagination is opt-in via ?limit= (cap 500) — default returns the full
+// array for backward compat with existing clients.
 router.get("/routers", async (req, res) => {
   requireAuth(req);
-  const routers = await db
-    .select({
-      id: routersTable.id,
-      name: routersTable.name,
-      ipAddress: routersTable.ipAddress,
-      sshPort: routersTable.sshPort,
-      sshUsername: routersTable.sshUsername,
-      description: routersTable.description,
-      credentialProfileId: routersTable.credentialProfileId,
-      vendor: routersTable.vendor,
-      model: routersTable.model,
-      osVersion: routersTable.osVersion,
-      lastFingerprintAt: routersTable.lastFingerprintAt,
-      enablePassword: routersTable.enablePassword,
-      createdAt: routersTable.createdAt,
-    })
-    .from(routersTable)
-    .orderBy(routersTable.name);
-  res.json(routers.map((r) => ({
+  const page = parsePagination(req);
+  const cols = {
+    id: routersTable.id,
+    name: routersTable.name,
+    ipAddress: routersTable.ipAddress,
+    sshPort: routersTable.sshPort,
+    sshUsername: routersTable.sshUsername,
+    description: routersTable.description,
+    credentialProfileId: routersTable.credentialProfileId,
+    vendor: routersTable.vendor,
+    model: routersTable.model,
+    osVersion: routersTable.osVersion,
+    lastFingerprintAt: routersTable.lastFingerprintAt,
+    enablePassword: routersTable.enablePassword,
+    createdAt: routersTable.createdAt,
+  };
+  const shape = (r: typeof cols extends infer _ ? any : never) => ({
     id: r.id,
     name: r.name,
     ipAddress: r.ipAddress,
@@ -67,7 +68,17 @@ router.get("/routers", async (req, res) => {
     lastFingerprintAt: r.lastFingerprintAt ?? null,
     hasEnablePassword: !!r.enablePassword,
     createdAt: r.createdAt,
-  })));
+  });
+  if (page) {
+    const [items, totalRow] = await Promise.all([
+      db.select(cols).from(routersTable).orderBy(routersTable.name).limit(page.limit).offset(page.offset),
+      db.select({ n: sql<number>`count(*)::int` }).from(routersTable),
+    ]);
+    res.json({ items: items.map(shape), total: totalRow[0]?.n ?? 0, limit: page.limit, offset: page.offset });
+    return;
+  }
+  const routers = await db.select(cols).from(routersTable).orderBy(routersTable.name);
+  res.json(routers.map(shape));
 });
 
 // POST /routers — Create a single router (admin only — operators get 403)
@@ -529,6 +540,7 @@ async function fingerprintOne(routerId: number): Promise<{ success: boolean; ven
         autoConfirm: true,
         enablePassword: creds.enablePassword,
         jumpHost: creds.jumpHost,
+        useLegacyAlgorithms: creds.useLegacyAlgorithms,
         hostKeyTrust: { routerId: r.id, expectedFingerprint: r.sshHostKeyFingerprint ?? null },
       });
       if (!result.success) {

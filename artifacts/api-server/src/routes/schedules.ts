@@ -1,12 +1,22 @@
 import { Router, type IRouter } from "express";
 import { db, schedulesTable, batchJobsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { requireAuth, requireAdminAuth, getCurrentUser } from "../lib/auth.js";
+import { parsePagination } from "../lib/pagination.js";
 
 const router: IRouter = Router();
 
 router.get("/schedules", async (req, res) => {
   requireAuth(req);
+  const page = parsePagination(req);
+  if (page) {
+    const [items, totalRow] = await Promise.all([
+      db.select().from(schedulesTable).orderBy(schedulesTable.createdAt).limit(page.limit).offset(page.offset),
+      db.select({ n: sql<number>`count(*)::int` }).from(schedulesTable),
+    ]);
+    res.json({ items, total: totalRow[0]?.n ?? 0, limit: page.limit, offset: page.offset });
+    return;
+  }
   const schedules = await db.select().from(schedulesTable).orderBy(schedulesTable.createdAt);
   res.json(schedules);
 });

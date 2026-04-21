@@ -718,26 +718,80 @@ export function makeHostKeyVerifier(
 }
 
 // ─── SSH Algorithm Configuration ────────────────────────────────────
-// Broad algorithm set for compatibility with older MikroTik RouterOS versions
-// and other network equipment that may not support modern ciphers.
-export const SSH_ALGORITHMS: import("ssh2").Algorithms = {
+// Two profiles, switched per credential profile via the
+// `use_legacy_algorithms` flag (default: MODERN).
+//
+//   MODERN  — what openssh-9 / RouterOS-7 / IOS-XE-17 negotiate by default.
+//             Drops everything broken-by-design (ssh-rsa server key,
+//             diffie-hellman-group1-sha1, 3des-cbc, ssh-dss, hmac-md5,
+//             hmac-sha1).
+//   LEGACY  — superset that also enables the broken algorithms above for
+//             ancient gear (Cisco IOS 12, RouterOS 6 stock crypto, old
+//             ProCurve switches) where the connection otherwise dies at
+//             "no matching host key/kex/mac". Opt-in per credential
+//             profile so we never silently widen the surface for the
+//             whole fleet.
+//
+// Previously a single broad set was hard-coded for every connection,
+// flagged as a code smell in the v1.10/1.11 audit.
+export const MODERN_SSH_ALGORITHMS: import("ssh2").Algorithms = {
   kex: [
-    "diffie-hellman-group14-sha256",
-    "diffie-hellman-group14-sha1",
-    "diffie-hellman-group1-sha1",
+    "curve25519-sha256",
+    "curve25519-sha256@libssh.org",
     "ecdh-sha2-nistp256",
+    "ecdh-sha2-nistp384",
     "ecdh-sha2-nistp521",
+    "diffie-hellman-group14-sha256",
+    "diffie-hellman-group16-sha512",
   ],
   cipher: [
+    "aes128-gcm@openssh.com",
+    "aes256-gcm@openssh.com",
     "aes128-ctr",
     "aes192-ctr",
     "aes256-ctr",
+  ],
+  serverHostKey: [
+    "ssh-ed25519",
+    "ecdsa-sha2-nistp256",
+    "ecdsa-sha2-nistp384",
+    "ecdsa-sha2-nistp521",
+    "rsa-sha2-512",
+    "rsa-sha2-256",
+  ],
+  hmac: ["hmac-sha2-256", "hmac-sha2-512"],
+};
+
+// ssh2's `AlgorithmList<T>` is a non-iterable typed array, so we can't
+// spread it; build LEGACY by mutating typed copies of MODERN.* arrays
+// (cast to plain arrays of the same union for `.concat()` to type-check).
+export const LEGACY_SSH_ALGORITHMS: import("ssh2").Algorithms = {
+  kex: ([...(MODERN_SSH_ALGORITHMS.kex as unknown as readonly any[])] as any[]).concat([
+    "diffie-hellman-group14-sha1",
+    "diffie-hellman-group1-sha1",
+  ]),
+  cipher: ([...(MODERN_SSH_ALGORITHMS.cipher as unknown as readonly any[])] as any[]).concat([
     "aes128-cbc",
     "3des-cbc",
-  ],
-  serverHostKey: ["ssh-rsa", "ecdsa-sha2-nistp256", "ssh-dss"],
-  hmac: ["hmac-sha2-256", "hmac-sha1", "hmac-md5"],
+  ]),
+  serverHostKey: ([...(MODERN_SSH_ALGORITHMS.serverHostKey as unknown as readonly any[])] as any[]).concat([
+    "ssh-rsa",
+    "ssh-dss",
+  ]),
+  hmac: ([...(MODERN_SSH_ALGORITHMS.hmac as unknown as readonly any[])] as any[]).concat([
+    "hmac-sha1",
+    "hmac-md5",
+  ]),
 };
+
+export function getSshAlgorithms(useLegacy?: boolean): import("ssh2").Algorithms {
+  return useLegacy ? LEGACY_SSH_ALGORITHMS : MODERN_SSH_ALGORITHMS;
+}
+
+// Back-compat alias: old name used by external imports (none currently
+// outside this file). Defaults to modern; pass useLegacyAlgorithms via
+// SSHExecOptions / ConnectSSHOptions to opt into the legacy set.
+export const SSH_ALGORITHMS = MODERN_SSH_ALGORITHMS;
 
 // ─── SSH Command Execution ──────────────────────────────────────────
 // Connects to a device, runs a script, and returns the full output + connection log.
@@ -1015,7 +1069,7 @@ export async function executeSSHCommand(
     });
 
     try {
-      conn.connect({ host, port, username, password, readyTimeout: timeoutMs, algorithms: SSH_ALGORITHMS });
+      conn.connect({ host, port, username, password, readyTimeout: timeoutMs, algorithms: getSshAlgorithms(false) });
     } catch (err: any) {
       clearTimeout(timer);
       log.push(`[${ts()}] ERROR: Failed to initiate connection — ${err.message}`);
@@ -1046,6 +1100,8 @@ export interface SSHExecOptions {
    * persists the device's host key fingerprint and every subsequent
    * connection refuses to authenticate if the presented key changes. */
   hostKeyTrust?: HostKeyTrust;
+  /** Per-profile opt-in for the LEGACY_SSH_ALGORITHMS set. Default modern. */
+  useLegacyAlgorithms?: boolean;
   /** Job/task identity used when parking on an unrecognised prompt.
    * Without this the auto-confirm shell behaves exactly as before
    * (post-command idle = session done). */
@@ -1089,7 +1145,7 @@ function isRetryableError(msg?: string): boolean {
 // Exported so interactive sessions (which don't go through executeSSH) can
 // also route through a bastion.
 export async function connectViaJumpHost(
-  target: { host: string; port: number; username: string; password: string; hostKeyTrust?: HostKeyTrust },
+  target: { host: string; port: number; username: string; password: string; hostKeyTrust?: HostKeyTrust; useLegacyAlgorithms?: boolean },
   jump: JumpHostConfig,
   timeoutMs: number,
   log: string[],
@@ -1123,7 +1179,7 @@ export async function connectViaJumpHost(
             username: target.username,
             password: target.password,
             readyTimeout: timeoutMs,
-            algorithms: SSH_ALGORITHMS,
+            algorithms: getSshAlgorithms(target.useLegacyAlgorithms),
           };
           if (target.hostKeyTrust) {
             cfg.hostVerifier = makeHostKeyVerifier(target.hostKeyTrust, (presented, expected) => {
@@ -1147,7 +1203,11 @@ export async function connectViaJumpHost(
         username: jump.username,
         password: jump.password,
         readyTimeout: timeoutMs,
-        algorithms: SSH_ALGORITHMS,
+        // Bastion uses the same algorithm policy as the target — if a profile
+        // opts into legacy on the target, the bastion is presumed to also
+        // require it (typically true: same era of hardware in front of the
+        // ancient kit).
+        algorithms: getSshAlgorithms(target.useLegacyAlgorithms),
       });
     } catch (e: any) {
       reject(e);
@@ -1185,6 +1245,8 @@ export interface ConnectSSHOptions {
    *  all router-attached operations pass a real trust object. */
   hostKeyTrust?: HostKeyTrust;
   jumpHost?: JumpHostConfig | null;
+  /** Per-profile opt-in for the LEGACY_SSH_ALGORITHMS set. Default modern. */
+  useLegacyAlgorithms?: boolean;
   readyTimeoutMs: number;
   /** If provided, jump-host setup messages are appended here (preserves the
    *  wire-log output that interactive-session and ssh.ts already emit). */
@@ -1217,7 +1279,7 @@ export async function connectSSH(
   opts: ConnectSSHOptions,
   listeners?: SSHListeners,
 ): Promise<Client> {
-  const { host, port, username, password, hostKeyTrust, jumpHost, readyTimeoutMs, log, onHostKeyMismatch } = opts;
+  const { host, port, username, password, hostKeyTrust, jumpHost, useLegacyAlgorithms, readyTimeoutMs, log, onHostKeyMismatch } = opts;
 
   if (jumpHost) {
     // connectViaJumpHost resolves AFTER the target Client is "ready"; we
@@ -1226,7 +1288,7 @@ export async function connectSSH(
     // requiring handshake details on both paths should treat the absence as
     // expected on the bastion path.
     const conn = await connectViaJumpHost(
-      { host, port, username, password, hostKeyTrust },
+      { host, port, username, password, hostKeyTrust, useLegacyAlgorithms },
       jumpHost,
       readyTimeoutMs,
       log ?? [],
@@ -1247,7 +1309,7 @@ export async function connectSSH(
       const cfg: any = {
         host, port, username, password,
         readyTimeout: readyTimeoutMs,
-        algorithms: SSH_ALGORITHMS,
+        algorithms: getSshAlgorithms(useLegacyAlgorithms),
       };
       if (hostKeyTrust) {
         cfg.hostVerifier = makeHostKeyVerifier(hostKeyTrust, (presented, expected) => {
@@ -1360,6 +1422,7 @@ async function executeOnce(
       host, port, username, password,
       hostKeyTrust,
       jumpHost: jumpHost ?? null,
+      useLegacyAlgorithms: options.useLegacyAlgorithms,
       readyTimeoutMs: timeoutMs,
       log,
       onHostKeyMismatch: (presented, expected) => {

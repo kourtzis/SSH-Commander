@@ -39,6 +39,7 @@ function sanitize(p: typeof credentialProfilesTable.$inferSelect) {
     jumpHost: p.jumpHost,
     jumpPort: p.jumpPort,
     description: p.description,
+    useLegacyAlgorithms: p.useLegacyAlgorithms === true,
     createdAt: p.createdAt,
   };
 }
@@ -53,7 +54,7 @@ router.get("/credentials", async (req, res) => {
 router.post("/credentials", async (req, res) => {
   const user = await authedUser(req);
   requireAdmin(user);
-  const { name, sshUsername, sshPassword, enablePassword, jumpHostId, jumpHost, jumpPort, description } = req.body ?? {};
+  const { name, sshUsername, sshPassword, enablePassword, jumpHostId, jumpHost, jumpPort, description, useLegacyAlgorithms } = req.body ?? {};
   if (!name || !sshUsername) {
     res.status(400).json({ error: "name and sshUsername are required" });
     return;
@@ -80,6 +81,7 @@ router.post("/credentials", async (req, res) => {
       jumpHost: toStrOrNull(jumpHost),
       jumpPort: toIntOrNull(jumpPort),
       description: toStrOrNull(description),
+      useLegacyAlgorithms: useLegacyAlgorithms === true,
     })
     .returning();
   res.status(201).json(sanitize(created));
@@ -112,6 +114,7 @@ router.put("/credentials/:id", async (req, res) => {
   if (b.jumpHost !== undefined) updates.jumpHost = toStrOrNull(b.jumpHost);
   if (b.jumpPort !== undefined) updates.jumpPort = toIntOrNull(b.jumpPort);
   if (b.description !== undefined) updates.description = toStrOrNull(b.description);
+  if (b.useLegacyAlgorithms !== undefined) updates.useLegacyAlgorithms = b.useLegacyAlgorithms === true;
 
   const [updated] = await db
     .update(credentialProfilesTable)

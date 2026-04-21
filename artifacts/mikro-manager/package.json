@@ -1,6 +1,6 @@
 {
   "name": "@workspace/mikro-manager",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "private": true,
   "type": "module",
   "scripts": {

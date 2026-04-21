@@ -9,7 +9,7 @@ export const routerGroupsTable = pgTable("router_groups", {
   name: text("name").notNull(),
   description: text("description"),
   parentId: integer("parent_id"),  // Legacy parent pointer (UI uses subgroups join table instead)
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_router_groups_parent_id").on(table.parentId),
 ]);

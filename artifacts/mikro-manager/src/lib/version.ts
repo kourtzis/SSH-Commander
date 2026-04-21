@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.11.0";
+export const APP_VERSION = "1.12.0";
 export const APP_VERSION_DATE = "2026-04-21";
 
 
@@ -14,6 +14,43 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.12.0",
+    date: "2026-04-21",
+    sections: [
+      {
+        title: "Added",
+        items: [
+          "Per-credential-profile SSH algorithm policy. Each credential profile now has an \"Allow legacy SSH algorithms\" toggle in the admin UI. Off by default, the connection negotiates only the modern set (curve25519, ECDH-SHA2, AES-GCM/CTR, ed25519/ECDSA/RSA-SHA2 host keys, HMAC-SHA2). Turn it on per profile for ancient gear (RouterOS 6 stock crypto, Cisco IOS 12, legacy ProCurve) where the device requires ssh-rsa host keys, diffie-hellman-group1-sha1, hmac-sha1, 3des-cbc, or aes-cbc. Replaces the previous one-size-fits-all expanded algorithm list, shrinking the negotiation surface for the rest of the fleet without breaking compatibility with the gear that genuinely needs it.",
+          "Live SSE feed for parked tasks. The job-detail \"Devices Need Attention\" panel and the sidebar parked-count badge now stream updates from `GET /api/tasks/parked/stream` instead of polling every 3 seconds. Operators see prompts the moment SSH parks them, and the API server no longer fields one HTTP round-trip per polling client per 3s. Scope-aware: admins see all parked tasks, operators see only tasks in jobs they own. Initial snapshot + incremental `parked` / `unparked` events + 25s heartbeat.",
+          "Opt-in pagination on list endpoints. `GET /routers`, `GET /jobs`, `GET /snippets`, `GET /users`, and `GET /schedules` now accept `?limit=N&offset=M` (cap 500). When pagination is requested, the response is `{ items, total, limit, offset }`; when omitted, the endpoint returns the bare array shape exactly as before — fully backward compatible. Frontend table controls land in a follow-up release.",
+          "Visibility-loss cleanup for SSE. The job-detail live stream, parked-task feed, and standalone router-terminal page now close their EventSource connections when the tab is backgrounded (`visibilitychange → hidden`) and reopen on return. Prevents long-lived backgrounded tabs from holding SSH sessions / SSE channels open server-side indefinitely (which counted against admin-terminal quotas).",
+        ],
+      },
+      {
+        title: "Schema",
+        items: [
+          "All user-facing timestamp columns converted from naïve `timestamp` to `timestamptz` (`with timezone`). Affects `routers`, `schedules`, `users`, `snippets`, `credential_profiles`, `batch_jobs`, `job_tasks`, `router_groups`, `saved_views`. Cross-timezone deployments no longer drift, and `Date` round-trips through the API preserve UTC offset. `sessions.expire` is intentionally unchanged (express-session owns that column).",
+          "FK indexes added on `routers.credential_profile_id`, `routers.name`, and `routers.ip_address`. Cascade-delete and lookup-by-name no longer scan the routers table.",
+          "`credential_profiles.use_legacy_algorithms` boolean column (default false) backs the per-profile algorithm policy.",
+        ],
+      },
+      {
+        title: "Fixed",
+        items: [
+          "Standalone terminal SSH socket leak on abort race. If the operator (or admin force-disconnect) closed the terminal SSE stream while `connectSSH` was still negotiating, the resolved Client object had no `req.on(\"close\")` handler attached and stayed alive on the network with no shell to pipe data through. The route now re-checks `session.closed` after `connectSSH` resolves and tears the connection down immediately if cleanup already ran.",
+        ],
+      },
+      {
+        title: "Internal",
+        items: [
+          "`MODERN_SSH_ALGORITHMS` and `LEGACY_SSH_ALGORITHMS` exported from `lib/ssh.ts` with a `getSshAlgorithms(useLegacy)` helper. `useLegacyAlgorithms` is threaded through `ConnectSSHOptions`, `SSHExecOptions`, `connectViaJumpHost`, `effective-creds.ts`, the scheduler, the jobs route, the routers fingerprint probe, the interactive-session primitive, and the standalone terminal endpoint.",
+          "`stuck-prompts.ts` registry now extends `EventEmitter` and emits `change` events with a `{ type: \"parked\" | \"unparked\", task }` payload via `setImmediate` (so emitters don't reenter caller stacks). Backs the new SSE feed.",
+          "Shared `parsePagination(req)` helper in `lib/pagination.ts`. Cap 500, clamp offset ≥ 0.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.11.0",
     date: "2026-04-21",

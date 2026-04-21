@@ -195,6 +195,7 @@ router.get("/routers/:id/terminal", async (req, res) => {
       password: creds.password,
       hostKeyTrust,
       jumpHost: creds.jumpHost ?? null,
+      useLegacyAlgorithms: creds.useLegacyAlgorithms,
       readyTimeoutMs: 15_000,
       onHostKeyMismatch: (presented, expected) => {
         sendEvent(res, {
@@ -205,6 +206,16 @@ router.get("/routers/:id/terminal", async (req, res) => {
     }, {
       onError: (err) => { sendEvent(res, { type: "error", message: err.message }); cleanup(); },
     });
+    // Race: req.on("close") may have fired while connectSSH was still
+    // negotiating (operator hit Esc, browser closed the SSE stream, or
+    // admin force-disconnected via DELETE /admin/terminals). cleanup()
+    // ran with session.conn still null, so the freshly-resolved Client
+    // would otherwise leak — alive on the network but with no shell to
+    // pipe data through. Detect it here and tear down immediately.
+    if (session.closed) {
+      try { conn.end(); } catch {}
+      return;
+    }
     session.conn = conn;
     sendEvent(res, { type: "data", data: `Connected to ${router_.name} (${router_.ipAddress})\n` });
 

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -16,15 +16,23 @@ export const routersTable = pgTable("routers", {
   vendor: text("vendor"),                   // Auto-detected: e.g. "MikroTik", "Cisco", "Linux"
   model: text("model"),                     // Auto-detected: e.g. "RB4011iGS+", "WS-C2960-24TT-L"
   osVersion: text("os_version"),            // Auto-detected: e.g. "RouterOS 7.10.2"
-  lastFingerprintAt: timestamp("last_fingerprint_at"),
+  lastFingerprintAt: timestamp("last_fingerprint_at", { withTimezone: true }),
   // SHA256 fingerprint of the device's SSH host key, captured on first
   // successful connection (TOFU — trust on first use). Subsequent connections
   // refuse to authenticate if the presented key fingerprint differs from this
   // value, defending against MITM attacks. Cleared via the "Re-pin" admin
   // action when the device's key legitimately rotates.
   sshHostKeyFingerprint: text("ssh_host_key_fingerprint"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  // FK index — every routers SELECT joined by credential_profile_id
+  // (effective-creds resolver, group membership tools) was previously
+  // doing a sequential scan on large fleets. The cardinality is low
+  // (handful of profiles, many routers) but the lookup is hot.
+  index("idx_routers_credential_profile_id").on(table.credentialProfileId),
+  index("idx_routers_name").on(table.name),
+  index("idx_routers_ip_address").on(table.ipAddress),
+]);
 
 export const insertRouterSchema = createInsertSchema(routersTable).omit({
   id: true,

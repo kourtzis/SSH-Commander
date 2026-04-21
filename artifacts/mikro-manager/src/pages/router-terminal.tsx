@@ -70,6 +70,23 @@ export default function RouterTerminal() {
     return () => { eventSrcRef.current?.close(); };
   }, []);
 
+  // Visibility-loss cleanup: a backgrounded terminal tab keeps the SSH
+  // session and its SSE channel open server-side indefinitely (and counts
+  // against admin-terminals quota). Disconnect on hide; the operator
+  // re-clicks Connect when they return — same pattern as a real terminal
+  // emulator that drops on suspend.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "hidden" && eventSrcRef.current) {
+        try { eventSrcRef.current.close(); } catch {}
+        eventSrcRef.current = null;
+        setConnected(false);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
   const sendInput = async (value: string) => {
     if (!connected) return;
     try {
