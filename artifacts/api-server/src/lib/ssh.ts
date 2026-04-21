@@ -1,6 +1,8 @@
 import { Client } from "ssh2";
 import { stuckPrompts } from "./stuck-prompts.js";
 
+import { sshRegistry } from "./ssh-registry.js";
+
 // Result returned by executeSSHCommand after an SSH session completes
 export interface SSHResult {
   success: boolean;
@@ -1512,6 +1514,33 @@ async function executeOnce(
     log.push(`[${ts()}] Mode: ${autoConfirm ? "interactive shell (auto-confirm)" : "exec"}`);
     log.push(`[${ts()}] Executing command...`);
     log.push(`[${ts()}] ──────────────────────────────────`);
+
+    // Publish to the global SSH registry so the admin "Active SSH Sessions"
+    // page sees this batch-job connection. Only registered when the caller
+    // supplied taskContext (i.e. it is a real job task — fingerprint
+    // probes and ad-hoc execs aren't tracked here). The registry entry
+    // is removed on socket close, so transient retries clean themselves up.
+    let registryKey: string | null = null;
+    if (options.taskContext) {
+      const ctx = options.taskContext;
+      registryKey = `job-batch:${ctx.taskId}:${Date.now()}`;
+      const startedAt = Date.now();
+      sshRegistry.add({
+        key: registryKey,
+        kind: "job-batch",
+        routerId: ctx.routerId,
+        routerName: ctx.routerName,
+        routerIp: ctx.routerIp,
+        jobId: ctx.jobId,
+        taskId: ctx.taskId,
+        openedAt: startedAt,
+        lastActivityAt: startedAt,
+        close: () => { try { conn.end(); } catch {} },
+      });
+      const unregister = () => { if (registryKey) sshRegistry.remove(registryKey); };
+      conn.on("close", unregister);
+      conn.on("end", unregister);
+    }
 
     const timer = setTimeout(() => {
       timedOut = true;

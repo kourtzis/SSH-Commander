@@ -935,6 +935,49 @@ router.post("/jobs/:jobId/tasks/:taskId/provide-input", async (req, res) => {
   res.json({ message: "Input submitted" });
 });
 
+// POST /jobs/:id/parked-tasks/respond-all — broadcast a single answer to
+// every parked task in this job. Returns how many sessions actually
+// received the input (some may have unparked between list time and now).
+router.post("/jobs/:id/parked-tasks/respond-all", async (req, res) => {
+  const id = parseInt(req.params.id);
+  await requireJobAccess(req, id);
+  const input = typeof req.body?.input === "string" ? req.body.input : "";
+  if (input.length > 4096) { res.status(400).json({ error: "Input too long (max 4096 chars)" }); return; }
+  const parked = stuckPrompts.listByJob(id);
+  if (parked.length === 0) { res.json({ message: "No parked tasks", applied: 0 }); return; }
+  const taskIds = parked.map((p: any) => p.taskId);
+  // Flip every row back to running BEFORE feeding input to the SSH idle
+  // loops, so the live "Tasks" panel updates immediately and the
+  // parked-tasks SSE stream emits unparked events as the registry drops
+  // each entry.
+  await db.update(jobTasksTable).set({
+    status: "running",
+    promptText: null,
+  }).where(inArray(jobTasksTable.id, taskIds));
+  let applied = 0;
+  for (const tid of taskIds) {
+    if (stuckPrompts.provideInput(tid, input)) applied++;
+  }
+  res.json({ message: `Sent input to ${applied} of ${taskIds.length} parked task(s)`, applied, total: taskIds.length });
+});
+
+// POST /jobs/:id/parked-tasks/abort-all — abort every parked task in this
+// job at once. Useful when a recurring substitution mistake parked a
+// whole batch and the operator wants to bail and re-run.
+router.post("/jobs/:id/parked-tasks/abort-all", async (req, res) => {
+  const id = parseInt(req.params.id);
+  await requireJobAccess(req, id);
+  const reason = typeof req.body?.reason === "string" && req.body.reason.trim()
+    ? req.body.reason.trim().slice(0, 200)
+    : "Aborted by operator (bulk)";
+  const parked = stuckPrompts.listByJob(id);
+  let applied = 0;
+  for (const p of parked as any[]) {
+    if (stuckPrompts.has(p.taskId)) { stuckPrompts.abort(p.taskId, reason); applied++; }
+  }
+  res.json({ message: `Abort requested for ${applied} parked task(s)`, applied });
+});
+
 // POST /jobs/:jobId/tasks/:taskId/abort — operator-initiated abort.
 router.post("/jobs/:jobId/tasks/:taskId/abort", async (req, res) => {
   const jobId = parseInt(req.params.jobId);

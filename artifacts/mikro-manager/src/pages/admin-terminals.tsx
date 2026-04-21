@@ -1,9 +1,14 @@
-// ─── Admin: Active Terminals ──────────────────────────────────────
-// Lists every live standalone-terminal SSH session running on the API
-// server: who opened it, which device, when, and how long it's been
-// idle. Lets an admin force-disconnect any session — useful when one
-// wedges (device stops responding but TCP socket stays half-open) or
-// when an operator forgets to close a tab and the connection lingers.
+// ─── Admin: Active SSH Sessions ───────────────────────────────────
+// Lists every live SSH session running on the API server, regardless
+// of where it was opened from:
+//   • terminal         — standalone /routers/:id/terminal page
+//   • job-batch        — auto-confirm batch job task
+//   • job-interactive  — interactive job task
+//
+// Lets an admin force-disconnect any session — useful when one wedges
+// (device stops responding but TCP socket stays half-open), when an
+// operator forgets to close a tab, or when a parked interactive job
+// needs to be killed at the socket level.
 //
 // The data is in-memory on the API server (not persisted), so this is
 // a "right now" view — sessions disappear from the list the moment they
@@ -17,22 +22,27 @@ import { Button } from "@/components/ui/button";
 import { Terminal as TerminalIcon, RefreshCw, X, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-interface ActiveTerminal {
+type SessionKind = "terminal" | "job-batch" | "job-interactive";
+
+interface ActiveSession {
   key: string;
-  userId: number | string;
-  username: string;
+  kind: SessionKind;
+  userId: number | string | null;
+  username: string | null;
   routerId: number;
   routerName: string;
   routerIp: string;
+  jobId: number | null;
+  jobName: string | null;
+  taskId: number | null;
   openedAt: string;
   lastActivityAt: string;
   ageSeconds: number;
   idleSeconds: number;
-  closed: boolean;
 }
 
 interface ListResponse {
-  sessions: ActiveTerminal[];
+  sessions: ActiveSession[];
   idleLimitSeconds: number;
   maxLifetimeSeconds: number;
 }
@@ -45,6 +55,18 @@ function fmtDuration(totalSeconds: number): string {
   const h = Math.floor(m / 60);
   return `${h}h ${m % 60}m`;
 }
+
+const KIND_LABEL: Record<SessionKind, string> = {
+  "terminal": "Terminal",
+  "job-batch": "Batch job",
+  "job-interactive": "Interactive job",
+};
+
+const KIND_CLASS: Record<SessionKind, string> = {
+  "terminal": "bg-primary/15 text-primary border-primary/30",
+  "job-batch": "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  "job-interactive": "bg-amber-500/15 text-amber-300 border-amber-500/30",
+};
 
 export default function AdminTerminals() {
   const { toast } = useToast();
@@ -76,16 +98,16 @@ export default function AdminTerminals() {
   }, [load]);
 
   const disconnect = async (key: string, label: string) => {
-    if (!confirm(`Force-disconnect terminal "${label}"?\n\nThe operator will see a "[disconnected by admin]" message and lose their session.`)) return;
+    if (!confirm(`Force-disconnect SSH session "${label}"?\n\nThis severs the underlying socket. For a job task this will mark the task as failed.`)) return;
     try {
       const json = await customFetch<{ message?: string }>(`${baseUrl}api/admin/terminals/${encodeURIComponent(key)}`, {
         method: "DELETE",
         credentials: "include",
       });
-      toast({ title: "Terminal closed", description: json?.message || `Closed ${label}` });
+      toast({ title: "Session closed", description: json?.message || `Closed ${label}` });
       load();
     } catch (err: any) {
-      toast({ title: "Failed to close terminal", description: String(err?.message || err), variant: "destructive" });
+      toast({ title: "Failed to close session", description: String(err?.message || err), variant: "destructive" });
     }
   };
 
@@ -101,13 +123,13 @@ export default function AdminTerminals() {
         </Link>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
           <TerminalIcon className="w-7 h-7 text-primary" />
-          Active Terminals
+          Active SSH Sessions
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          Live, in-memory list of standalone-terminal sessions on the API server.
+          Live, in-memory list of every SSH connection on the API server — standalone terminals, batch jobs, and interactive jobs.
           {data && (
             <>
-              {" "}Sessions auto-close after <strong>{Math.round(data.idleLimitSeconds / 60)} min</strong> idle or <strong>{Math.round(data.maxLifetimeSeconds / 60)} min</strong> total.
+              {" "}Standalone terminals auto-close after <strong>{Math.round(data.idleLimitSeconds / 60)} min</strong> idle or <strong>{Math.round(data.maxLifetimeSeconds / 60)} min</strong> total.
             </>
           )}
         </p>
@@ -126,14 +148,15 @@ export default function AdminTerminals() {
           </div>
           {sessions.length === 0 ? (
             <div className="p-12 text-center text-sm text-muted-foreground">
-              No terminal sessions are currently open.
+              No SSH sessions are currently open.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-left text-xs uppercase text-muted-foreground border-b border-white/5">
                   <tr>
-                    <th className="px-4 py-2 font-medium">User</th>
+                    <th className="px-4 py-2 font-medium">Kind</th>
+                    <th className="px-4 py-2 font-medium">User / Job</th>
                     <th className="px-4 py-2 font-medium">Device</th>
                     <th className="px-4 py-2 font-medium">Opened</th>
                     <th className="px-4 py-2 font-medium">Idle</th>
@@ -143,9 +166,24 @@ export default function AdminTerminals() {
                 <tbody>
                   {sessions.map((s) => (
                     <tr key={s.key} className="border-b border-white/5 hover:bg-white/5">
-                      <td className="px-4 py-3 font-mono text-xs">{s.username}</td>
                       <td className="px-4 py-3">
-                        <Link href={`/routers/${s.routerId}/terminal`}>
+                        <span className={`inline-block px-2 py-0.5 rounded-md text-[11px] border ${KIND_CLASS[s.kind] ?? "bg-muted/30 text-muted-foreground border-white/10"}`}>
+                          {KIND_LABEL[s.kind] ?? s.kind}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {s.kind === "terminal" ? (
+                          <span className="font-mono">{s.username ?? "—"}</span>
+                        ) : s.jobId != null ? (
+                          <Link href={`/jobs/${s.jobId}`}>
+                            <a className="hover:text-primary font-mono text-primary/80">job #{s.jobId}</a>
+                          </Link>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Link href={`/routers/${s.routerId}`}>
                           <a className="hover:text-primary">
                             <div className="font-medium">{s.routerName}</div>
                             <div className="text-xs text-muted-foreground font-mono">{s.routerIp}</div>
@@ -163,7 +201,7 @@ export default function AdminTerminals() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => disconnect(s.key, `${s.username} → ${s.routerName}`)}
+                          onClick={() => disconnect(s.key, `${KIND_LABEL[s.kind]} → ${s.routerName}`)}
                           className="gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                           data-testid={`disconnect-${s.key}`}
                         >

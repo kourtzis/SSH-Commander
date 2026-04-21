@@ -249,6 +249,62 @@ export default function JobDetail() {
     }
   };
 
+  // Bulk: send the same answer to every parked task in this job. UI is
+  // shown above the per-device list whenever 2+ devices are waiting.
+  const [bulkParkedInput, setBulkParkedInput] = useState("");
+  const [bulkParkedBusy, setBulkParkedBusy] = useState(false);
+  const submitBulkParkedInput = async () => {
+    setBulkParkedBusy(true);
+    try {
+      const r = await fetch(`${baseUrl}api/jobs/${jobId}/parked-tasks/respond-all`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: bulkParkedInput }),
+      });
+      if (!r.ok) {
+        const msg = await r.json().catch(() => ({}));
+        throw new Error(msg.error || `HTTP ${r.status}`);
+      }
+      const j = await r.json().catch(() => ({} as any));
+      setBulkParkedInput("");
+      toast({ title: j.message || "Input sent to all parked devices" });
+      refetchParked();
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Bulk send failed", description: e.message, variant: "destructive" });
+    } finally {
+      setBulkParkedBusy(false);
+    }
+  };
+  const abortAllParked = async () => {
+    const ok = await confirmDialog({
+      title: `Abort all ${parkedTasks.length} parked tasks?`,
+      description: "Each SSH session will be closed and the tasks marked failed.",
+      confirmLabel: "Abort all",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    setBulkParkedBusy(true);
+    try {
+      const r = await fetch(`${baseUrl}api/jobs/${jobId}/parked-tasks/abort-all`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Bulk abort by operator" }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json().catch(() => ({} as any));
+      toast({ title: j.message || "Abort requested for all parked tasks" });
+      refetchParked();
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Bulk abort failed", description: e.message, variant: "destructive" });
+    } finally {
+      setBulkParkedBusy(false);
+    }
+  };
+
   const abortParkedTask = async (taskId: number) => {
     const ok = await confirmDialog({
       title: "Abort parked task",
@@ -689,6 +745,46 @@ export default function JobDetail() {
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
+            {parkedTasks.length > 1 && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 space-y-2">
+                <div className="text-xs font-medium text-amber-300 flex items-center gap-2">
+                  <Users className="w-3.5 h-3.5" />
+                  Send the same answer to all {parkedTasks.length} waiting devices
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Type response (sent with newline) to ALL waiting devices…"
+                    value={bulkParkedInput}
+                    onChange={(e) => setBulkParkedInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        submitBulkParkedInput();
+                      }
+                    }}
+                    disabled={bulkParkedBusy}
+                    className="flex-1 bg-black/30 border-amber-500/30 focus-visible:ring-amber-500/50"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={submitBulkParkedInput}
+                    disabled={bulkParkedBusy}
+                    className="gap-1 bg-amber-500 hover:bg-amber-600 text-black whitespace-nowrap"
+                  >
+                    <Send className="w-3.5 h-3.5" /> Send to all ({parkedTasks.length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={abortAllParked}
+                    disabled={bulkParkedBusy}
+                    className="gap-1 border-destructive/40 text-destructive hover:bg-destructive/10 whitespace-nowrap"
+                  >
+                    <Ban className="w-3.5 h-3.5" /> Abort all
+                  </Button>
+                </div>
+              </div>
+            )}
             {parkedTasks.map((p) => (
               <div
                 key={p.taskId}

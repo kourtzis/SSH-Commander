@@ -27,6 +27,7 @@ import {
   openInteractiveShell,
 } from "./ssh.js";
 import { resolveEffectiveCreds } from "./effective-creds.js";
+import { sshRegistry } from "./ssh-registry.js";
 
 // Event types emitted via SSE to the frontend
 export interface LiveEvent {
@@ -424,6 +425,30 @@ class InteractiveSessionManager {
           },
         });
         dev.conn = conn;
+
+        // Publish to the global SSH registry so the admin "Active SSH
+        // Sessions" page sees this interactive-job connection. Removed
+        // when the underlying socket closes (success, abort, or device
+        // hang-up). Force-disconnect from the admin page severs the
+        // socket, which feeds back through the existing close handlers
+        // and finalizes the task as failed.
+        const registryKey = `job-interactive:${jobId}:${taskId}`;
+        const startedAt = Date.now();
+        sshRegistry.add({
+          key: registryKey,
+          kind: "job-interactive",
+          routerId: router.id,
+          routerName: router.name,
+          routerIp: router.ipAddress,
+          jobId,
+          taskId,
+          openedAt: startedAt,
+          lastActivityAt: startedAt,
+          close: () => { try { conn.end(); } catch {} },
+        });
+        const unregister = () => sshRegistry.remove(registryKey);
+        conn.on("close", unregister);
+        conn.on("end", unregister);
 
         log.push(`[${ts()}] Authentication successful`);
         log.push(`[${ts()}] Opening interactive shell...`);

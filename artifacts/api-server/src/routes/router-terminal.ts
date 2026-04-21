@@ -27,6 +27,7 @@ import { eq } from "drizzle-orm";
 import { requireAuth, getCurrentUser, requireAdmin } from "../lib/auth.js";
 import { connectSSH, openInteractiveShell } from "../lib/ssh.js";
 import { resolveEffectiveCreds } from "../lib/effective-creds.js";
+import { sshRegistry } from "../lib/ssh-registry.js";
 
 const router: IRouter = Router();
 
@@ -143,6 +144,7 @@ router.get("/routers/:id/terminal", async (req, res) => {
   };
   sessions.set(key, session);
 
+  const registryKey = `terminal:${user.id}:${id}`;
   const cleanup = (reason?: string) => {
     if (session.closed) return;
     session.closed = true;
@@ -151,6 +153,7 @@ router.get("/routers/:id/terminal", async (req, res) => {
     try { session.stream?.end(); } catch {}
     try { session.conn?.end(); } catch {}
     sessions.delete(key);
+    sshRegistry.remove(registryKey);
     if (reason) sendEvent(res, { type: "data", data: `\n[${reason}]\n` });
     sendEvent(res, { type: "closed" });
     try { res.end(); } catch {}
@@ -217,6 +220,24 @@ router.get("/routers/:id/terminal", async (req, res) => {
       return;
     }
     session.conn = conn;
+    // Publish to the global SSH registry so the admin "Active SSH Sessions"
+    // page can see this terminal alongside batch-job and interactive-job
+    // connections. Removed in cleanup() above.
+    sshRegistry.add({
+      key: registryKey,
+      kind: "terminal",
+      userId: user.id,
+      username: (user as any).username ?? String(user.id),
+      routerId: id,
+      routerName: router_.name,
+      routerIp: router_.ipAddress,
+      openedAt: now,
+      lastActivityAt: now,
+      close: () => cleanup(`disconnected by admin`),
+    });
+    // Also unregister if the underlying socket dies for any reason that
+    // our cleanup() didn't catch (network drop, peer reset, etc.).
+    conn.on("close", () => sshRegistry.remove(registryKey));
     sendEvent(res, { type: "data", data: `Connected to ${router_.name} (${router_.ipAddress})\n` });
 
     const shell = await openInteractiveShell(conn);
@@ -224,11 +245,13 @@ router.get("/routers/:id/terminal", async (req, res) => {
 
     shell.stream.on("data", (chunk: Buffer) => {
       resetIdleTimer();
+      sshRegistry.touch(registryKey);
       const clean = shell.processData(chunk, "stdout");
       if (clean) sendEvent(res, { type: "data", data: clean });
     });
     shell.stream.stderr?.on("data", (chunk: Buffer) => {
       resetIdleTimer();
+      sshRegistry.touch(registryKey);
       const clean = shell.processData(chunk, "stderr");
       if (clean) sendEvent(res, { type: "data", data: clean });
     });
@@ -269,6 +292,7 @@ router.post("/routers/:id/terminal/input", async (req, res) => {
   // Reset the idle timer — operator activity counts as life signs even
   // if the device is silent on the other end.
   session.lastActivityAt = Date.now();
+  sshRegistry.touch(`terminal:${user.id}:${id}`);
   if (session.idleTimer) {
     clearTimeout(session.idleTimer);
     session.idleTimer = setTimeout(() => {
@@ -296,23 +320,16 @@ router.get("/admin/terminals", async (req, res) => {
   requireAuth(req);
   const me = await getCurrentUser(req);
   requireAdmin(me!);
-  const now = Date.now();
-  const list = Array.from(sessions.entries()).map(([key, s]) => ({
-    key,
-    userId: s.userId,
-    username: s.username,
-    routerId: s.routerId,
-    routerName: s.routerName,
-    routerIp: s.routerIp,
-    openedAt: new Date(s.openedAt).toISOString(),
-    lastActivityAt: new Date(s.lastActivityAt).toISOString(),
-    ageSeconds: Math.round((now - s.openedAt) / 1000),
-    idleSeconds: Math.round((now - s.lastActivityAt) / 1000),
-    closed: s.closed,
-  }));
-  // Newest first — usually what you want when triaging "what's running?"
+  // Read from the unified SSH registry so this view covers EVERY live
+  // SSH connection on the box: standalone terminals, batch jobs, and
+  // interactive jobs. Sorted newest-first for triage.
+  const list = sshRegistry.list();
   list.sort((a, b) => (a.openedAt < b.openedAt ? 1 : -1));
-  res.json({ sessions: list, idleLimitSeconds: Math.round(IDLE_MS / 1000), maxLifetimeSeconds: Math.round(MAX_MS / 1000) });
+  res.json({
+    sessions: list,
+    idleLimitSeconds: Math.round(IDLE_MS / 1000),
+    maxLifetimeSeconds: Math.round(MAX_MS / 1000),
+  });
 });
 
 router.delete("/admin/terminals/:key", async (req, res) => {
@@ -320,29 +337,12 @@ router.delete("/admin/terminals/:key", async (req, res) => {
   const me = await getCurrentUser(req);
   requireAdmin(me!);
   const key = req.params.key;
-  const session = sessions.get(key);
-  if (!session) {
-    res.status(404).json({ error: "No such terminal session" });
+  const ok = sshRegistry.close(key, `disconnected by admin ${me!.username}`);
+  if (!ok) {
+    res.status(404).json({ error: "No such SSH session" });
     return;
   }
-  if (session.closed) {
-    sessions.delete(key);
-    res.json({ ok: true, message: "Session was already closed; cleaned up bookkeeping." });
-    return;
-  }
-  session.closed = true;
-  if (session.idleTimer) clearTimeout(session.idleTimer);
-  if (session.globalTimer) clearTimeout(session.globalTimer);
-  try { session.stream?.end(); } catch {}
-  try { session.conn?.end(); } catch {}
-  sessions.delete(key);
-  const r = session.res;
-  if (r) {
-    try { r.write(`data: ${JSON.stringify({ type: "data", data: `\n[disconnected by admin ${me!.username}]\n` })}\n\n`); } catch {}
-    try { r.write(`data: ${JSON.stringify({ type: "closed" })}\n\n`); } catch {}
-    try { r.end(); } catch {}
-  }
-  res.json({ ok: true, message: `Closed terminal ${key}` });
+  res.json({ ok: true, message: `Closed SSH session ${key}` });
 });
 
 // Admin-only: clear the pinned host-key fingerprint so the next connection
