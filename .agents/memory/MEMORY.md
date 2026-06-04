@@ -1,2 +1,4 @@
 - [api-server build & test constraints](api-server-build-test.md) — pino must stay external in esbuild + no transport; @workspace/db throws at import without DATABASE_URL, so pure logic for tests must use `import type` only.
 - [release version markers](release-versioning.md) — bumping a release means 5 in-sync markers, not just package.json.
+- [dual prompt-handling paths](prompt-handling-dual-path.md) — autoConfirm picks executeOnce+stuck-prompts vs interactive-session; keep them at parity (timeout suspension, restart reaper, bulk actions).
+- [mikro-manager fetch BASE_URL slash](mikro-manager-fetch-baseurl.md) — stripped-vs-kept trailing slash on baseUrl silently breaks fetch URLs; prefer one apiUrl() helper.
