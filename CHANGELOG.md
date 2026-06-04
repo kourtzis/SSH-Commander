@@ -12,6 +12,51 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.15.0] - 2026-06-04
+
+A small internal-quality release: structured logging and a first unit-test
+suite. No schema changes, no new env vars required, no upgrade steps.
+
+### Observability
+
+- **Structured JSON logging (pino).** The ad-hoc `console.log`/`console.error`
+  calls in the server entrypoint, the Express app setup, and the scheduler
+  have been replaced with a leveled pino logger. Each line is a single JSON
+  object carrying `level`, `time`, a `component` tag (`app` / `server` /
+  `scheduler`), the message, and any structured fields (port, signal,
+  schedule id, error). This makes the logs ingestible by Loki / ELK /
+  Datadog without regex scraping, and filterable by level and component.
+- **`LOG_LEVEL` env var.** Controls verbosity
+  (`trace|debug|info|warn|error|fatal|silent`). Defaults to `info` in
+  production and `debug` in development. No transport is bundled — the
+  server writes JSON to stdout (correct for a container), and operators who
+  want pretty local logs can pipe the dev process through `pino-pretty`.
+
+### Internal
+
+- **Unit test suite (vitest).** Added focused unit tests for the
+  highest-risk pure logic, runnable with
+  `pnpm --filter @workspace/api-server test`:
+  - `computeNextRun` — one-time/interval/daily/weekly/monthly next-run
+    computation, including drift-resistant skipping of missed interval
+    slots and the nth-weekday-of-month edge cases (e.g. a non-existent
+    5th Friday).
+  - `applyTagSubstitution` — placeholder replacement, control-byte/CR
+    stripping, and newline preservation for multi-line values.
+  - `appendWireLog` — per-line truncation at the char cap and trailing
+    partial-line buffering.
+  - `stripAnsi` / `stripAnsiStream` — CSI removal and reassembly of an
+    escape sequence split across two chunks, plus the pending-buffer cap.
+  - `parsePagination` — limit/offset parsing and `[1, 500]` clamping.
+- **`schedule-math.ts` extraction.** `computeNextRun` and
+  `getNthWeekdayOfMonth` were moved out of `scheduler.ts` into a
+  dependency-free module (it imports only the schedule row *type*, erased
+  at compile time) so the date math can be unit-tested without opening a
+  database connection. `scheduler.ts` re-imports them — no behavioural
+  change.
+
+---
+
 ## [1.14.0] - 2026-04-21
 
 A focused security-hardening release driven by the post-1.13 audit. Addresses

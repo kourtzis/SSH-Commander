@@ -23,12 +23,16 @@
 //   self-contained per-request operation; the rest of the app state
 //   (express, session store, drizzle pool, scheduler) is unaffected.
 
+import { childLogger } from "./lib/logger.js";
+
+const log = childLogger("server");
+
 process.on("uncaughtException", (err) => {
-  console.error("UNCAUGHT EXCEPTION (kept alive):", err);
+  log.error({ err }, "UNCAUGHT EXCEPTION (kept alive)");
 });
 
 process.on("unhandledRejection", (err) => {
-  console.error("UNHANDLED REJECTION (kept alive):", err);
+  log.error({ err }, "UNHANDLED REJECTION (kept alive)");
 });
 
 import app from "./app";
@@ -52,7 +56,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const server = app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
+  log.info({ port }, "Server listening");
   startScheduler();          // 30-second loop for scheduled jobs
   startReachabilityLoop();   // 5-minute loop for device uptime aggregates
 });
@@ -74,23 +78,23 @@ let shuttingDown = false;
 function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[shutdown] ${signal} received, draining (max 15s)...`);
+  log.info({ signal }, "received, draining (max 15s)");
 
   const forceTimer = setTimeout(() => {
-    console.warn("[shutdown] Drain timeout — forcing exit.");
+    log.warn("Drain timeout — forcing exit");
     process.exit(1);
   }, 15_000);
   forceTimer.unref();
 
   // Stop accepting new connections but let existing requests complete.
   server.close((err) => {
-    if (err) console.warn("[shutdown] server.close error:", err);
+    if (err) log.warn({ err }, "server.close error");
     stopScheduler();
     dbPool.end()
-      .catch((e) => console.warn("[shutdown] pool.end error:", e))
+      .catch((e) => log.warn({ err: e }, "pool.end error"))
       .finally(() => {
         clearTimeout(forceTimer);
-        console.log("[shutdown] Done.");
+        log.info("shutdown done");
         process.exit(0);
       });
   });

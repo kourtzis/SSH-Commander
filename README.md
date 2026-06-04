@@ -547,6 +547,7 @@ These are read by the API server container at startup. Production deployments **
 | `ALLOWED_ORIGINS` | recommended | Comma-separated CORS allow-list. Required if the frontend is served from a different origin than the API. |
 | `TRUST_PROXY_HOPS` | no (`1`) | Number of reverse-proxy hops to trust for `X-Forwarded-*` headers. |
 | `COOKIE_SECURE` | no | `true` / `false` override for the session-cookie `Secure` flag. Defaults to `true` in production. Set to `false` for plain-HTTP intranet deployments. |
+| `LOG_LEVEL` | no | Server log verbosity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, or `silent`. Defaults to `info` in production, `debug` in development. Logs are structured JSON on stdout; pipe through `pino-pretty` for human-readable dev output. |
 | `ALLOW_DESTRUCTIVE_MIGRATIONS` | no (`0`) | Set to `1` to opt back into `drizzle-kit push --force` (legacy behaviour). Default uses plain `db:push` which fails loudly on data-destroying drift. |
 
 ---

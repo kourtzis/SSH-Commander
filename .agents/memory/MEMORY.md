@@ -1,0 +1,2 @@
+- [api-server build & test constraints](api-server-build-test.md) — pino must stay external in esbuild + no transport; @workspace/db throws at import without DATABASE_URL, so pure logic for tests must use `import type` only.
+- [release version markers](release-versioning.md) — bumping a release means 5 in-sync markers, not just package.json.

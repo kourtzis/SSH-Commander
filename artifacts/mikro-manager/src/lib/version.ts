@@ -1,5 +1,5 @@
-export const APP_VERSION = "1.14.0";
-export const APP_VERSION_DATE = "2026-04-21";
+export const APP_VERSION = "1.15.0";
+export const APP_VERSION_DATE = "2026-06-04";
 
 
 export interface ChangelogSection {
@@ -14,6 +14,24 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.15.0",
+    date: "2026-06-04",
+    sections: [
+      {
+        title: "Observability",
+        items: [
+          "Server logs are now structured JSON (one object per line) instead of free-form console text. The boot sequence, scheduler, graceful-shutdown drain, and request-error handler all emit leveled records with a component tag (app/server/scheduler) so logs can be filtered and shipped to Loki/ELK/Datadog without regex scraping. Set LOG_LEVEL (trace|debug|info|warn|error) to control verbosity — defaults to info in production, debug in development. For pretty local logs, pipe the dev process through pino-pretty.",
+        ],
+      },
+      {
+        title: "Internal",
+        items: [
+          "Added a unit test suite (vitest) covering the highest-risk pure logic: schedule next-run computation (including drift-resistant interval skipping and nth-weekday-of-month edge cases), tag substitution sanitization, wire-log per-line truncation, ANSI stripping across split chunks, and pagination clamping. The schedule date math was extracted into a dependency-free module so it can be tested without a live database. Run with pnpm --filter @workspace/api-server test.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.14.0",
     date: "2026-04-21",

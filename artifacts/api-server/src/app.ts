@@ -7,6 +7,9 @@ import connectPgSimple from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
 import { pool as dbPool } from "@workspace/db";
 import router from "./routes/index.js";
+import { childLogger } from "./lib/logger.js";
+
+const log = childLogger("app");
 
 const app: Express = express();
 
@@ -46,12 +49,12 @@ const trustProxyHops = trustProxyEnv !== undefined
   : 1;
 if (trustProxyHops > 0) {
   app.set("trust proxy", trustProxyHops);
-  console.log(`[app] Trusting ${trustProxyHops} proxy hop(s) for X-Forwarded-* headers`);
+  log.info({ hops: trustProxyHops }, "Trusting proxy hop(s) for X-Forwarded-* headers");
 } else {
   // Operator explicitly opted out (TRUST_PROXY_HOPS=0). Warn once so
   // it's obvious in logs why client IPs all look like the loopback or
   // proxy address.
-  console.log("[app] trust proxy disabled (TRUST_PROXY_HOPS=0). Only correct if the container is exposed directly without a reverse proxy.");
+  log.warn("trust proxy disabled (TRUST_PROXY_HOPS=0). Only correct if the container is exposed directly without a reverse proxy.");
 }
 
 // ─── Middleware Stack ───────────────────────────────────────────────
@@ -123,8 +126,8 @@ const EFFECTIVE_SESSION_SECRET: string = (() => {
   // Any non-prod path that gets here: generate fresh, warn loudly. We
   // can't reach this branch in prod (the throw above already fired).
   const ephemeral = require("crypto").randomBytes(32).toString("hex");
-  console.warn(
-    "[app] SESSION_SECRET is unset or a known placeholder — using an EPHEMERAL random secret for this process. " +
+  log.warn(
+    "SESSION_SECRET is unset or a known placeholder — using an EPHEMERAL random secret for this process. " +
     "Sessions will not survive a server restart. Set SESSION_SECRET in your environment to silence this warning.",
   );
   return ephemeral;
@@ -154,7 +157,7 @@ const cookieSecure = cookieSecureEnv === "true" ? true
   : cookieSecureEnv === "false" ? false
   : isProd;
 if (isProd && !cookieSecure) {
-  console.log("[app] Session cookie 'Secure' flag DISABLED (COOKIE_SECURE=false). Only safe behind a trusted reverse proxy on a private network.");
+  log.warn("Session cookie 'Secure' flag DISABLED (COOKIE_SECURE=false). Only safe behind a trusted reverse proxy on a private network.");
 }
 
 const sessionConfig: session.SessionOptions = {
@@ -211,11 +214,11 @@ if (process.env.DATABASE_URL) {
       // SELECT during get() is silently swallowed by express-session
       // (which falls back to generating a fresh empty session) — the
       // user is then "logged out" without a single line in the logs.
-      errorLog: (...args: unknown[]) => console.warn("[session-store]", ...args),
+      errorLog: (...args: unknown[]) => log.warn({ args }, "session-store error"),
     } as any);
-    console.log("Using PostgreSQL session store (shared pool)");
+    log.info("Using PostgreSQL session store (shared pool)");
   } catch (err) {
-    console.warn("Failed to initialize PostgreSQL session store, using memory store:", err);
+    log.warn({ err }, "Failed to initialize PostgreSQL session store, using memory store");
   }
 } else if (isProd) {
   // In production a missing DATABASE_URL would silently fall through to
@@ -226,7 +229,7 @@ if (process.env.DATABASE_URL) {
     "DATABASE_URL is required in production (memory session store is unsafe — sessions would be wiped on every restart and would not be shared across replicas).",
   );
 } else {
-  console.warn("[app] No DATABASE_URL — falling back to in-memory session store. Sessions will be wiped on server restart.");
+  log.warn("No DATABASE_URL — falling back to in-memory session store. Sessions will be wiped on server restart.");
 }
 
 app.use(session(sessionConfig));
@@ -298,12 +301,20 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
     const hasSession = !!(req as any).session;
     const hasUserId = !!((req as any).session?.userId);
     const cookieHeader = req.headers.cookie ? "yes" : "no";
-    console.warn(
-      `[error] ${status} ${req.method} ${req.originalUrl} ` +
-      `sid=${sid?.slice(0, 8) ?? "none"} hasSession=${hasSession} hasUserId=${hasUserId} cookieSent=${cookieHeader} ` +
-      `msg=${err.message ?? "unknown"}`
+    log.warn(
+      {
+        status,
+        method: req.method,
+        url: req.originalUrl,
+        sid: sid?.slice(0, 8) ?? "none",
+        hasSession,
+        hasUserId,
+        cookieSent: cookieHeader,
+        msg: err.message ?? "unknown",
+        stack: status >= 500 ? err.stack : undefined,
+      },
+      "request error",
     );
-    if (status >= 500 && err.stack) console.warn(err.stack);
   }
   res.status(status).json({ error: err.message ?? "Internal server error" });
 });

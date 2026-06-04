@@ -43,6 +43,11 @@ const nativeExternals = [
   "cpu-features",
   "pg",
   "pg-native",
+  // pino spins up worker threads (thread-stream) and resolves transport
+  // targets by path at runtime; bundling it breaks that resolution. Keep
+  // it external so it loads from node_modules at runtime.
+  "pino",
+  "pino-pretty",
 ];
 
 async function buildAll() {

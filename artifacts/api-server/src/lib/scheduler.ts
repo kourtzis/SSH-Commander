@@ -8,6 +8,10 @@ import { eq, lte, and, inArray, sql } from "drizzle-orm";
 import { executeSSH, applyTagSubstitution, detectFailureSignals } from "./ssh.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "./resolve-routers.js";
 import { resolveEffectiveCreds } from "./effective-creds.js";
+import { computeNextRun } from "./schedule-math.js";
+import { childLogger } from "./logger.js";
+
+const log = childLogger("scheduler");
 
 // ─── Shared SSH execution helper ────────────────────────────────────
 // Runs the SSH commands for every router of a job in parallel (bounded
@@ -236,97 +240,6 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
   }).where(eq(batchJobsTable.id, newJob.id));
 }
 
-function getNthWeekdayOfMonth(year: number, month: number, nth: number, weekday: number): Date | null {
-  const firstDay = new Date(year, month, 1);
-  let firstOccurrence = firstDay.getDate() + ((weekday - firstDay.getDay() + 7) % 7);
-  const target = firstOccurrence + (nth - 1) * 7;
-  const lastDay = new Date(year, month + 1, 0).getDate();
-  if (target > lastDay) return null;
-  return new Date(year, month, target);
-}
-
-function computeNextRun(schedule: typeof schedulesTable.$inferSelect): Date | null {
-  if (schedule.type === "once") {
-    return null;
-  }
-
-  const now = new Date();
-
-  if (schedule.type === "interval" && schedule.intervalMinutes) {
-    // Drift-resistant scheduling: anchor the next run on the previous
-    // nextRunAt rather than now(). Otherwise every late tick (scheduler
-    // backed up by a long-running job, container restart, etc.) silently
-    // shifts the entire cadence forward — a "every 60 min" schedule that
-    // misses by 7 minutes becomes "every 67 min from then on". Walk the
-    // anchor forward by N intervals until it lands in the future, so we
-    // skip any missed slots cleanly without compounding drift.
-    const intervalMs = schedule.intervalMinutes * 60 * 1000;
-    const anchor = schedule.nextRunAt ? new Date(schedule.nextRunAt).getTime() : now.getTime();
-    let next = anchor + intervalMs;
-    if (next <= now.getTime()) {
-      const missed = Math.ceil((now.getTime() - next) / intervalMs);
-      next += missed * intervalMs;
-    }
-    return new Date(next);
-  }
-
-  if (schedule.type === "daily" && schedule.timeOfDay) {
-    const [hours, minutes] = schedule.timeOfDay.split(":").map(Number);
-    const today = new Date(now);
-    today.setHours(hours, minutes, 0, 0);
-    if (today > now) return today;
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(hours, minutes, 0, 0);
-    return tomorrow;
-  }
-
-  if (schedule.type === "weekly" && schedule.daysOfWeek && schedule.timeOfDay) {
-    const [hours, minutes] = schedule.timeOfDay.split(":").map(Number);
-    const days = schedule.daysOfWeek as number[];
-    for (let offset = 0; offset <= 7; offset++) {
-      const candidate = new Date(now);
-      candidate.setDate(candidate.getDate() + offset);
-      candidate.setHours(hours, minutes, 0, 0);
-      if (candidate > now && days.includes(candidate.getDay())) {
-        return candidate;
-      }
-    }
-    const candidate = new Date(now);
-    candidate.setDate(candidate.getDate() + 7);
-    candidate.setHours(hours, minutes, 0, 0);
-    return candidate;
-  }
-
-  if (schedule.type === "monthly" && schedule.monthlyMode && schedule.timeOfDay) {
-    const [hours, minutes] = schedule.timeOfDay.split(":").map(Number);
-    if (schedule.monthlyMode === "dayOfMonth" && schedule.dayOfMonth) {
-      for (let mo = 0; mo <= 12; mo++) {
-        const c = new Date(now.getFullYear(), now.getMonth() + mo, 1);
-        const lastDay = new Date(c.getFullYear(), c.getMonth() + 1, 0).getDate();
-        c.setDate(Math.min(schedule.dayOfMonth, lastDay));
-        c.setHours(hours, minutes, 0, 0);
-        if (c > now) return c;
-      }
-    }
-    if (schedule.monthlyMode === "nthWeekday" && schedule.nthWeek && schedule.nthWeekday !== null && schedule.nthWeekday !== undefined) {
-      for (let mo = 0; mo <= 12; mo++) {
-        const c = getNthWeekdayOfMonth(now.getFullYear(), now.getMonth() + mo, schedule.nthWeek, schedule.nthWeekday);
-        if (c) {
-          c.setHours(hours, minutes, 0, 0);
-          if (c > now) return c;
-        }
-      }
-    }
-    const fallback = new Date(now);
-    fallback.setMonth(fallback.getMonth() + 1);
-    fallback.setHours(hours, minutes, 0, 0);
-    return fallback;
-  }
-
-  return null;
-}
-
 // ─── Scheduler Tick ─────────────────────────────────────────────────
 // Runs once per interval. Finds all enabled schedules whose nextRunAt is past
 // due, then executes each one. One-time schedules run the template job
@@ -358,7 +271,7 @@ async function tick() {
         continue;
       }
 
-      console.log(`[Scheduler] Running schedule "${schedule.name}" (id=${schedule.id})`);
+      log.info({ scheduleId: schedule.id, name: schedule.name }, "Running schedule");
 
       if (schedule.type === "once") {
         if (templateJob.status === "scheduled") {
@@ -425,7 +338,7 @@ async function tick() {
       }
     }
   } catch (err) {
-    console.error("[Scheduler] Error:", err);
+    log.error({ err }, "tick error");
   }
 }
 
@@ -444,7 +357,7 @@ async function safeTick() {
   // In-process guard: skip if a previous tick is still running on THIS
   // instance. Cheap and short-circuits before we touch the DB.
   if (tickInFlight) {
-    console.log("[Scheduler] Skipping tick (previous still running)");
+    log.debug("Skipping tick (previous still running)");
     return;
   }
   tickInFlight = true;
@@ -486,11 +399,11 @@ async function safeTick() {
         await tick();
       });
     } catch (err) {
-      console.error("[Scheduler] tick failed:", err);
+      log.error({ err }, "tick failed");
       return;
     }
     if (!locked) {
-      console.log("[Scheduler] Skipping tick (advisory lock held by another instance)");
+      log.debug("Skipping tick (advisory lock held by another instance)");
     }
   } finally {
     tickInFlight = false;
@@ -499,7 +412,7 @@ async function safeTick() {
 
 export function startScheduler() {
   if (intervalHandle) return;
-  console.log("[Scheduler] Started (checking every 30s)");
+  log.info("Started (checking every 30s)");
   intervalHandle = setInterval(safeTick, 30_000);
   safeTick();
 }
