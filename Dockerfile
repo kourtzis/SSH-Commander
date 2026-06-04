@@ -1,10 +1,16 @@
 FROM node:20-slim AS base
+# Cache corepack's pnpm in a shared, world-readable location (not root's home)
+# so the non-root `node` user can run pnpm at build AND runtime without
+# re-downloading it. The runtime entrypoint shells out to `pnpm exec
+# drizzle-kit push` / `pnpm --filter ... run seed` as the node user.
+ENV COREPACK_HOME=/opt/corepack
 # Pin pnpm to the version that generated pnpm-lock.yaml (lockfileVersion 9.0).
 # Do NOT use pnpm@latest: pnpm 11.x requires Node >=22.13 (it imports the
 # node:sqlite builtin), which crashes on this node:20 base with
 # "No such built-in module: node:sqlite". Pinning also keeps --frozen-lockfile
 # from drifting against a newer pnpm.
-RUN corepack enable && corepack prepare pnpm@10.26.1 --activate
+RUN corepack enable && corepack prepare pnpm@10.26.1 --activate \
+    && chmod -R a+rX /opt/corepack
 WORKDIR /app
 
 FROM base AS build
@@ -28,35 +34,40 @@ RUN pnpm -r --filter @workspace/db --if-present run build && \
     pnpm --filter @workspace/api-server run build
 
 FROM base AS production
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
-COPY lib/db/package.json lib/db/tsconfig.json ./lib/db/
-COPY lib/api-spec/package.json lib/api-spec/
-COPY lib/api-client-react/package.json lib/api-client-react/
-COPY lib/api-zod/package.json lib/api-zod/
-COPY artifacts/api-server/package.json artifacts/api-server/
-COPY artifacts/mikro-manager/package.json artifacts/mikro-manager/
-COPY scripts/package.json scripts/
+# Run as the non-root `node` user (uid/gid 1000) from the very start. Without
+# this, any RCE in our process — or a malicious SSH script that abuses ssh2's
+# local socket APIs — runs as root with full container privileges. Container-only
+# defence in depth; capabilities can still be further dropped at `docker run`
+# time with --cap-drop=ALL --security-opt=no-new-privileges.
+#
+# We deliberately do NOT end with `RUN chown -R node:node /app`: that recurses
+# over pnpm's node_modules virtual store (tens of thousands of hardlinked files)
+# and adds minutes to every build. Instead we chown the (empty) workdir once,
+# switch to `node`, and let `COPY --chown` + a node-run `pnpm install` create
+# every file already owned by node. corepack's pnpm lives in the shared
+# /opt/corepack (see base stage), so the node user can run it.
+RUN chown node:node /app
+USER node
+COPY --chown=node:node pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY --chown=node:node lib/db/package.json lib/db/tsconfig.json ./lib/db/
+COPY --chown=node:node lib/api-spec/package.json lib/api-spec/
+COPY --chown=node:node lib/api-client-react/package.json lib/api-client-react/
+COPY --chown=node:node lib/api-zod/package.json lib/api-zod/
+COPY --chown=node:node artifacts/api-server/package.json artifacts/api-server/
+COPY --chown=node:node artifacts/mikro-manager/package.json artifacts/mikro-manager/
+COPY --chown=node:node scripts/package.json scripts/
 RUN pnpm install --frozen-lockfile
-COPY --from=build /app/artifacts/api-server/dist ./artifacts/api-server/dist
-COPY --from=build /app/artifacts/mikro-manager/dist/public ./public
-COPY --from=build /app/lib/db ./lib/db
-COPY --from=build /app/scripts ./scripts
-COPY docker-entrypoint.sh ./
+COPY --chown=node:node --from=build /app/artifacts/api-server/dist ./artifacts/api-server/dist
+COPY --chown=node:node --from=build /app/artifacts/mikro-manager/dist/public ./public
+COPY --chown=node:node --from=build /app/lib/db ./lib/db
+COPY --chown=node:node --from=build /app/scripts ./scripts
+COPY --chown=node:node docker-entrypoint.sh ./
 RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
 
 ENV NODE_ENV=production
 ENV PUBLIC_DIR=/app/public
 ENV PORT=3000
 EXPOSE 3000
-
-# Run as a non-root user. The base image's `node` user (uid/gid 1000) already
-# exists, so we just chown the app tree and switch to it. Without this, any
-# RCE in our process — or a malicious SSH script that abuses ssh2's local
-# socket APIs — runs as root with full container privileges. Container-only
-# defence in depth; capabilities can still be further dropped at `docker run`
-# time with --cap-drop=ALL --security-opt=no-new-privileges.
-RUN chown -R node:node /app
-USER node
 
 # Container-level liveness probe. Hits the public health endpoint we expose
 # at /api/healthz; node's built-in fetch (Node 18+) avoids needing wget/curl

@@ -3,3 +3,4 @@
 - [dual prompt-handling paths](prompt-handling-dual-path.md) — autoConfirm picks executeOnce+stuck-prompts vs interactive-session; keep them at parity (timeout suspension, restart reaper, bulk actions).
 - [mikro-manager fetch BASE_URL slash](mikro-manager-fetch-baseurl.md) — stripped-vs-kept trailing slash on baseUrl silently breaks fetch URLs; prefer one apiUrl() helper.
 - [api-zod is orval-generated](api-zod-codegen.md) — schemas come from lib/api-spec OpenAPI; add route validation via inline zod (zod/v4) or extend the spec, never hand-edit generated files.
+- [Docker build pitfalls](docker-build.md) — pin pnpm (never @latest, breaks on node:20), and never `chown -R /app` after pnpm install (slow); use COPY --chown + shared COREPACK_HOME.

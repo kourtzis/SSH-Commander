@@ -364,7 +364,45 @@ if (process.env.NODE_ENV === "production" && process.env.DATABASE_URL) {
 
 Use `require()` instead of `import` in CJS bundles and wrap in try-catch for resilience.
 
-### 12. Docker Compose: Database Volume Gotcha
+### 12. Never `chown -R` the App Tree After a pnpm Install
+
+A final `RUN chown -R node:node /app` to drop privileges looks harmless but is
+brutally slow: pnpm's `node_modules/.pnpm` virtual store holds tens of thousands
+of hardlinked files, and recursing them adds minutes to every build (it appears
+to "hang" on the `chown` layer).
+
+**Wrong:**
+```dockerfile
+RUN pnpm install --frozen-lockfile
+# ...copy artifacts...
+RUN chown -R node:node /app   # recurses the entire node_modules store — minutes
+USER node
+```
+
+**Correct:** Make files node-owned *at creation time*. `chown` the empty workdir
+once, switch user early, then use `COPY --chown` and run the install as `node`:
+```dockerfile
+RUN chown node:node /app
+USER node
+COPY --chown=node:node pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+# ...other COPY --chown lines...
+RUN pnpm install --frozen-lockfile
+COPY --chown=node:node --from=build /app/artifacts/server/dist ./...
+```
+
+**Corepack caveat:** running pnpm as a non-root user means corepack must find its
+cached pnpm. By default it caches in the *building* user's home (`/root`), which
+`node` can't read → it re-downloads (or fails offline). Pin a shared, readable
+cache in the base stage:
+```dockerfile
+ENV COREPACK_HOME=/opt/corepack
+RUN corepack enable && corepack prepare pnpm@10.26.1 --activate \
+    && chmod -R a+rX /opt/corepack
+```
+This matters when the runtime entrypoint itself shells out to `pnpm` (e.g.
+`pnpm exec drizzle-kit push`, `pnpm run seed`) as the node user.
+
+### 13. Docker Compose: Database Volume Gotcha
 
 If you change `POSTGRES_PASSWORD` in `docker-compose.yml` after the database volume has been created, PostgreSQL ignores the change (it only applies on first init). Result: `password authentication failed`.
 
