@@ -188,7 +188,9 @@ export default function JobDetail() {
           } else if (msg.type === "unparked") {
             setParkedAll((prev) => prev.filter((p) => p.taskId !== msg.task.taskId));
           }
-        } catch {}
+        } catch (err) {
+          console.warn("[jobs/detail] failed to parse parked-stream event", err);
+        }
       };
       // EventSource auto-reconnects on transient errors; only intervene on
       // visibility-loss (handled below) and explicit close on unmount.
@@ -256,7 +258,7 @@ export default function JobDetail() {
   const submitBulkParkedInput = async () => {
     setBulkParkedBusy(true);
     try {
-      const r = await fetch(`${baseUrl}api/jobs/${jobId}/parked-tasks/respond-all`, {
+      const r = await fetch(`${baseUrl}/api/jobs/${jobId}/parked-tasks/respond-all`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -287,7 +289,7 @@ export default function JobDetail() {
     if (!ok) return;
     setBulkParkedBusy(true);
     try {
-      const r = await fetch(`${baseUrl}api/jobs/${jobId}/parked-tasks/abort-all`, {
+      const r = await fetch(`${baseUrl}/api/jobs/${jobId}/parked-tasks/abort-all`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -410,7 +412,9 @@ export default function JobDetail() {
         if (event.type === "task_status") {
           refetch();
         }
-      } catch {}
+      } catch (err) {
+        console.warn("[jobs/detail] failed to parse live-stream event", err);
+      }
     };
 
     attach(es);
@@ -513,6 +517,10 @@ export default function JobDetail() {
   const progress = job.totalTasks > 0 ? (doneTasks / job.totalTasks) * 100 : 0;
 
   const waitingCount = waitingDevices.length;
+  // Tasks needing operator attention in the summary stat = interactive
+  // prompts (waitingDevices) plus auto-confirm prompts that parked. The
+  // interactive "Send to All" controls below still key off waitingCount only.
+  const attentionCount = waitingCount + parkedTasks.length;
   const isInteractive = job.status === "running" && !job.autoConfirm;
 
   const sortedTasks = showWaitingFirst
@@ -627,9 +635,9 @@ export default function JobDetail() {
                 <p className="text-2xl font-bold text-yellow-400">{remainingTasks}</p>
                 <p className="text-xs text-muted-foreground uppercase font-semibold mt-1">Remaining</p>
               </div>
-              {waitingCount > 0 && (
+              {attentionCount > 0 && (
                 <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center col-span-3">
-                  <p className="text-2xl font-bold text-amber-400">{waitingCount}</p>
+                  <p className="text-2xl font-bold text-amber-400">{attentionCount}</p>
                   <p className="text-xs text-amber-400/70 uppercase font-semibold mt-1">Waiting for Input</p>
                 </div>
               )}

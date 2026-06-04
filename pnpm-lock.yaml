@@ -212,6 +212,9 @@ importers:
       ssh2:
         specifier: ^1.17.0
         version: 1.17.0
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@types/connect-pg-simple':
         specifier: ^7.0.3
@@ -231,6 +234,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.3.5
+      '@types/pg':
+        specifier: ^8.18.0
+        version: 8.18.0
       esbuild:
         specifier: 0.27.3
         version: 0.27.3

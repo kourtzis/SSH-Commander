@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { credentialProfilesTable } from "./credential_profiles";
@@ -35,7 +35,9 @@ export const routersTable = pgTable("routers", {
   // doing a sequential scan on large fleets. The cardinality is low
   // (handful of profiles, many routers) but the lookup is hot.
   index("idx_routers_credential_profile_id").on(table.credentialProfileId),
-  index("idx_routers_name").on(table.name),
+  // Device names are unique — the UI and Excel-variable lookups treat the
+  // name as a human-facing identifier, and duplicate names made jobs ambiguous.
+  uniqueIndex("idx_routers_name").on(table.name),
   index("idx_routers_ip_address").on(table.ipAddress),
 ]);
 

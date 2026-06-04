@@ -3,8 +3,9 @@
 // When a schedule fires, it clones the template job and runs SSH commands
 // against all resolved routers (same execution logic as manual job runs).
 
-import { db, schedulesTable, batchJobsTable, jobTasksTable, routersTable } from "@workspace/db";
-import { eq, lte, and, inArray, sql } from "drizzle-orm";
+import { db, pool, schedulesTable, batchJobsTable, jobTasksTable, routersTable } from "@workspace/db";
+import { eq, lte, and, inArray } from "drizzle-orm";
+import type { PoolClient } from "pg";
 import { executeSSH, applyTagSubstitution, detectFailureSignals } from "./ssh.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "./resolve-routers.js";
 import { resolveEffectiveCreds } from "./effective-creds.js";
@@ -361,51 +362,54 @@ async function safeTick() {
     return;
   }
   tickInFlight = true;
+
+  // Cross-instance guard: when SSH Commander runs with multiple API server
+  // replicas (HA / rolling deploy), without this every replica would race on
+  // the same due schedules and clone the template job N times.
+  //
+  // We hold a *session-scoped* advisory lock on a single dedicated pooled
+  // connection for the lifetime of the tick, and release it on that SAME
+  // connection in finally. This is the key change from the earlier
+  // transaction-scoped approach: a tick can run for minutes (SSH to hundreds
+  // of devices), and wrapping it in a transaction created a minutes-long
+  // idle-in-transaction connection that held back autovacuum (xmin horizon)
+  // and could be killed by an `idle_in_transaction_session_timeout`, aborting
+  // the run. Acquiring and releasing the lock on the same pinned client keeps
+  // it safe under pooling (the unlock can never land on a different backend)
+  // while tick()'s own queries run on the regular pool — the lock is a
+  // coordination primitive, not a data fence, so it does NOT wrap tick's work
+  // in a transaction.
+  // client is acquired INSIDE the try so that a failure in pool.connect()
+  // (DB outage, pool exhaustion) still falls through to the finally that
+  // resets tickInFlight — otherwise a single failed connect would wedge the
+  // in-process guard and silently disable scheduling on this instance forever.
+  let client: PoolClient | null = null;
+  let locked = false;
   try {
-    // Cross-instance guard: when SSH Commander is run with multiple API
-    // server replicas (HA / rolling deploy), without this every replica
-    // would race on the same due schedules and clone the template job
-    // N times.
-    //
-    // We use the *transaction*-scoped variant `pg_try_advisory_xact_lock`
-    // wrapped in a drizzle transaction so the lock is acquired and
-    // released on the SAME pooled backend (a transaction pins one
-    // connection for its lifetime) and is auto-released by Postgres
-    // when the transaction commits or rolls back. The session-scoped
-    // variant + a separate `pg_advisory_unlock` would be unsafe under
-    // pooling: the unlock could land on a different backend and silently
-    // do nothing, leaking the lock for the entire pool conn's lifetime.
-    //
-    // We deliberately do NOT route the actual tick() work through `tx`:
-    // tick() itself does many independent reads/updates that are fine on
-    // the regular pool, and pinning all of them to one connection for
-    // the full duration of a tick would starve the pool on busy fleets.
-    // The lock is purely a coordination primitive, not a data fence.
-    let locked = false;
-    try {
-      await db.transaction(async (tx) => {
-        const lockResult = await tx.execute<{ locked: boolean }>(
-          sql`select pg_try_advisory_xact_lock(${SCHEDULER_LOCK_KEY}) as locked`,
-        );
-        const lockedRow = (lockResult as any).rows?.[0]
-          ?? (Array.isArray(lockResult) ? (lockResult as any)[0] : undefined);
-        locked = lockedRow?.locked === true;
-        if (!locked) {
-          // Release the pooled tx conn immediately; another replica is ticking.
-          return;
-        }
-        // Run the tick INSIDE the transaction so the xact lock stays
-        // held for tick's full duration. Postgres releases it on commit.
-        await tick();
-      });
-    } catch (err) {
-      log.error({ err }, "tick failed");
-      return;
-    }
+    client = await pool.connect();
+    const lockResult = await client.query<{ locked: boolean }>(
+      "select pg_try_advisory_lock($1) as locked",
+      [SCHEDULER_LOCK_KEY],
+    );
+    locked = lockResult.rows[0]?.locked === true;
     if (!locked) {
       log.debug("Skipping tick (advisory lock held by another instance)");
+      return;
     }
+    await tick();
+  } catch (err) {
+    log.error({ err }, "tick failed");
   } finally {
+    if (client) {
+      if (locked) {
+        try {
+          await client.query("select pg_advisory_unlock($1)", [SCHEDULER_LOCK_KEY]);
+        } catch (err) {
+          log.warn({ err }, "advisory unlock failed");
+        }
+      }
+      client.release();
+    }
     tickInFlight = false;
   }
 }

@@ -6,6 +6,7 @@
 import { Router, type IRouter } from "express";
 import { db, routerGroupsTable, groupRoutersTable, groupSubgroupsTable, routersTable } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
+import { z } from "zod/v4";
 import {
   CreateGroupBody,
   UpdateGroupBody,
@@ -13,6 +14,12 @@ import {
   RemoveGroupMemberBody,
 } from "@workspace/api-zod";
 import { requireAuth, requireAdminAuth } from "../lib/auth.js";
+
+// Body for PUT /groups/:id/move. newParentId is a target group id, or null to
+// move the group to the root level. Defined locally (not in the OpenAPI spec).
+const MoveGroupBody = z.object({
+  newParentId: z.number().int().nullable(),
+});
 
 const router: IRouter = Router();
 
@@ -160,11 +167,12 @@ router.put("/groups/:id/move", async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid group ID" }); return; }
 
-  const { newParentId } = req.body as { newParentId: number | null };
-  if (newParentId !== null && typeof newParentId !== "number") {
-    res.status(400).json({ error: "newParentId must be a number or null" });
+  const parsedMove = MoveGroupBody.safeParse(req.body);
+  if (!parsedMove.success) {
+    res.status(400).json({ error: "newParentId must be an integer or null" });
     return;
   }
+  const { newParentId } = parsedMove.data;
 
   if (newParentId === id) {
     res.status(400).json({ error: "Cannot move a group under itself" });

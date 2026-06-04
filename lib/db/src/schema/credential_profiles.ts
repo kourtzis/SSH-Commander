@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, index, boolean, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, index, uniqueIndex, boolean, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -35,6 +35,7 @@ export const credentialProfilesTable = pgTable("credential_profiles", {
   useLegacyAlgorithms: boolean("use_legacy_algorithms").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
+  uniqueIndex("idx_credential_profiles_name").on(table.name), // Profile names are a unique selector
   index("idx_credential_profiles_jump_host_id").on(table.jumpHostId),
 ]);
 

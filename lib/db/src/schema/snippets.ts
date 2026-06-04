@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -15,6 +15,7 @@ export const snippetsTable = pgTable("snippets", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
+  uniqueIndex("idx_snippets_name").on(table.name), // Snippet names are a unique library key
   index("idx_snippets_tags").using("gin", table.tags), // GIN index for fast @> containment queries
 ]);
 

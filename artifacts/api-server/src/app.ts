@@ -265,9 +265,56 @@ app.use("/api/auth/login", authLimiter);
 // JS/CSS/image request. With the mount under /api, `req.path` is the
 // portion *after* /api, so the exempt-set entries also drop the prefix.
 const CSRF_EXEMPT_PATHS = new Set(["/healthz", "/auth/login"]);
+
+// SSE GET endpoints (path is relative to the /api mount). These stream
+// authenticated data, but EventSource cannot attach the X-Requested-With
+// header the way fetch() does — so the standard CSRF check can't cover them.
+// We instead validate Origin/Referer so a cross-origin page can't open one of
+// these credentialed streams and read its contents.
+const SSE_GET_PATHS = /^\/(tasks\/parked\/stream|jobs\/\d+\/live|routers\/\d+\/terminal)$/;
+
+// True if the request's Origin/Referer is same-origin or in the allow-list.
+// Non-browser clients (curl) send neither header and are allowed through — the
+// session cookie is still required to actually read anything.
+function isAllowedBrowserOrigin(req: express.Request): boolean {
+  const origin = req.get("Origin");
+  const referer = req.get("Referer");
+  if (!origin && !referer) return true;
+
+  const acceptable = new Set(allowedOrigins);
+  const host = req.get("Host");
+  if (host) {
+    const proto = (req.get("X-Forwarded-Proto") || req.protocol || "https")
+      .split(",")[0]
+      .trim();
+    acceptable.add(`${proto}://${host}`);
+  }
+
+  let candidate: string | null = origin ?? null;
+  if (!candidate && referer) {
+    try {
+      candidate = new URL(referer).origin;
+    } catch {
+      return false; // a Referer was sent but is unparseable — fail closed
+    }
+  }
+  // A browser header was present (we returned early above if both were absent)
+  // but yielded no usable origin — fail closed rather than allowing through.
+  if (!candidate) return false;
+  return acceptable.has(candidate);
+}
+
 app.use("/api", (req, res, next) => {
   const method = req.method.toUpperCase();
-  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+    // Only enforce the origin guard in production: the dev preview is served
+    // through the Replit proxy, where Origin and Host legitimately differ.
+    if (isProd && method === "GET" && SSE_GET_PATHS.test(req.path) && !isAllowedBrowserOrigin(req)) {
+      res.status(403).json({ error: "Cross-origin SSE request blocked (CSRF protection)" });
+      return;
+    }
+    return next();
+  }
   if (CSRF_EXEMPT_PATHS.has(req.path)) return next();
   if (req.get("X-Requested-With") !== "XMLHttpRequest") {
     res.status(403).json({ error: "Missing X-Requested-With header (CSRF protection)" });
@@ -290,6 +337,15 @@ if (isProd) {
 
 // ─── Global Error Handler ───────────────────────────────────────────
 app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Map Postgres unique-constraint violations (duplicate router / snippet /
+  // group / credential-profile name, or a duplicate group membership) to a
+  // clean 409 Conflict instead of a generic 500. Express 5 forwards rejected
+  // async-handler promises here, so a constraint violation thrown deep in a
+  // route lands on this handler.
+  if (err?.code === "23505") {
+    res.status(409).json({ error: "That value conflicts with an existing record — duplicates are not allowed." });
+    return;
+  }
   const status = err.status ?? 500;
   // Diagnostic: log every 401/500 with session context so we can see why
   // an apparently-authenticated user is being rejected. The "kicked out

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { routersTable } from "./routers";
@@ -15,6 +15,7 @@ export const routerGroupsTable = pgTable("router_groups", {
   parentId: integer("parent_id").references((): any => routerGroupsTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
+  uniqueIndex("idx_router_groups_name").on(table.name), // Group names are unique
   index("idx_router_groups_parent_id").on(table.parentId),
 ]);
 
@@ -26,6 +27,8 @@ export const groupRoutersTable = pgTable("group_routers", {
   groupId: integer("group_id").notNull().references(() => routerGroupsTable.id, { onDelete: "cascade" }),
   routerId: integer("router_id").notNull().references(() => routersTable.id, { onDelete: "cascade" }),
 }, (table) => [
+  // A router can belong to a group at most once.
+  uniqueIndex("uq_group_routers_group_router").on(table.groupId, table.routerId),
   index("idx_group_routers_group_id").on(table.groupId),
   index("idx_group_routers_router_id").on(table.routerId),
 ]);
@@ -38,6 +41,8 @@ export const groupSubgroupsTable = pgTable("group_subgroups", {
   parentGroupId: integer("parent_group_id").notNull().references(() => routerGroupsTable.id, { onDelete: "cascade" }),
   childGroupId: integer("child_group_id").notNull().references(() => routerGroupsTable.id, { onDelete: "cascade" }),
 }, (table) => [
+  // A child group can be nested under a parent at most once.
+  uniqueIndex("uq_group_subgroups_parent_child").on(table.parentGroupId, table.childGroupId),
   index("idx_group_subgroups_parent").on(table.parentGroupId),
   index("idx_group_subgroups_child").on(table.childGroupId),
 ]);

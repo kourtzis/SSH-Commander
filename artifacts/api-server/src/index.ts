@@ -38,6 +38,7 @@ process.on("unhandledRejection", (err) => {
 import app from "./app";
 import { startScheduler, stopScheduler } from "./lib/scheduler.js";
 import { startReachabilityLoop } from "./lib/reachability-loop.js";
+import { reapOrphanedJobs } from "./lib/startup-reaper.js";
 import { pool as dbPool } from "@workspace/db";
 
 // PORT is required — set by Replit in dev, by Docker in production
@@ -57,8 +58,13 @@ if (Number.isNaN(port) || port <= 0) {
 
 const server = app.listen(port, () => {
   log.info({ port }, "Server listening");
-  startScheduler();          // 30-second loop for scheduled jobs
-  startReachabilityLoop();   // 5-minute loop for device uptime aggregates
+  // Clear out any tasks/jobs left mid-flight by a previous shutdown before
+  // the scheduler can start a new tick. Fire-and-forget: the reaper swallows
+  // its own errors and must never delay accepting requests.
+  void reapOrphanedJobs().finally(() => {
+    startScheduler();          // 30-second loop for scheduled jobs
+    startReachabilityLoop();   // 5-minute loop for device uptime aggregates
+  });
 });
 
 // ─── Graceful shutdown ───────────────────────────────────────────────

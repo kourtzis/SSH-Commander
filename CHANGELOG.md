@@ -12,6 +12,93 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [1.17.0] - 2026-06-04
+
+A hardening release: data-integrity constraints, safer scheduling, stricter
+input validation, and cross-site protection on live streams. One schema change
+(new unique constraints) — see upgrade note below.
+
+### Data integrity
+
+- **Unique constraints on names and group membership.** `routers`, `snippets`,
+  `router_groups`, and `credential_profiles` now enforce unique `name` values,
+  and `group_routers` / `group_subgroups` have composite unique constraints so
+  the same router or sub-group can't be linked into a group twice. Postgres
+  unique-violations (`23505`) are mapped to a clean `409 Conflict` with a
+  friendly message instead of a generic `500`.
+
+### Reliability
+
+- **Scheduler advisory-lock refactor.** The schedule runner previously held a
+  transaction-scoped advisory lock for the full duration of a tick. It now
+  takes a session-level `pg_try_advisory_lock` on a dedicated client, runs the
+  tick *outside* any transaction, and releases the lock in a `finally`. This
+  prevents a long-held lock from stalling scheduling and keeps concurrent app
+  instances from firing the same schedule simultaneously.
+
+### Security
+
+- **Strict request validation.** `POST`/`PUT /api/credentials` and
+  `PUT /api/groups/:id/move` now validate their bodies with zod `safeParse`
+  before any database access, rejecting malformed input with a `400` and a
+  specific message.
+- **Cross-origin guard on SSE streams.** The Server-Sent Events endpoints
+  (`/api/tasks/parked/stream`, `/api/jobs/:id/live`,
+  `/api/routers/:id/terminal`) can't carry the `X-Requested-With` CSRF header
+  that `fetch` uses, so they now validate `Origin`/`Referer` against the
+  same-origin host and `ALLOWED_ORIGINS` (enforced in production), blocking a
+  cross-site page from opening these authenticated streams.
+
+### Upgrade notes
+
+- This release adds unique constraints. If your database already contains
+  duplicate router/snippet/group/credential-profile names, deduplicate them
+  before deploying or the constraint creation will fail. Run `db:push` (or your
+  migration step) as part of the deploy.
+
+## [1.16.0] - 2026-06-04
+
+A bug-fix release focused on interactive sessions and restart reliability.
+No schema changes, no new env vars, no upgrade steps.
+
+### Interactive sessions
+
+- **Fixed: prompts could time out while Auto Reply was off.** When a device
+  paused on a prompt with Auto Reply disabled, the task entered
+  `waiting_input` but the per-device *global* timeout kept ticking, so the
+  session was hard-killed once `timeoutSeconds` elapsed — even while the
+  operator was looking at the prompt. The global timeout now clears the
+  moment a session enters `waiting_input` and is re-armed with a fresh
+  window in `sendInput` once a response arrives. (The auto-confirm/parked
+  path already cleared its timer on park; the interactive path did not.)
+- **Fixed: bulk parked-prompt controls were broken.** The "Send to all" and
+  "Abort all" buttons for parked auto-confirm prompts built a malformed URL
+  (`${baseUrl}api/...` instead of `${baseUrl}/api/...`), resolving to a 404,
+  so they silently failed. Bulk respond/abort across many waiting sessions
+  now works.
+- **"Waiting for Input" summary now includes parked prompts.** The job
+  summary stat counted only interactive `waitingDevices`, reading zero on
+  auto-confirm jobs even while sessions were parked. It now adds the parked
+  count. The interactive "Send to All" controls still key off the
+  interactive count only.
+
+### Reliability
+
+- **Startup reaper for orphaned tasks/jobs.** Interactive sessions and the
+  parked-prompt registry live only in memory, so a restart (deploy, crash,
+  container stop) left their `job_tasks` rows stuck in
+  `pending`/`running`/`waiting_input` and parent jobs stuck in `running`
+  forever, with the UI showing dead sessions as live. On boot the server now
+  sweeps these to `failed` ("Interrupted by server restart") before the
+  scheduler starts. Recurring schedule templates (status `scheduled`) are
+  untouched — only actual run rows are reaped.
+- **Router terminal no longer leaks sessions on reconnect.** `connect()` now
+  closes any existing `EventSource` before opening a new one, so repeatedly
+  clicking Connect doesn't abandon prior SSH sessions server-side or consume
+  the admin-terminals quota.
+
+---
+
 ## [1.15.0] - 2026-06-04
 
 A small internal-quality release: structured logging and a first unit-test

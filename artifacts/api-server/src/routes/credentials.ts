@@ -11,7 +11,25 @@
 import { Router, type IRouter } from "express";
 import { db, credentialProfilesTable, encryptSecret } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { z } from "zod/v4";
 import { requireAuth, requireAdmin, getCurrentUser } from "../lib/auth.js";
+
+// Optional fields accept the loose shapes the UI sends (HTML number inputs
+// emit "" when blank; ids may arrive as strings) — the handler's
+// toIntOrNull / toStrOrNull helpers normalize them after validation.
+const credentialCreateSchema = z.object({
+  name: z.string().trim().min(1, "name is required"),
+  sshUsername: z.string().trim().min(1, "sshUsername is required"),
+  sshPassword: z.string().nullish(),
+  enablePassword: z.string().nullish(),
+  jumpHostId: z.union([z.number(), z.string(), z.null()]).optional(),
+  jumpHost: z.string().nullish(),
+  jumpPort: z.union([z.number(), z.string(), z.null()]).optional(),
+  description: z.string().nullish(),
+  useLegacyAlgorithms: z.boolean().optional(),
+});
+
+const credentialUpdateSchema = credentialCreateSchema.partial();
 
 // Helper: requireAuth() returns void in this codebase, so resolve the actual
 // user record from the session for any code path that needs role checks.
@@ -54,11 +72,12 @@ router.get("/credentials", async (req, res) => {
 router.post("/credentials", async (req, res) => {
   const user = await authedUser(req);
   requireAdmin(user);
-  const { name, sshUsername, sshPassword, enablePassword, jumpHostId, jumpHost, jumpPort, description, useLegacyAlgorithms } = req.body ?? {};
-  if (!name || !sshUsername) {
-    res.status(400).json({ error: "name and sshUsername are required" });
+  const parsed = credentialCreateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request body" });
     return;
   }
+  const { name, sshUsername, sshPassword, enablePassword, jumpHostId, jumpHost, jumpPort, description, useLegacyAlgorithms } = parsed.data;
   // Coerce empty strings (sent by HTML number inputs when blank) to null so
   // Postgres doesn't reject them with "invalid input syntax for type integer".
   const toIntOrNull = (v: unknown): number | null => {
@@ -93,8 +112,14 @@ router.put("/credentials/:id", async (req, res) => {
   const user = await authedUser(req);
   requireAdmin(user);
   const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid credential profile id" }); return; }
+  const parsed = credentialUpdateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request body" });
+    return;
+  }
   const updates: Record<string, any> = {};
-  const b = req.body ?? {};
+  const b = parsed.data;
   if (b.name !== undefined) updates.name = b.name;
   if (b.sshUsername !== undefined) updates.sshUsername = b.sshUsername;
   // Only update secrets if a non-empty string is provided. This lets the UI

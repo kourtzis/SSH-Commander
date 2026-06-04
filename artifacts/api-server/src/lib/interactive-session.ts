@@ -143,6 +143,7 @@ interface DeviceSession {
   commandSent: boolean;            // Whether the command has been sent (delayed by 500ms)
   idleTimerRef: ReturnType<typeof setTimeout> | null;    // Idle timer (closes session on inactivity)
   globalTimerRef: ReturnType<typeof setTimeout> | null;  // Global timeout (hard limit per device)
+  timeoutMs: number;               // Per-device global timeout window (for re-arming after operator input)
   resolved: boolean;               // True once the device session is finalized
 }
 
@@ -225,6 +226,16 @@ class InteractiveSessionManager {
       dev.idleTimerRef = setTimeout(() => {
         this.handleDeviceIdle(jobId, taskId);
       }, 5000);
+
+      // Re-arm the per-device global timeout that handlePromptDetected
+      // cleared when the session entered waiting_input, so the resumed run
+      // still has a bounded life.
+      if (dev.globalTimerRef) clearTimeout(dev.globalTimerRef);
+      dev.globalTimerRef = setTimeout(() => {
+        if (dev.resolved) return;
+        dev.log.push(`[${ts()}] ERROR: Global timeout after ${dev.timeoutMs}ms`);
+        this.finalizeDevice(jobId, taskId, false, "Global timeout exceeded");
+      }, dev.timeoutMs);
 
       job.emitter.emit("event", {
         type: "input_sent",
@@ -367,6 +378,7 @@ class InteractiveSessionManager {
       commandSent: false,
       idleTimerRef: null,
       globalTimerRef: null,
+      timeoutMs,
       resolved: false,
     };
 
@@ -698,6 +710,14 @@ class InteractiveSessionManager {
     if (!dev || dev.resolved || dev.state === "waiting_input") return;
 
     if (dev.idleTimerRef) clearTimeout(dev.idleTimerRef);
+    // Stand down the per-device global timeout while we wait for the
+    // operator. Without this, a device that pauses for manual input still
+    // gets killed once the job's timeoutSeconds elapses — even though the
+    // operator is actively looking at the prompt. (This was the cause of
+    // "I disabled Auto Reply and the sessions just timed out.") The
+    // auto-confirm/parked path in ssh.ts clears its timer on park for the
+    // same reason; sendInput() re-arms a fresh window when input arrives.
+    if (dev.globalTimerRef) { clearTimeout(dev.globalTimerRef); dev.globalTimerRef = null; }
 
     const prompt = extractPromptText(dev.shellBuffer);
     dev.state = "waiting_input";

@@ -32,6 +32,14 @@ export default function RouterTerminal() {
   }, [output]);
 
   const connect = () => {
+    // Close any previous stream before opening a new one. Clicking Connect
+    // again (or reconnecting after an error) otherwise abandons the prior
+    // EventSource, which keeps its SSH session alive server-side and counts
+    // against the admin-terminals quota.
+    if (eventSrcRef.current) {
+      try { eventSrcRef.current.close(); } catch {}
+      eventSrcRef.current = null;
+    }
     setOutput("");
     setError(null);
     const es = new EventSource(`/api/routers/${id}/terminal`, { withCredentials: true });

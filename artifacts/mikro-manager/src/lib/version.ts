@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.15.0";
+export const APP_VERSION = "1.17.0";
 export const APP_VERSION_DATE = "2026-06-04";
 
 
@@ -14,6 +14,47 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.17.0",
+    date: "2026-06-04",
+    sections: [
+      {
+        title: "Data integrity",
+        items: [
+          "Router, snippet, group, and credential-profile names must now be unique, and a router or sub-group can't be added to the same group twice. Duplicate names that previously slipped through are rejected with a clear \"already in use\" message instead of quietly creating confusing duplicates.",
+        ],
+      },
+      {
+        title: "Reliability & security",
+        items: [
+          "The schedule runner now coordinates across multiple app instances using a database lock that's held only for the brief moment a tick is claimed, not for the entire run. This removes a long-held lock that could stall scheduling and prevents two instances from firing the same schedule at once.",
+          "Credential and group-move requests are now strictly validated before anything touches the database, so malformed input fails fast with a helpful error instead of producing an unclear server error.",
+          "Live-stream endpoints (parked-prompt updates, job progress, and the router terminal) now reject cross-site connections, closing a gap where another website could open one of these authenticated streams in your browser.",
+        ],
+      },
+    ],
+  },
+  {
+    version: "1.16.0",
+    date: "2026-06-04",
+    sections: [
+      {
+        title: "Interactive sessions",
+        items: [
+          "Fixed: with Auto Reply turned off, a device that paused on a prompt could still be killed by the per-job timeout while you were reading it — the global countdown kept running during \"waiting for input\". The timeout now stands down the moment a session pauses for you and re-arms a fresh window only after you send a response, so manual replies are no longer racing a clock.",
+          "Fixed: the \"Send to all\" and \"Abort all\" buttons for parked auto-confirm prompts pointed at a malformed URL and silently did nothing. Bulk responding to, or aborting, many waiting sessions at once now works.",
+          "The job summary's \"Waiting for Input\" stat now also counts parked auto-confirm prompts, not just interactive ones, so it no longer reads zero while sessions are actually waiting on an auto-confirm job.",
+        ],
+      },
+      {
+        title: "Reliability",
+        items: [
+          "Tasks and jobs left mid-flight by a server restart (deploy, crash, or container stop) are now cleaned up automatically on the next boot and marked failed with \"Interrupted by server restart\". Previously these stayed \"running\" or \"waiting for input\" forever because the live session lived only in memory and nothing resumed it.",
+          "The router terminal now closes any previous stream before reconnecting, so repeatedly clicking Connect no longer leaks SSH sessions server-side or burns through the admin-terminals quota.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.15.0",
     date: "2026-06-04",
