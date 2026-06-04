@@ -1,0 +1,40 @@
+#17 [production  9/16] RUN pnpm install --frozen-lockfile
+#17 0.638 warn: This version of pnpm requires at least Node.js v22.13
+#17 0.638 warn: The current version of Node.js is v20.20.2
+#17 0.638 warn: Visit https://r.pnpm.io/comp to see the list of past pnpm versions with respective Node.js version support.
+#17 0.969 node:internal/modules/cjs/loader:1031
+#17 0.969       throw new ERR_UNKNOWN_BUILTIN_MODULE(request);
+#17 0.969             ^
+#17 0.969
+#17 0.969 Error [ERR_UNKNOWN_BUILTIN_MODULE]: No such built-in module: node:sqlite
+#17 0.969     at Module._load (node:internal/modules/cjs/loader:1031:13)
+#17 0.969     at Module.require (node:internal/modules/cjs/loader:1289:19)
+#17 0.969     at require (node:internal/modules/helpers:182:18)
+#17 0.969     at ../store/index/lib/index.js (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:55052:25)
+#17 0.969     at __init (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:15:56)
+#17 0.969     at ../resolving/npm-resolver/lib/index.js (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:65896:5)
+#17 0.969     at __init (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:15:56)
+#17 0.969     at ../workspace/projects-graph/lib/index.js (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:66034:5)
+#17 0.969     at __init (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:15:56)
+#17 0.969     at ../workspace/projects-filter/lib/index.js (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:73452:5) {
+#17 0.969   code: 'ERR_UNKNOWN_BUILTIN_MODULE'
+#17 0.969 }
+#17 0.969
+#17 0.969 Node.js v20.20.2
+#17 ERROR: process "/bin/sh -c pnpm install --frozen-lockfile" did not complete successfully: exit code: 1
+
+#18 [build  9/12] RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+#18 0.928 Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+#18 CANCELED
+------
+ > [production  9/16] RUN pnpm install --frozen-lockfile:
+0.969     at __init (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:15:56)
+0.969     at ../resolving/npm-resolver/lib/index.js (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:65896:5)
+0.969     at __init (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:15:56)
+0.969     at ../workspace/projects-graph/lib/index.js (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:66034:5)
+0.969     at __init (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:15:56)
+0.969     at ../workspace/projects-filter/lib/index.js (file:///root/.cache/node/corepack/v1/pnpm/11.5.1/dist/pnpm.mjs:73452:5) {
+0.969   code: 'ERR_UNKNOWN_BUILTIN_MODULE'
+0.969 }
+0.969
+0.969 Node.js v20.20.2

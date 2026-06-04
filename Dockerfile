@@ -1,5 +1,10 @@
 FROM node:20-slim AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Pin pnpm to the version that generated pnpm-lock.yaml (lockfileVersion 9.0).
+# Do NOT use pnpm@latest: pnpm 11.x requires Node >=22.13 (it imports the
+# node:sqlite builtin), which crashes on this node:20 base with
+# "No such built-in module: node:sqlite". Pinning also keeps --frozen-lockfile
+# from drifting against a newer pnpm.
+RUN corepack enable && corepack prepare pnpm@10.26.1 --activate
 WORKDIR /app
 
 FROM base AS build

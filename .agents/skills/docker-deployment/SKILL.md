@@ -257,7 +257,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 
 ```dockerfile
 FROM node:20-slim AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Pin pnpm to the version that generated pnpm-lock.yaml — NOT pnpm@latest.
+# pnpm 11.x requires Node >=22.13 (imports node:sqlite) and crashes on node:20
+# with "No such built-in module: node:sqlite". Check your local `pnpm --version`.
+RUN corepack enable && corepack prepare pnpm@10.26.1 --activate
 WORKDIR /app
 
 # --- Build stage: install ALL deps, compile everything ---
