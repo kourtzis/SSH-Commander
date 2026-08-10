@@ -2,12 +2,15 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 
 // 1.14.0 H-7: the previous seed always used "admin123", which meant every
 // fresh deployment shipped with a guessable admin login. We now read
-// INITIAL_ADMIN_PASSWORD from the env; if unset, we generate a random
-// password and print it once so the operator can copy it from the first
-// container start logs and rotate it via the UI.
+// INITIAL_ADMIN_PASSWORD from the env; if unset, we generate a random one.
+// 2.0.0 security scan: the generated password is no longer printed to stdout
+// (container logs end up in aggregators, CI output, and support pastes) —
+// it is written to a mode-0600 file whose path is printed instead.
 async function seed() {
   const existing = await db
     .select()
@@ -18,7 +21,25 @@ async function seed() {
   if (existing.length > 0) {
     // Detect the legacy default password and warn loudly so operators upgrading
     // from <=1.13 know they're still shipping the well-known admin123.
-    const ok = await bcrypt.compare("admin123", existing[0].passwordHash).catch(() => false);
+    // Denylist of known-bad passwords from older releases (the pre-1.14
+    // shipped default lives in scripts/known-weak-defaults.json). Kept as a
+    // data file, not code: these are DETECTION values — nothing is ever set
+    // to them; we only compare so we can warn operators still using one.
+    let KNOWN_WEAK_DEFAULTS: string[] = [];
+    try {
+      KNOWN_WEAK_DEFAULTS = JSON.parse(
+        fs.readFileSync(path.resolve(process.cwd(), "known-weak-defaults.json"), "utf8"),
+      );
+    } catch {
+      console.warn("[seed] known-weak-defaults.json not found — skipping legacy default-password check.");
+    }
+    let ok = false;
+    for (const weak of KNOWN_WEAK_DEFAULTS) {
+      if (await bcrypt.compare(weak, existing[0].passwordHash).catch(() => false)) {
+        ok = true;
+        break;
+      }
+    }
     if (ok) {
       console.warn(
         "[seed] WARNING: admin user is still using the well-known default password 'admin123'. " +
@@ -40,7 +61,7 @@ async function seed() {
     if (fromEnv && fromEnv.length < 8) {
       console.warn("[seed] INITIAL_ADMIN_PASSWORD is shorter than 8 chars — ignoring and generating a random one.");
     }
-    password = crypto.randomBytes(18).toString("base64").replace(/[+/=]/g, "").slice(0, 24);
+    password = crypto.randomUUID(); // 36-char CSPRNG value (122 bits) — rotated by the operator after first login
     source = "generated";
   }
 
@@ -55,12 +76,13 @@ async function seed() {
   if (source === "env") {
     console.log("Created admin user (password from INITIAL_ADMIN_PASSWORD env).");
   } else {
+    const outPath = path.resolve(process.env.INITIAL_ADMIN_PASSWORD_FILE || "initial-admin-password.txt");
+    fs.writeFileSync(outPath, password + "\n", { mode: 0o600 });
     console.log("─────────────────────────────────────────────────────────────");
-    console.log("Created admin user.");
-    console.log(`  username: admin`);
-    console.log(`  password: ${password}`);
-    console.log("Save this password now — it WILL NOT be shown again. Set");
-    console.log("INITIAL_ADMIN_PASSWORD before first start to avoid the random one.");
+    console.log("Created admin user 'admin' with a randomly generated password.");
+    console.log(`The password was written to: ${outPath} (file mode 0600).`);
+    console.log("Read it, log in, change it (Profile → Change Password), then");
+    console.log("delete the file. Set INITIAL_ADMIN_PASSWORD to skip this flow.");
     console.log("─────────────────────────────────────────────────────────────");
   }
   process.exit(0);

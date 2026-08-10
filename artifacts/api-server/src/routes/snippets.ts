@@ -4,6 +4,7 @@
 // containment operator (backed by a GIN index for fast lookups).
 
 import { Router, type IRouter } from "express";
+import { logAudit } from "../lib/audit.js";
 import { db, snippetsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { CreateSnippetBody, UpdateSnippetBody } from "@workspace/api-zod";
@@ -52,6 +53,7 @@ router.post("/snippets", async (req, res) => {
     .insert(snippetsTable)
     .values({ name, tags: tags || [], code, description })
     .returning();
+  void logAudit(req, "snippet.create", { resourceType: "snippet", resourceId: snippet.id, resourceName: name });
   res.status(201).json(snippet);
 });
 
@@ -95,6 +97,7 @@ router.put("/snippets/:id", async (req, res) => {
     res.status(404).json({ error: "Snippet not found" });
     return;
   }
+  void logAudit(req, "snippet.update", { resourceType: "snippet", resourceId: id, resourceName: updated.name });
   res.json(updated);
 });
 
@@ -104,6 +107,7 @@ router.delete("/snippets/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid snippet id" }); return; }
   await db.delete(snippetsTable).where(eq(snippetsTable.id, id));
+  void logAudit(req, "snippet.delete", { resourceType: "snippet", resourceId: id });
   res.json({ message: "Snippet deleted" });
 });
 

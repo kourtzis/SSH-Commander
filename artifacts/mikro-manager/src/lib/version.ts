@@ -1,5 +1,5 @@
-export const APP_VERSION = "1.17.0";
-export const APP_VERSION_DATE = "2026-06-04";
+export const APP_VERSION = "2.0.1";
+export const APP_VERSION_DATE = "2026-08-10";
 
 
 export interface ChangelogSection {
@@ -14,6 +14,60 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.0.1",
+    date: "2026-08-10",
+    sections: [
+      {
+        title: "Hardening",
+        items: [
+          "All dependencies with known vulnerabilities were patched (vite, tmp, ip-address, brace-expansion) and pinned so they can't silently regress.",
+          "Docker deployments now fail fast when DB_PASSWORD, SESSION_SECRET, or CREDENTIAL_ENCRYPTION_KEY are missing instead of silently starting with insecure defaults; a documented .env.example ships with the compose files.",
+          "The first-boot admin password is written to a mode-0600 file inside the container instead of being printed to the logs \u2014 the boot log prints the file's path.",
+        ],
+      },
+    ],
+  },
+  {
+    version: "2.0.0",
+    date: "2026-08-10",
+    sections: [
+      {
+        title: "Configuration management",
+        items: [
+          "Config backups with version history: capture /export from any set of routers on demand or on a schedule, keep every snapshot per device, and view colorized diffs between any two versions to see exactly what changed.",
+          "Golden configs & drift detection: pin a blessed configuration per router, and the fleet is re-checked automatically \u2014 deviations surface on the new Drift page with line-level diffs against the golden copy.",
+        ],
+      },
+      {
+        title: "Fleet operations",
+        items: [
+          "RouterOS upgrade orchestration: plan an upgrade wave across selected devices, watch per-device progress through the check/download/reboot/verify phases, and cancel a wave mid-flight.",
+        ],
+      },
+      {
+        title: "Alerting",
+        items: [
+          "Alert rules & channels: get notified via Telegram, email (SMTP), or webhook when a device goes down or recovers, a job fails, config drift is detected, or an upgrade completes. Channels support test-sends, and every notification lands in a browsable history.",
+        ],
+      },
+      {
+        title: "Job insights",
+        items: [
+          "Fleet-wide output search: search the text of every device output across all jobs and jump straight to the matching job.",
+          "Identical-output grouping: collapse a job's task list so devices that returned byte-identical output appear as one row \u2014 spot the odd one out in a 200-router run at a glance.",
+        ],
+      },
+      {
+        title: "Security & access",
+        items: [
+          "Two-factor authentication (TOTP): enrol from the new Security page with any authenticator app, sign in with a 6-digit code, and keep one-time recovery codes. Admins can reset a locked-out user's 2FA.",
+          "API tokens: create bearer tokens for scripting against the REST API without a browser session, with per-token expiry and revocation.",
+          "Audit log: consequential actions \u2014 logins, job runs, config changes, user management \u2014 are recorded with actor and origin, browsable by admins with filters.",
+        ],
+      },
+    ],
+  },
   {
     version: "1.17.0",
     date: "2026-06-04",

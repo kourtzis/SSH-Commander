@@ -9,10 +9,13 @@ import { eq, sql } from "drizzle-orm";
 import { CreateUserBody, UpdateUserBody } from "@workspace/api-zod";
 import { getCurrentUser, requireAuth, requireAdmin } from "../lib/auth.js";
 import { parsePagination } from "../lib/pagination.js";
+import { logAudit } from "../lib/audit.js";
 
 const router: IRouter = Router();
 
-// Strip password hash from user records before sending to the client
+// Strip password hash (and TOTP secret material) from user records before
+// sending to the client. totpEnabled is exposed so admins can see who has
+// 2FA and offer the reset action.
 function sanitizeUser(user: typeof usersTable.$inferSelect) {
   return {
     id: user.id,
@@ -20,6 +23,7 @@ function sanitizeUser(user: typeof usersTable.$inferSelect) {
     email: user.email,
     role: user.role,
     canTerminal: user.canTerminal,
+    totpEnabled: user.totpEnabled ?? false,
     createdAt: user.createdAt,
   };
 }
@@ -67,6 +71,12 @@ router.post("/users", async (req, res) => {
     .values({ username, email, passwordHash, role, canTerminal: Boolean(canTerminal) })
     .returning();
 
+  void logAudit(req, "user.create", {
+    resourceType: "user",
+    resourceId: newUser.id,
+    resourceName: newUser.username,
+    details: { role: newUser.role },
+  });
   res.status(201).json(sanitizeUser(newUser));
 });
 
@@ -122,6 +132,12 @@ router.put("/users/:id", async (req, res) => {
     return;
   }
 
+  void logAudit(req, "user.update", {
+    resourceType: "user",
+    resourceId: id,
+    resourceName: updated.username,
+    details: { fields: Object.keys(updates).map((k) => (k === "passwordHash" ? "password" : k)) },
+  });
   res.json(sanitizeUser(updated));
 });
 
@@ -132,8 +148,35 @@ router.delete("/users/:id", async (req, res) => {
   requireAdmin(currentUser!);
 
   const id = parseInt(req.params.id);
-  await db.delete(usersTable).where(eq(usersTable.id, id));
+  const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id))
+    .returning({ id: usersTable.id, username: usersTable.username });
+  if (deleted) {
+    void logAudit(req, "user.delete", { resourceType: "user", resourceId: id, resourceName: deleted.username });
+  }
   res.json({ message: "User deleted" });
+});
+
+// POST /users/:id/reset-totp — Admin escape hatch for a locked-out user
+// (lost phone AND lost recovery codes). Clears all 2FA state; the user can
+// re-enroll from their Security page after logging in with their password.
+router.post("/users/:id/reset-totp", async (req, res) => {
+  requireAuth(req);
+  const currentUser = await getCurrentUser(req);
+  requireAdmin(currentUser!);
+
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid user id" }); return; }
+  const [updated] = await db
+    .update(usersTable)
+    .set({ totpSecret: null, totpEnabled: false, recoveryCodes: null })
+    .where(eq(usersTable.id, id))
+    .returning({ id: usersTable.id, username: usersTable.username });
+  if (!updated) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  void logAudit(req, "user.reset_totp", { resourceType: "user", resourceId: id, resourceName: updated.username });
+  res.json({ message: `Two-factor authentication reset for ${updated.username}` });
 });
 
 export default router;

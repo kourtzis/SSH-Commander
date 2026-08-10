@@ -16,6 +16,14 @@ export const usersTable = pgTable("users", {
   // have terminal access; operators must be explicitly granted because a
   // terminal is a raw root shell on production gear with no audit trail.
   canTerminal: boolean("can_terminal").notNull().default(false),
+  // ── TOTP two-factor auth (2.0.0) ──────────────────────────────────
+  // totpSecret is encrypted at rest (lib/db/src/crypto.ts). It is written
+  // during enrollment but 2FA only becomes mandatory once totpEnabled is
+  // set by a successful confirm — an abandoned setup never locks anyone out.
+  totpSecret: text("totp_secret"),
+  totpEnabled: boolean("totp_enabled").notNull().default(false),
+  // bcrypt-hashed single-use recovery codes; entries are removed as used.
+  recoveryCodes: text("recovery_codes").array(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

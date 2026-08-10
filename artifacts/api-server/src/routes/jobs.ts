@@ -7,6 +7,7 @@
 //     pauses at prompts for user input via the /respond endpoint
 
 import { Router, type IRouter } from "express";
+import { logAudit } from "../lib/audit.js";
 import {
   db,
   batchJobsTable,
@@ -28,6 +29,7 @@ import { interactiveSessions, type LiveEvent } from "../lib/interactive-session.
 import { stuckPrompts, type ParkedEvent } from "../lib/stuck-prompts.js";
 import { parsePagination } from "../lib/pagination.js";
 import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from "../lib/resolve-routers.js";
+import { emitAlert } from "../lib/alerts.js";
 
 // Authorization helper for /jobs/:id-style endpoints. Admins can access any
 // job; non-admin (operator) accounts can only access jobs they created.
@@ -113,9 +115,13 @@ router.post("/jobs/resolve-count", async (req, res) => {
 router.get("/jobs", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);
-  const isAdmin = user?.role === "admin";
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const isAdmin = user.role === "admin";
   const page = parsePagination(req);
-  const where = isAdmin ? undefined : eq(batchJobsTable.createdBy, user!.id);
+  const where = isAdmin ? undefined : eq(batchJobsTable.createdBy, user.id);
   const orderCol = sql`${batchJobsTable.createdAt} DESC`;
   if (page) {
     // Paginated mode (opt-in via ?limit=). Single-row count uses the same
@@ -167,6 +173,7 @@ router.get("/tasks/parked/stream", async (req, res) => {
   const user = await getCurrentUser(req);
   if (!user) { res.status(401).end(); return; }
   const isAdmin = user.role === "admin";
+  const userId = user.id; // hoisted — TS narrowing doesn't reach into the closure below
 
   // Cache job→ownership lookups so we don't hit Postgres on every
   // emitted event during a busy run.
@@ -180,7 +187,7 @@ router.get("/tasks/parked/stream", async (req, res) => {
       .from(batchJobsTable)
       .where(eq(batchJobsTable.id, jobId))
       .limit(1);
-    const owns = !!j && j.createdBy === user!.id;
+    const owns = !!j && j.createdBy === userId;
     ownsCache.set(jobId, owns);
     return owns;
   }
@@ -229,6 +236,10 @@ router.get("/tasks/parked/stream", async (req, res) => {
 router.post("/jobs", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
   const parsed = CreateJobBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid request body" });
@@ -266,10 +277,11 @@ router.post("/jobs", async (req, res) => {
         totalTasks: 0,
         completedTasks: 0,
         failedTasks: 0,
-        createdBy: user!.id,
+        createdBy: user.id,
       })
       .returning();
 
+    void logAudit(req, "job.create", { resourceType: "job", resourceId: job.id, resourceName: name, details: { mode: "schedule" } });
     res.status(201).json({
       ...job,
       completedAt: null,
@@ -307,7 +319,7 @@ router.post("/jobs", async (req, res) => {
         totalTasks: routers.length,
         completedTasks: 0,
         failedTasks: 0,
-        createdBy: user!.id,
+        createdBy: user.id,
       })
       .returning();
 
@@ -357,6 +369,7 @@ router.post("/jobs", async (req, res) => {
       });
   }
 
+  void logAudit(req, "job.create", { resourceType: "job", resourceId: job.id, resourceName: name, details: { targets: routers.length } });
   res.status(201).json({
     ...job,
     status: "running",
@@ -516,6 +529,32 @@ async function runJobInBackground(
       completedAt: new Date(),
     })
     .where(eq(batchJobsTable.id, jobId));
+
+  // Alert hooks — partial failures still alert (failedCount > 0):
+  // operators pushing fleet-wide changes care about ANY failed device.
+  try {
+    const [jobRow] = await db
+      .select({ name: batchJobsTable.name })
+      .from(batchJobsTable)
+      .where(eq(batchJobsTable.id, jobId))
+      .limit(1);
+    const jobName = jobRow?.name ?? `#${jobId}`;
+    if (failedCount > 0) {
+      void emitAlert("job_failed", {
+        subject: `Job finished with failures: ${jobName}`,
+        message: `Job #${jobId} ("${jobName}"): ${completedCount} succeeded, ${failedCount} failed of ${routers.length} device(s).`,
+        entityKey: `job:${jobId}`,
+      });
+    } else if (!cancelled) {
+      void emitAlert("job_completed", {
+        subject: `Job completed: ${jobName}`,
+        message: `Job #${jobId} ("${jobName}") completed on all ${routers.length} device(s).`,
+        entityKey: `job:${jobId}`,
+      });
+    }
+  } catch {
+    // alerts must never break job finalization
+  }
 }
 
 // GET /jobs/:id — Get job details including all tasks.
@@ -721,6 +760,7 @@ router.put("/jobs/:id", async (req, res) => {
     })
     .where(eq(batchJobsTable.id, id))
     .returning();
+  void logAudit(req, "job.update", { resourceType: "job", resourceId: id, resourceName: updated.name });
   res.json({ ...updated, completedAt: updated.completedAt ?? null });
 });
 
@@ -753,6 +793,7 @@ router.delete("/jobs/:id", async (req, res) => {
     await tx.delete(batchJobsTable).where(eq(batchJobsTable.id, id));
     return removed;
   });
+  void logAudit(req, "job.delete", { resourceType: "job", resourceId: id, resourceName: job.name, details: { deletedSchedules: removedSchedules.length } });
   res.json({ message: "Job deleted", deletedSchedules: removedSchedules.length });
 });
 
@@ -809,7 +850,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
       totalTasks: routers.length,
       completedTasks: 0,
       failedTasks: 0,
-      createdBy: user!.id,
+      createdBy: user.id,
     })
     .returning();
 
@@ -852,6 +893,7 @@ router.post("/jobs/:id/rerun", async (req, res) => {
       });
   }
 
+  void logAudit(req, "job.rerun", { resourceType: "job", resourceId: newJob.id, resourceName: newJob.name, details: { sourceJobId: id } });
   res.status(201).json({
     ...newJob,
     status: "running",
@@ -872,6 +914,7 @@ router.post("/jobs/:id/cancel", async (req, res) => {
     .update(batchJobsTable)
     .set({ status: "cancelled", completedAt: new Date() })
     .where(eq(batchJobsTable.id, id));
+  void logAudit(req, "job.cancel", { resourceType: "job", resourceId: id });
   res.json({ message: "Job cancelled" });
 });
 

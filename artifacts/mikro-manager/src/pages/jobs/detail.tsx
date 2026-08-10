@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
-import { useGetJob, getGetJobQueryKey } from "@workspace/api-client-react";
+import { useGetJob, getGetJobQueryKey, useGetJobOutputGroups, getGetJobOutputGroupsQueryKey } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { useConfirm } from "@/components/confirm-dialog";
@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Ban, CheckCircle2, XCircle, PlayCircle, Terminal, Clock,
   ChevronDown, ChevronRight, ScrollText, Code, ShieldCheck,
-  MessageSquare, Send, AlertTriangle, Filter, Users
+  MessageSquare, Send, AlertTriangle, Filter, Users, Layers
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { SnippetViewer } from "@/components/snippet-viewer";
@@ -97,6 +97,7 @@ export default function JobDetail() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
   const [isSending, setIsSending] = useState(false);
   const [showWaitingFirst, setShowWaitingFirst] = useState(false);
+  const [groupOutputs, setGroupOutputs] = useState(false);
   const [sseConnected, setSseConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const responseInputRef = useRef<HTMLInputElement>(null);
@@ -145,6 +146,12 @@ export default function JobDetail() {
     },
     enabled: !!expandedTask,
     refetchInterval: expandedTaskStatus === "running" ? 2000 : false,
+  });
+
+  // "Group identical outputs" — collapses N devices with byte-identical
+  // output into one row. Server groups by sha256; finished tasks only.
+  const { data: outputGroups = [], isFetching: groupsLoading } = useGetJobOutputGroups(jobId, {
+    query: { queryKey: getGetJobOutputGroupsQueryKey(jobId), enabled: groupOutputs && Number.isFinite(jobId) },
   });
 
   // Live parked-tasks stream. Replaces the previous 3s polling — operators
@@ -853,6 +860,17 @@ export default function JobDetail() {
             <CardTitle className="text-xl">Task Results</CardTitle>
             <p className="text-xs text-muted-foreground mt-1">Click a row to view its SSH connection log and resolved script</p>
           </div>
+          <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={groupOutputs ? "default" : "outline"}
+            onClick={() => setGroupOutputs(!groupOutputs)}
+            className="gap-1.5 text-xs"
+            data-testid="toggle-output-groups"
+          >
+            <Layers className="w-3.5 h-3.5" />
+            {groupOutputs ? "Grouped by output" : "Group identical outputs"}
+          </Button>
           {waitingCount > 0 && (
             <Button
               size="sm"
@@ -864,9 +882,38 @@ export default function JobDetail() {
               {showWaitingFirst ? "Showing waiting first" : "Group waiting"}
             </Button>
           )}
+          </div>
         </div>
         <CardContent className="p-0">
-          {job.tasks.length === 0 ? (
+          {groupOutputs ? (
+            groupsLoading && outputGroups.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">Grouping outputs…</div>
+            ) : outputGroups.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">No finished tasks with output to group yet.</div>
+            ) : (
+              <div className="divide-y divide-border/50">
+                {outputGroups.map((g) => (
+                  <div key={g.outputHash} className="p-6 space-y-3" data-testid={`output-group-${g.outputHash.slice(0, 8)}`}>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="secondary" className="text-sm">{g.count} device{g.count !== 1 ? "s" : ""}</Badge>
+                      {g.statuses.map((s) => (
+                        <Badge key={s} variant={s === "success" ? "success" : s === "failed" ? "destructive" : "warning"} className="capitalize text-[10px]">{s}</Badge>
+                      ))}
+                      <span className="text-[10px] text-muted-foreground font-mono ml-auto" title={g.outputHash}>{g.outputHash.slice(0, 12)}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {g.routerNames.slice(0, 12).join(", ")}{g.routerNames.length > 12 ? ` +${g.routerNames.length - 12} more` : ""}
+                    </p>
+                    {g.sampleOutput ? (
+                      <pre className="text-xs font-mono text-emerald-400 bg-black/40 p-4 rounded-xl border border-white/5 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">{g.sampleOutput}</pre>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">Empty output</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
+          ) : job.tasks.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">No tasks generated for this job.</div>
           ) : (
             <div>

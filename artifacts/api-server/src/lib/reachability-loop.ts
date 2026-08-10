@@ -10,10 +10,15 @@
 //    initial seed both work without a separate "create row" step.
 //  - The loop runs in-process — fine for single-instance deployments. For
 //    horizontal scaling, this should move to a dedicated worker.
+//  - Up/down TRANSITIONS feed the alert engine: we keep the previous probe
+//    result in memory and emit device_down / device_up only on state change
+//    (never on the first observation after a restart — a server reboot must
+//    not page the on-call for every device that was already down).
 
 import * as net from "net";
 import { db, routersTable, deviceReachabilityTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { emitAlert } from "./alerts.js";
 
 const INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const PROBE_TIMEOUT_MS = 3000;
@@ -21,6 +26,9 @@ const MAX_CONCURRENCY = 25;
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let inFlight = false;
+
+// routerId → was it reachable on the previous tick?
+const lastKnownUp = new Map<number, boolean>();
 
 function probe(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -45,7 +53,7 @@ async function tick(): Promise<void> {
   inFlight = true;
   try {
     const routers = await db
-      .select({ id: routersTable.id, ipAddress: routersTable.ipAddress, sshPort: routersTable.sshPort })
+      .select({ id: routersTable.id, name: routersTable.name, ipAddress: routersTable.ipAddress, sshPort: routersTable.sshPort })
       .from(routersTable);
     if (routers.length === 0) return;
 
@@ -87,6 +95,31 @@ async function tick(): Promise<void> {
             successCount: sql`${deviceReachabilityTable.successCount} + EXCLUDED.${sql.identifier("success_count")}`,
           },
         });
+    }
+
+    // ── Up/down transition alerts ──
+    const routerById = new Map(routers.map((r) => [r.id, r]));
+    for (const { id, ok } of results) {
+      const prev = lastKnownUp.get(id);
+      if (prev !== undefined && prev !== ok) {
+        const r = routerById.get(id);
+        if (r) {
+          void emitAlert(ok ? "device_up" : "device_down", {
+            subject: ok ? `Device back up: ${r.name}` : `Device DOWN: ${r.name}`,
+            message: ok
+              ? `${r.name} (${r.ipAddress}) is reachable again on port ${r.sshPort ?? 22}.`
+              : `${r.name} (${r.ipAddress}) stopped answering on port ${r.sshPort ?? 22}.`,
+            routerId: id,
+            entityKey: `router:${id}`,
+          });
+        }
+      }
+      lastKnownUp.set(id, ok);
+    }
+    // Drop state for routers that no longer exist so the map can't grow forever.
+    const liveIds = new Set(routers.map((r) => r.id));
+    for (const key of lastKnownUp.keys()) {
+      if (!liveIds.has(key)) lastKnownUp.delete(key);
     }
   } catch (err) {
     console.error("[Reachability] tick failed:", err);

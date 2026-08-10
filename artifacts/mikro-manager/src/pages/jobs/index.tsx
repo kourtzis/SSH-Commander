@@ -1,12 +1,13 @@
 import { useState, useMemo } from "react";
-import { useListJobs, useListSchedules } from "@workspace/api-client-react";
+import { useListJobs, useListSchedules, useSearchJobOutputs, getSearchJobOutputsQueryKey } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, PlaySquare, CheckCircle2, XCircle, PlayCircle, Ban, Play, Copy, Pencil, Clock, Square, Timer } from "lucide-react";
+import { Plus, PlaySquare, CheckCircle2, XCircle, PlayCircle, Ban, Play, Copy, Pencil, Clock, Square, Timer, Search, Loader2, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
 import { useJobsMutations } from "@/hooks/use-mutations";
 import { useConfirm } from "@/components/confirm-dialog";
@@ -43,6 +44,16 @@ export default function JobsList() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [sort, setSort] = useState<ActiveSort>({ key: "date", dir: "desc" });
+  // Fleet-wide device-output search (server-side, spans all visible jobs).
+  // Submitted on Enter/button — not per keystroke — because each query is
+  // a trigram-index scan over potentially millions of output rows.
+  const [outputQ, setOutputQ] = useState("");
+  const [submittedQ, setSubmittedQ] = useState("");
+  const outputSearchActive = submittedQ.trim().length >= 2;
+  const { data: outputHits, isFetching: isSearchingOutputs } = useSearchJobOutputs(
+    { q: submittedQ, limit: 50 },
+    { query: { queryKey: getSearchJobOutputsQueryKey({ q: submittedQ, limit: 50 }), enabled: outputSearchActive } },
+  );
 
   const sortedJobs = useMemo(() => {
     let result = jobs.filter(j => {
@@ -188,6 +199,61 @@ export default function JobsList() {
         activeSort={sort}
         onSortChange={setSort}
       />
+
+      <Card className="glass-panel">
+        <CardContent className="p-4 space-y-3">
+          <form
+            onSubmit={(e) => { e.preventDefault(); setSubmittedQ(outputQ); }}
+            className="flex flex-col sm:flex-row gap-2"
+          >
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={outputQ}
+                onChange={(e) => setOutputQ(e.target.value)}
+                placeholder='Search device outputs across all jobs — e.g. "unreachable", an interface name, a firmware version…'
+                className="pl-9 bg-black/30"
+                data-testid="input-output-search"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" variant="outline" disabled={outputQ.trim().length < 2} className="gap-1.5" data-testid="button-output-search">
+                {isSearchingOutputs ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                Search outputs
+              </Button>
+              {outputSearchActive && (
+                <Button type="button" variant="ghost" onClick={() => { setOutputQ(""); setSubmittedQ(""); }} className="gap-1">
+                  <X className="w-4 h-4" /> Clear
+                </Button>
+              )}
+            </div>
+          </form>
+          {outputSearchActive && !isSearchingOutputs && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                {outputHits?.total ?? 0} matching device output{(outputHits?.total ?? 0) !== 1 ? "s" : ""}
+                {(outputHits?.total ?? 0) > (outputHits?.items?.length ?? 0) ? ` (showing first ${outputHits?.items?.length})` : ""}
+              </p>
+              <div className="divide-y divide-border/50 max-h-96 overflow-y-auto rounded-xl border border-border/50">
+                {(outputHits?.items ?? []).map((hit) => (
+                  <Link key={hit.taskId} href={`/jobs/${hit.jobId}`} className="block px-4 py-3 hover:bg-white/5 transition-colors">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="text-sm font-medium text-primary">{hit.jobName}</span>
+                      <span className="text-xs text-foreground">{hit.routerName}</span>
+                      {hit.routerIp && <span className="text-xs text-muted-foreground font-mono">{hit.routerIp}</span>}
+                      <Badge variant={hit.status === "success" ? "success" : hit.status === "failed" ? "destructive" : "secondary"} className="capitalize text-[10px] ml-auto">{hit.status}</Badge>
+                    </div>
+                    <pre className="text-[11px] font-mono text-muted-foreground whitespace-pre-wrap break-all line-clamp-3">{hit.snippet}</pre>
+                  </Link>
+                ))}
+                {(outputHits?.items?.length ?? 0) === 0 && (
+                  <p className="px-4 py-6 text-center text-sm text-muted-foreground">No device outputs match “{submittedQ}”.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <SelectionBar count={selection.count} label="jobs" onDelete={handleBulkDelete} onClear={selection.clear} isDeleting={isBulkDeleting} />
 

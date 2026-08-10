@@ -4,6 +4,7 @@
 // targets a group, resolveRouterIds() walks the tree to collect all routers.
 
 import { Router, type IRouter } from "express";
+import { logAudit } from "../lib/audit.js";
 import { db, routerGroupsTable, groupRoutersTable, groupSubgroupsTable, routersTable } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { z } from "zod/v4";
@@ -65,6 +66,7 @@ router.post("/groups", async (req, res) => {
     .insert(routerGroupsTable)
     .values(parsed.data)
     .returning();
+  void logAudit(req, "group.create", { resourceType: "group", resourceId: newGroup.id, resourceName: newGroup.name });
   res.status(201).json(newGroup);
 });
 
@@ -156,6 +158,7 @@ router.put("/groups/:id", async (req, res) => {
     res.status(404).json({ error: "Group not found" });
     return;
   }
+  void logAudit(req, "group.update", { resourceType: "group", resourceId: id, resourceName: updated.name });
   res.json(updated);
 });
 
@@ -226,6 +229,7 @@ router.put("/groups/:id/move", async (req, res) => {
       .returning();
   });
 
+  void logAudit(req, "group.move", { resourceType: "group", resourceId: id, details: { newParentId } });
   res.json(updated);
 });
 
@@ -244,6 +248,7 @@ router.delete("/groups/:id", async (req, res) => {
     await tx.delete(groupSubgroupsTable).where(eq(groupSubgroupsTable.childGroupId, id));
     await tx.delete(routerGroupsTable).where(eq(routerGroupsTable.id, id));
   });
+  void logAudit(req, "group.delete", { resourceType: "group", resourceId: id });
   res.json({ message: "Group deleted" });
 });
 
@@ -298,6 +303,7 @@ router.post("/groups/:id/members", async (req, res) => {
         .where(eq(routerGroupsTable.id, memberId));
     });
   }
+  void logAudit(req, "group.member_add", { resourceType: "group", resourceId: groupId, details: { type, memberId } });
   res.json({ message: "Member added" });
 });
 
@@ -343,6 +349,7 @@ router.delete("/groups/:id/members", async (req, res) => {
       }
     });
   }
+  void logAudit(req, "group.member_remove", { resourceType: "group", resourceId: groupId, details: { type, memberId } });
   res.json({ message: "Member removed" });
 });
 

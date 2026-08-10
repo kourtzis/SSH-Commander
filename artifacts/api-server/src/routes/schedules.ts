@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request } from "express";
+import { logAudit } from "../lib/audit.js";
 import { db, schedulesTable, batchJobsTable } from "@workspace/db";
 import { eq, sql, and } from "drizzle-orm";
 import { requireAuth, requireAdminAuth, getCurrentUser } from "../lib/auth.js";
@@ -35,9 +36,13 @@ async function requireScheduleAccess(req: Request, scheduleId: number) {
 router.get("/schedules", async (req, res) => {
   requireAuth(req);
   const user = await getCurrentUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
   // 1.14.0 IDOR fix: operators only see their own schedules. Admins see all.
-  const isAdmin = user?.role === "admin";
-  const where = isAdmin ? undefined : eq(schedulesTable.createdBy, user!.id);
+  const isAdmin = user.role === "admin";
+  const where = isAdmin ? undefined : eq(schedulesTable.createdBy, user.id);
   const page = parsePagination(req);
   if (page) {
     const [items, totalRow] = await Promise.all([
@@ -214,9 +219,10 @@ router.post("/schedules", async (req, res) => {
     nextRunAt,
     enabled: true,
     runCount: 0,
-    createdBy: user!.id,
+    createdBy: user.id,
   }).returning();
 
+  void logAudit(req, "schedule.create", { resourceType: "schedule", resourceId: schedule.id, resourceName: name });
   res.status(201).json(schedule);
 });
 
@@ -353,6 +359,7 @@ router.put("/schedules/:id", async (req, res) => {
   }
 
   const [updated] = await db.update(schedulesTable).set(updates).where(eq(schedulesTable.id, id)).returning();
+  void logAudit(req, "schedule.update", { resourceType: "schedule", resourceId: id, resourceName: updated.name });
   res.json(updated);
 });
 
@@ -362,6 +369,7 @@ router.delete("/schedules/:id", async (req, res) => {
   // 1.14.0: ownership-checked. Admin overrides via the requireScheduleAccess helper.
   await requireScheduleAccess(req, id);
   await db.delete(schedulesTable).where(eq(schedulesTable.id, id));
+  void logAudit(req, "schedule.delete", { resourceType: "schedule", resourceId: id });
   res.json({ message: "Schedule deleted" });
 });
 

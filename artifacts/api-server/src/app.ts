@@ -7,6 +7,7 @@ import connectPgSimple from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
 import { pool as dbPool } from "@workspace/db";
 import router from "./routes/index.js";
+import { apiTokenAuth } from "./lib/api-token-auth.js";
 import { childLogger } from "./lib/logger.js";
 
 const log = childLogger("app");
@@ -234,6 +235,12 @@ if (process.env.DATABASE_URL) {
 
 app.use(session(sessionConfig));
 
+// ─── API token authentication ──────────────────────────────────────
+// Mounted right after the session so `Authorization: Bearer sshc_...`
+// requests are identified before the CSRF gate (which they skip — a
+// bearer header cannot be auto-attached cross-origin the way cookies are).
+app.use("/api", apiTokenAuth);
+
 // ─── Rate limiting on auth routes ───────────────────────────────────
 // 10 login attempts per 15 minutes per IP. Slows down credential stuffing /
 // brute-force without locking out legitimate users.
@@ -245,6 +252,9 @@ const authLimiter = rateLimit({
   message: { error: "Too many login attempts, please try again later." },
 });
 app.use("/api/auth/login", authLimiter);
+// The TOTP verify step is the second half of login — 6-digit codes are
+// brute-forceable, so it shares the same limiter.
+app.use("/api/auth/totp/verify", authLimiter);
 
 // ─── CSRF protection ────────────────────────────────────────────────
 // We use the "custom request header" pattern: any state-changing request
@@ -264,7 +274,7 @@ app.use("/api/auth/login", authLimiter);
 // the prior global mount paid `req.path.startsWith("/api/")` on every
 // JS/CSS/image request. With the mount under /api, `req.path` is the
 // portion *after* /api, so the exempt-set entries also drop the prefix.
-const CSRF_EXEMPT_PATHS = new Set(["/healthz", "/auth/login"]);
+const CSRF_EXEMPT_PATHS = new Set(["/healthz", "/auth/login", "/auth/totp/verify"]);
 
 // SSE GET endpoints (path is relative to the /api mount). These stream
 // authenticated data, but EventSource cannot attach the X-Requested-With
@@ -305,6 +315,10 @@ function isAllowedBrowserOrigin(req: express.Request): boolean {
 }
 
 app.use("/api", (req, res, next) => {
+  // Bearer-token requests skip CSRF: the attack model requires the browser
+  // to silently attach credentials (cookies); an Authorization header set
+  // by an automation client cannot be forged by a hostile page.
+  if ((req as any).apiTokenAuth) return next();
   const method = req.method.toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
     // Only enforce the origin guard in production: the dev preview is served

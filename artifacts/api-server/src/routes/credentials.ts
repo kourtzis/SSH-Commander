@@ -9,6 +9,7 @@
 // secret to the browser.
 
 import { Router, type IRouter } from "express";
+import { logAudit } from "../lib/audit.js";
 import { db, credentialProfilesTable, encryptSecret } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
@@ -105,6 +106,7 @@ router.post("/credentials", async (req, res) => {
       useLegacyAlgorithms: useLegacyAlgorithms === true,
     })
     .returning();
+  void logAudit(req, "credential.create", { resourceType: "credential", resourceId: created.id, resourceName: created.name });
   res.status(201).json(sanitize(created));
 });
 
@@ -155,6 +157,7 @@ router.put("/credentials/:id", async (req, res) => {
     res.status(404).json({ error: "Profile not found" });
     return;
   }
+  void logAudit(req, "credential.update", { resourceType: "credential", resourceId: id, resourceName: updated.name });
   res.json(sanitize(updated));
 });
 
@@ -164,6 +167,7 @@ router.delete("/credentials/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid credential profile id" }); return; }
   await db.delete(credentialProfilesTable).where(eq(credentialProfilesTable.id, id));
+  void logAudit(req, "credential.delete", { resourceType: "credential", resourceId: id });
   res.json({ message: "Credential profile deleted" });
 });
 

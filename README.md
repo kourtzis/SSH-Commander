@@ -153,7 +153,7 @@ SSH Commander treats production deployments seriously:
 - **PostgreSQL-backed sessions with rolling expiry** — sessions live in the database and survive API server restarts. The 7-day cookie window slides forward on every authenticated request, so an active operator is never logged out by timeout.
 - **Secure cookies in production** with `TRUST_PROXY_HOPS` and `COOKIE_SECURE` env knobs for proxies that don't forward `X-Forwarded-Proto`.
 - **bcrypt cost factor 12** for new and rotated user passwords.
-- **No well-known default admin password** — fresh deployments read `INITIAL_ADMIN_PASSWORD` from the env, or generate a random 24-char password and print it once to the container logs. Existing installs that still have the legacy `admin123` get a loud warning at every startup until the password is rotated.
+- **No well-known default admin password** — fresh deployments read `INITIAL_ADMIN_PASSWORD` from the env, or generate a random password that is written to a mode-0600 file inside the container (the boot log prints the path; the password itself never appears in logs). Existing installs that still have the legacy `admin123` get a loud warning at every startup until the password is rotated.
 - Body-size limits, terminal-input length caps, admin-only user-by-id reads, `isNaN` guards on every `DELETE /:id` route, and React-JSX (no `dangerouslySetInnerHTML`) in the script-preview pane.
 
 ### Control Character Injection
@@ -362,7 +362,8 @@ services:
       # PERMANENTLY BRICKS EVERY STORED DEVICE PASSWORD — back it up.
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?set CREDENTIAL_ENCRYPTION_KEY in .env}
       # Optional: set on the very first start to choose the admin password.
-      # If unset, a 24-char random one is printed to the container logs.
+      # If unset, a random one is generated and written to a mode-0600
+      # file inside the container (the boot log prints the exact path).
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       PORT: 3000
       NODE_ENV: production
@@ -380,7 +381,8 @@ DB_PASSWORD=$(openssl rand -hex 16)
 SESSION_SECRET=$(openssl rand -hex 32)
 CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -hex 32)
 # Optional — set this on the very first start to choose your admin password.
-# Leave commented out to have a random 24-char one printed to the logs.
+# Leave commented out to have a random one generated and written to a
+# mode-0600 file inside the container (path printed in the boot log).
 # INITIAL_ADMIN_PASSWORD=pick-something-strong
 EOF
 chmod 600 .env
@@ -394,7 +396,7 @@ chmod 600 .env
 docker compose up -d
 ```
 
-5. Open `http://your-server-ip:3000` in your browser. If you didn't set `INITIAL_ADMIN_PASSWORD`, run `docker compose logs app | grep -A 5 "Created admin user"` to see the auto-generated admin password (it's only printed once).
+5. Open `http://your-server-ip:3000` in your browser. If you didn't set `INITIAL_ADMIN_PASSWORD`, the generated admin password was written to a mode-0600 file inside the container. Find the path with `docker compose logs app | grep -A 4 "Created admin user"`, read it with `docker compose exec app cat /app/scripts/initial-admin-password.txt`, and delete the file after changing the password (`docker compose exec app rm /app/scripts/initial-admin-password.txt`).
 
 **Generating secret values without `openssl`:**
 
@@ -488,7 +490,7 @@ docker run -d \
   kourtzis/ssh-commander:latest
 ```
 
-> **Optional**: add `-e INITIAL_ADMIN_PASSWORD=pick-something-strong` on the first run to set your admin password. Otherwise a random one is printed once to the container logs (`docker logs ssh-commander-app | grep -A 5 "Created admin user"`).
+> **Optional**: add `-e INITIAL_ADMIN_PASSWORD=pick-something-strong` on the first run to set your admin password. Otherwise a random one is generated and written to a mode-0600 file inside the container — the boot log prints the exact path (`docker logs ssh-commander-app | grep -A 4 "Created admin user"`), and you read it with `docker exec ssh-commander-app cat <printed path>`. Delete the file after changing the password.
 
 6. Open `http://your-server-ip:3000` in your browser.
 
@@ -509,23 +511,22 @@ Open your browser and navigate to the application.
 As of 1.14.0, SSH Commander **no longer ships with a well-known default password**. On the very first start (when no users exist in the database), the seed script creates a single admin account using one of:
 
 1. **`INITIAL_ADMIN_PASSWORD`** — if you set this env var, it's used verbatim (must be ≥ 8 chars).
-2. **Auto-generated** — otherwise, a 24-char random password is generated and printed once to the container logs in a banner-framed block:
+2. **Auto-generated** — otherwise, a random password is generated and written to a **mode-0600 file inside the container**. The password itself never appears in the logs (they routinely end up in log aggregators and support pastes); the boot log prints the file's path instead:
 
    ```
    ─────────────────────────────────────────────────────────────
-   Created admin user.
-     username: admin
-     password: <random 24-char string>
-   Save this password now — it WILL NOT be shown again. Set
-   INITIAL_ADMIN_PASSWORD before first start to avoid the random one.
+   Created admin user 'admin' with a randomly generated password.
+   The password was written to: /app/scripts/initial-admin-password.txt (file mode 0600).
+   Read it, log in, change it (Profile → Change Password), then
+   delete the file. Set INITIAL_ADMIN_PASSWORD to skip this flow.
    ─────────────────────────────────────────────────────────────
    ```
 
-   Capture it with `docker compose logs app | grep -A 5 "Created admin user"`.
+   Retrieve it with `docker compose exec app cat /app/scripts/initial-admin-password.txt` (plain docker: `docker exec ssh-commander-app cat …`), then delete the file once you've changed the password: `docker compose exec app rm /app/scripts/initial-admin-password.txt`.
 
 | Username | Password | Role |
 |----------|----------|------|
-| `admin` | `INITIAL_ADMIN_PASSWORD` env, or auto-generated and logged once | Administrator |
+| `admin` | `INITIAL_ADMIN_PASSWORD` env, or auto-generated and written to a 0600 file (path in boot log) | Administrator |
 
 > **Upgrading from ≤ 1.13?** Your existing admin user is preserved as-is. If you're still using the legacy `admin123`, the seed script will warn loudly at every container start until you change it via Profile → Change Password.
 
@@ -540,7 +541,7 @@ These are read by the API server container at startup. Production deployments **
 | `DATABASE_URL` | yes | PostgreSQL connection string |
 | `SESSION_SECRET` | yes | Session-cookie signing key. Min 16 chars; rejected if it matches a known placeholder. In dev, an ephemeral random one is generated per process if unset. |
 | `CREDENTIAL_ENCRYPTION_KEY` | yes | 32 bytes (64 hex chars or 44-char base64). AES-256-GCM master key for at-rest credential encryption. **Back this up before first start — losing it permanently bricks every stored device password.** In dev, a deterministic key derived from `DATABASE_URL` is used with a loud warning. |
-| `INITIAL_ADMIN_PASSWORD` | no | Password for the seeded admin user on the very first start. If unset, a random 24-char password is printed once to the container logs. Ignored if any users already exist. |
+| `INITIAL_ADMIN_PASSWORD` | no | Password for the seeded admin user on the very first start. If unset, a random password is generated and written to a mode-0600 file inside the container (path printed in the boot log). Ignored if any users already exist. |
 | `NODE_ENV` | yes (`production`) | Selects production-mode hardening (HTTPS-only cookies, mandatory secrets, etc.). |
 | `PORT` | no (`3000`) | HTTP listen port inside the container. |
 | `PUBLIC_DIR` | no (`/app/public`) | Path the API server serves the built frontend from. |

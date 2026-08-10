@@ -8,6 +8,8 @@
 import type { User } from "./user";
 
 export interface AuthResponse {
-  user: User;
+  user?: User;
   message: string;
+  /** When true, the password was accepted but a TOTP code must be verified via /auth/totp/verify to complete login */
+  totpRequired?: boolean;
 }

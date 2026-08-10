@@ -1105,6 +1105,810 @@ paths:
         "200":
           description: File download (content type varies by format)
 
+  # ─── Config Backups (2.0.0) ──────────────────────────────────────────
+  /backups:
+    get:
+      tags: [backups]
+      summary: List config backups (newest first)
+      operationId: listBackups
+      parameters:
+        - name: routerId
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: kind
+          in: query
+          required: false
+          schema: { type: string, enum: [manual, scheduled, pre_upgrade] }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Page of backups (metadata only, no content)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupPage"
+  /backups/run:
+    post:
+      tags: [backups]
+      summary: Run config backups now for selected routers/groups
+      operationId: runBackups
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackupRunInput"
+      responses:
+        "202":
+          description: Backup run started in the background
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupRunResult"
+  /backups/diff:
+    get:
+      tags: [backups]
+      summary: Normalized unified diff between two backups
+      operationId: diffBackups
+      parameters:
+        - name: fromId
+          in: query
+          required: true
+          schema: { type: integer }
+        - name: toId
+          in: query
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Diff result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupDiff"
+        "404":
+          description: One of the backups was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /backups/settings:
+    get:
+      tags: [backups]
+      summary: Get automatic backup settings
+      operationId: getBackupSettings
+      responses:
+        "200":
+          description: Current settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupSettings"
+    put:
+      tags: [backups]
+      summary: Update automatic backup settings (admin)
+      operationId: updateBackupSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackupSettings"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupSettings"
+  /backups/{id}:
+    get:
+      tags: [backups]
+      summary: Get one backup including full content
+      operationId: getBackup
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Backup with content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigBackup"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [backups]
+      summary: Delete a backup (admin)
+      operationId: deleteBackup
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  # ─── Config Drift (2.0.0) ────────────────────────────────────────────
+  /golden-configs:
+    get:
+      tags: [drift]
+      summary: List golden configs with drift summaries
+      operationId: listGoldenConfigs
+      responses:
+        "200":
+          description: Golden configs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GoldenConfig"
+    post:
+      tags: [drift]
+      summary: Create a golden config for a group (admin)
+      operationId: createGoldenConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoldenConfigInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoldenConfig"
+  /golden-configs/{id}:
+    put:
+      tags: [drift]
+      summary: Update a golden config (admin)
+      operationId: updateGoldenConfig
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoldenConfigUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoldenConfig"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [drift]
+      summary: Delete a golden config (admin)
+      operationId: deleteGoldenConfig
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+  /golden-configs/{id}/check:
+    post:
+      tags: [drift]
+      summary: Compare member routers' latest backups against the golden config
+      operationId: checkGoldenConfig
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Drift check results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriftCheckResponse"
+  /golden-configs/{id}/results:
+    get:
+      tags: [drift]
+      summary: Latest drift results for a golden config
+      operationId: getGoldenConfigResults
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Latest per-router drift results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DriftResult"
+
+  # ─── RouterOS Upgrades (2.0.0) ───────────────────────────────────────
+  /upgrades/overview:
+    get:
+      tags: [upgrades]
+      summary: Fleet firmware overview grouped by detected OS version
+      operationId: getUpgradeOverview
+      responses:
+        "200":
+          description: Version groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UpgradeOverviewGroup"
+  /upgrades:
+    get:
+      tags: [upgrades]
+      summary: List upgrade runs (newest first)
+      operationId: listUpgradeRuns
+      responses:
+        "200":
+          description: Upgrade runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UpgradeRun"
+    post:
+      tags: [upgrades]
+      summary: Start an upgrade run (admin)
+      operationId: createUpgradeRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpgradeRunInput"
+      responses:
+        "201":
+          description: Run created and started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpgradeRun"
+  /upgrades/{id}:
+    get:
+      tags: [upgrades]
+      summary: Get an upgrade run with its per-device tasks
+      operationId: getUpgradeRun
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Run with tasks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpgradeRunWithTasks"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [upgrades]
+      summary: Delete a finished upgrade run (admin)
+      operationId: deleteUpgradeRun
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+  /upgrades/{id}/cancel:
+    post:
+      tags: [upgrades]
+      summary: Cancel pending tasks of a running upgrade (admin)
+      operationId: cancelUpgradeRun
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Updated run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpgradeRun"
+
+  # ─── Alerts & Notifications (2.0.0) ──────────────────────────────────
+  /alert-channels:
+    get:
+      tags: [alerts]
+      summary: List notification channels (secrets masked)
+      operationId: listAlertChannels
+      responses:
+        "200":
+          description: Channels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotificationChannel"
+    post:
+      tags: [alerts]
+      summary: Create a notification channel (admin)
+      operationId: createAlertChannel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertChannelInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannel"
+  /alert-channels/{id}:
+    put:
+      tags: [alerts]
+      summary: Update a notification channel (admin; omitted secrets are kept)
+      operationId: updateAlertChannel
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertChannelUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannel"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [alerts]
+      summary: Delete a notification channel (admin)
+      operationId: deleteAlertChannel
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+  /alert-channels/{id}/test:
+    post:
+      tags: [alerts]
+      summary: Send a test message through a channel (admin)
+      operationId: testAlertChannel
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Delivery attempt result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertTestResult"
+  /alert-rules:
+    get:
+      tags: [alerts]
+      summary: List alert rules
+      operationId: listAlertRules
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertRule"
+    post:
+      tags: [alerts]
+      summary: Create an alert rule (admin)
+      operationId: createAlertRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRuleInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+  /alert-rules/{id}:
+    put:
+      tags: [alerts]
+      summary: Update an alert rule (admin)
+      operationId: updateAlertRule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRuleUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [alerts]
+      summary: Delete an alert rule (admin)
+      operationId: deleteAlertRule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+  /alert-events:
+    get:
+      tags: [alerts]
+      summary: Alert delivery history (newest first)
+      operationId: listAlertEvents
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Page of alert events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertEventPage"
+
+  # ─── Audit Log (2.0.0) ───────────────────────────────────────────────
+  /audit:
+    get:
+      tags: [audit]
+      summary: Query the audit log (admin)
+      operationId: listAuditLog
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: action
+          in: query
+          required: false
+          schema: { type: string }
+        - name: resourceType
+          in: query
+          required: false
+          schema: { type: string }
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Page of audit entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditPage"
+  /audit/actions:
+    get:
+      tags: [audit]
+      summary: Distinct audit action names (admin, for filters)
+      operationId: listAuditActions
+      responses:
+        "200":
+          description: Action names
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+
+  # ─── TOTP Two-Factor Auth (2.0.0) ────────────────────────────────────
+  /auth/totp/setup:
+    post:
+      tags: [auth]
+      summary: Begin TOTP enrollment for the current user
+      operationId: setupTotp
+      responses:
+        "200":
+          description: Pending secret and QR code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TotpSetup"
+  /auth/totp/confirm:
+    post:
+      tags: [auth]
+      summary: Confirm TOTP enrollment with a valid code
+      operationId: confirmTotp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TotpCodeInput"
+      responses:
+        "200":
+          description: 2FA enabled; one-time recovery codes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TotpConfirmResult"
+  /auth/totp/verify:
+    post:
+      tags: [auth]
+      summary: Complete a pending 2FA login with a TOTP or recovery code
+      operationId: verifyTotp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TotpCodeInput"
+      responses:
+        "200":
+          description: Login completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid code or no pending login
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /auth/totp/disable:
+    post:
+      tags: [auth]
+      summary: Disable TOTP for the current user (requires password + code)
+      operationId: disableTotp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TotpDisableInput"
+      responses:
+        "200":
+          description: Disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+  /users/{id}/reset-totp:
+    post:
+      tags: [users]
+      summary: Admin reset of a user's TOTP enrollment
+      operationId: resetUserTotp
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: TOTP cleared for the user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  # ─── API Tokens (2.0.0) ──────────────────────────────────────────────
+  /tokens:
+    get:
+      tags: [tokens]
+      summary: List own API tokens (admins may pass all=true for everyone's)
+      operationId: listApiTokens
+      parameters:
+        - name: all
+          in: query
+          required: false
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Tokens (hashes never returned)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiToken"
+    post:
+      tags: [tokens]
+      summary: Create an API token (plaintext shown exactly once)
+      operationId: createApiToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiTokenInput"
+      responses:
+        "201":
+          description: Created token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiTokenCreated"
+  /tokens/{id}:
+    delete:
+      tags: [tokens]
+      summary: Revoke an API token (owner or admin)
+      operationId: revokeApiToken
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  # ─── Job Output Analytics (2.0.0) ────────────────────────────────────
+  /jobs/output-search:
+    get:
+      tags: [jobs]
+      summary: Full-text search across historical job task outputs
+      operationId: searchJobOutputs
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Matching tasks with context snippets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutputSearchPage"
+  /jobs/{id}/output-groups:
+    get:
+      tags: [jobs]
+      summary: Group a job's device outputs by identical content
+      operationId: getJobOutputGroups
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Output groups, largest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OutputGroup"
 components:
   schemas:
     HealthStatus:
@@ -1149,8 +1953,10 @@ components:
           $ref: "#/components/schemas/User"
         message:
           type: string
+        totpRequired:
+          type: boolean
+          description: When true, the password was accepted but a TOTP code must be verified via /auth/totp/verify to complete login
       required:
-        - user
         - message
 
     User:
@@ -1168,6 +1974,8 @@ components:
         canTerminal:
           type: boolean
           description: Whether this user has access to the per-device terminal. Admins always have access.
+        totpEnabled:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -1947,3 +2755,492 @@ components:
         jobName: { type: string }
         datetime: { type: string, format: date-time }
       required: [scheduleId, scheduleName, jobName, datetime]
+
+    # ─── Config Backups (2.0.0) ─────────────────────────────────────────
+    ConfigBackupMeta:
+      type: object
+      properties:
+        id: { type: integer }
+        routerId: { type: ["integer", "null"] }
+        routerName: { type: string }
+        routerIp: { type: string }
+        kind: { type: string, enum: [manual, scheduled, pre_upgrade] }
+        status: { type: string, enum: [success, failed] }
+        sizeBytes: { type: integer }
+        contentHash: { type: string }
+        errorMessage: { type: ["string", "null"] }
+        createdBy: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: ["string", "null"], format: date-time }
+      required: [id, routerName, routerIp, kind, status, sizeBytes, contentHash, createdAt]
+    ConfigBackup:
+      type: object
+      properties:
+        id: { type: integer }
+        routerId: { type: ["integer", "null"] }
+        routerName: { type: string }
+        routerIp: { type: string }
+        kind: { type: string, enum: [manual, scheduled, pre_upgrade] }
+        status: { type: string, enum: [success, failed] }
+        sizeBytes: { type: integer }
+        contentHash: { type: string }
+        errorMessage: { type: ["string", "null"] }
+        createdBy: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: ["string", "null"], format: date-time }
+        content: { type: string }
+      required: [id, routerName, routerIp, kind, status, sizeBytes, contentHash, createdAt, content]
+    BackupPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigBackupMeta"
+        total: { type: integer }
+      required: [items, total]
+    BackupRunInput:
+      type: object
+      properties:
+        routerIds:
+          type: array
+          items: { type: integer }
+        groupIds:
+          type: array
+          items: { type: integer }
+    BackupRunResult:
+      type: object
+      properties:
+        message: { type: string }
+        targeted: { type: integer }
+      required: [message, targeted]
+    BackupDiff:
+      type: object
+      properties:
+        fromId: { type: integer }
+        toId: { type: integer }
+        routerName: { type: ["string", "null"] }
+        addedLines: { type: integer }
+        removedLines: { type: integer }
+        identical: { type: boolean }
+        diff: { type: string }
+      required: [fromId, toId, addedLines, removedLines, identical, diff]
+    BackupSettings:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        timeOfDay:
+          type: string
+          description: "HH:MM 24h server-local time for the daily automatic backup"
+        retentionPerRouter:
+          type: integer
+          description: Distinct backup versions kept per router (older pruned)
+      required: [enabled, timeOfDay, retentionPerRouter]
+
+    # ─── Config Drift (2.0.0) ───────────────────────────────────────────
+    GoldenConfig:
+      type: object
+      properties:
+        id: { type: integer }
+        groupId: { type: integer }
+        groupName: { type: string }
+        name: { type: string }
+        content: { type: string }
+        ignorePatterns:
+          type: array
+          items: { type: string }
+        routerCount: { type: integer }
+        driftedCount: { type: integer }
+        lastCheckedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, groupId, groupName, name, content, ignorePatterns, routerCount, driftedCount, createdAt, updatedAt]
+    GoldenConfigInput:
+      type: object
+      properties:
+        groupId: { type: integer }
+        name: { type: string, minLength: 1 }
+        content: { type: string, minLength: 1 }
+        ignorePatterns:
+          type: array
+          items: { type: string }
+      required: [groupId, name, content]
+    GoldenConfigUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        content: { type: string, minLength: 1 }
+        ignorePatterns:
+          type: array
+          items: { type: string }
+    DriftResult:
+      type: object
+      properties:
+        id: { type: integer }
+        goldenConfigId: { type: integer }
+        routerId: { type: integer }
+        routerName: { type: string }
+        routerIp: { type: ["string", "null"] }
+        backupId: { type: ["integer", "null"] }
+        inSync: { type: boolean }
+        addedLines: { type: integer }
+        removedLines: { type: integer }
+        diff: { type: ["string", "null"] }
+        checkedAt: { type: string, format: date-time }
+      required: [id, goldenConfigId, routerId, routerName, inSync, addedLines, removedLines, checkedAt]
+    DriftCheckResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/DriftResult"
+        checked: { type: integer }
+        drifted: { type: integer }
+        skipped:
+          type: integer
+          description: Member routers without any successful backup to compare
+      required: [results, checked, drifted, skipped]
+
+    # ─── RouterOS Upgrades (2.0.0) ──────────────────────────────────────
+    UpgradeOverviewRouter:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        ipAddress: { type: string }
+        model: { type: ["string", "null"] }
+        lastFingerprintAt: { type: ["string", "null"], format: date-time }
+      required: [id, name, ipAddress]
+    UpgradeOverviewGroup:
+      type: object
+      properties:
+        osVersion: { type: ["string", "null"] }
+        vendor: { type: ["string", "null"] }
+        count: { type: integer }
+        routers:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpgradeOverviewRouter"
+      required: [count, routers]
+    UpgradeRun:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        status: { type: string, enum: [running, completed, failed, cancelled] }
+        preBackup: { type: boolean }
+        totalTasks: { type: integer }
+        completedTasks: { type: integer }
+        failedTasks: { type: integer }
+        createdBy: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+      required: [id, name, status, preBackup, totalTasks, completedTasks, failedTasks, createdAt]
+    UpgradeTask:
+      type: object
+      properties:
+        id: { type: integer }
+        runId: { type: integer }
+        routerId: { type: ["integer", "null"] }
+        routerName: { type: string }
+        routerIp: { type: string }
+        status: { type: string, enum: [pending, backing_up, upgrading, rebooting, verifying, success, failed, skipped] }
+        oldVersion: { type: ["string", "null"] }
+        newVersion: { type: ["string", "null"] }
+        log: { type: ["string", "null"] }
+        errorMessage: { type: ["string", "null"] }
+        startedAt: { type: ["string", "null"], format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+      required: [id, runId, routerName, routerIp, status]
+    UpgradeRunWithTasks:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        status: { type: string, enum: [running, completed, failed, cancelled] }
+        preBackup: { type: boolean }
+        totalTasks: { type: integer }
+        completedTasks: { type: integer }
+        failedTasks: { type: integer }
+        createdBy: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpgradeTask"
+      required: [id, name, status, preBackup, totalTasks, completedTasks, failedTasks, createdAt, tasks]
+    UpgradeRunInput:
+      type: object
+      properties:
+        name: { type: string }
+        routerIds:
+          type: array
+          items: { type: integer }
+        groupIds:
+          type: array
+          items: { type: integer }
+        preBackup:
+          type: boolean
+          description: Snapshot each device's config before upgrading (default true)
+
+    # ─── Alerts & Notifications (2.0.0) ─────────────────────────────────
+    NotificationChannel:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        type: { type: string, enum: [telegram, email, webhook] }
+        enabled: { type: boolean }
+        config:
+          type: object
+          additionalProperties: true
+          description: Sanitized per-type config; secrets are replaced by *Set booleans
+        lastUsedAt: { type: ["string", "null"], format: date-time }
+        lastError: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, name, type, enabled, config, createdAt]
+    AlertChannelInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        type: { type: string, enum: [telegram, email, webhook] }
+        enabled: { type: boolean }
+        config:
+          type: object
+          additionalProperties: true
+          description: "telegram: {botToken, chatId}; email: {host, port, secure, username, password, from, to}; webhook: {url, secret}"
+      required: [name, type, config]
+    AlertChannelUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        enabled: { type: boolean }
+        config:
+          type: object
+          additionalProperties: true
+          description: Omitted or empty secret fields keep their stored values
+    AlertRule:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        eventTypes:
+          type: array
+          items:
+            type: string
+            enum: [device_down, device_up, job_failed, job_completed, schedule_failed, backup_failed, drift_detected, upgrade_completed, upgrade_failed]
+        routerIds:
+          type: array
+          items: { type: integer }
+        groupIds:
+          type: array
+          items: { type: integer }
+        channelIds:
+          type: array
+          items: { type: integer }
+        cooldownMinutes: { type: integer }
+        enabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+      required: [id, name, eventTypes, routerIds, groupIds, channelIds, cooldownMinutes, enabled, createdAt]
+    AlertRuleInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        eventTypes:
+          type: array
+          items:
+            type: string
+            enum: [device_down, device_up, job_failed, job_completed, schedule_failed, backup_failed, drift_detected, upgrade_completed, upgrade_failed]
+        routerIds:
+          type: array
+          items: { type: integer }
+        groupIds:
+          type: array
+          items: { type: integer }
+        channelIds:
+          type: array
+          items: { type: integer }
+        cooldownMinutes: { type: integer }
+        enabled: { type: boolean }
+      required: [name, eventTypes, channelIds]
+    AlertRuleUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        eventTypes:
+          type: array
+          items:
+            type: string
+            enum: [device_down, device_up, job_failed, job_completed, schedule_failed, backup_failed, drift_detected, upgrade_completed, upgrade_failed]
+        routerIds:
+          type: array
+          items: { type: integer }
+        groupIds:
+          type: array
+          items: { type: integer }
+        channelIds:
+          type: array
+          items: { type: integer }
+        cooldownMinutes: { type: integer }
+        enabled: { type: boolean }
+    AlertEvent:
+      type: object
+      properties:
+        id: { type: integer }
+        ruleId: { type: ["integer", "null"] }
+        ruleName: { type: string }
+        eventType: { type: string }
+        subject: { type: string }
+        message: { type: string }
+        status: { type: string, enum: [sent, failed, suppressed] }
+        error: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, ruleName, eventType, subject, message, status, createdAt]
+    AlertEventPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertEvent"
+        total: { type: integer }
+      required: [items, total]
+    AlertTestResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        error: { type: ["string", "null"] }
+      required: [success]
+
+    # ─── Audit Log (2.0.0) ──────────────────────────────────────────────
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: ["integer", "null"] }
+        username: { type: string }
+        action: { type: string }
+        resourceType: { type: ["string", "null"] }
+        resourceId: { type: ["string", "null"] }
+        resourceName: { type: ["string", "null"] }
+        details:
+          type: ["object", "null"]
+          additionalProperties: true
+        ip: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, username, action, createdAt]
+    AuditPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        total: { type: integer }
+      required: [items, total]
+
+    # ─── TOTP 2FA (2.0.0) ───────────────────────────────────────────────
+    TotpSetup:
+      type: object
+      properties:
+        secret: { type: string }
+        otpauthUrl: { type: string }
+        qrDataUrl:
+          type: string
+          description: PNG data URL of the enrollment QR code
+      required: [secret, otpauthUrl, qrDataUrl]
+    TotpCodeInput:
+      type: object
+      properties:
+        code: { type: string, minLength: 1 }
+      required: [code]
+    TotpConfirmResult:
+      type: object
+      properties:
+        message: { type: string }
+        recoveryCodes:
+          type: array
+          items: { type: string }
+          description: One-time recovery codes, shown exactly once
+      required: [message, recoveryCodes]
+    TotpDisableInput:
+      type: object
+      properties:
+        password: { type: string, minLength: 1 }
+        code: { type: string }
+      required: [password]
+
+    # ─── API Tokens (2.0.0) ─────────────────────────────────────────────
+    ApiToken:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        username: { type: ["string", "null"] }
+        name: { type: string }
+        prefix: { type: string }
+        scope: { type: string, enum: [read, write] }
+        lastUsedAt: { type: ["string", "null"], format: date-time }
+        expiresAt: { type: ["string", "null"], format: date-time }
+        revokedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+      required: [id, userId, name, prefix, scope, createdAt]
+    ApiTokenInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        scope: { type: string, enum: [read, write] }
+        expiresDays:
+          type: integer
+          description: Days until expiry; omit for a non-expiring token
+      required: [name, scope]
+    ApiTokenCreated:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Full plaintext token — displayed exactly once at creation
+        apiToken:
+          $ref: "#/components/schemas/ApiToken"
+      required: [token, apiToken]
+
+    # ─── Job Output Analytics (2.0.0) ───────────────────────────────────
+    OutputGroup:
+      type: object
+      properties:
+        outputHash: { type: string }
+        count: { type: integer }
+        routerNames:
+          type: array
+          items: { type: string }
+        taskIds:
+          type: array
+          items: { type: integer }
+        statuses:
+          type: array
+          items: { type: string }
+        sampleOutput: { type: string }
+      required: [outputHash, count, routerNames, taskIds, statuses, sampleOutput]
+    OutputSearchHit:
+      type: object
+      properties:
+        jobId: { type: integer }
+        jobName: { type: string }
+        taskId: { type: integer }
+        routerName: { type: string }
+        routerIp: { type: ["string", "null"] }
+        status: { type: string }
+        snippet: { type: string }
+        createdAt: { type: ["string", "null"], format: date-time }
+      required: [jobId, jobName, taskId, routerName, status, snippet]
+    OutputSearchPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OutputSearchHit"
+        total: { type: integer }
+      required: [items, total]

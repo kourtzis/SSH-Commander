@@ -3,6 +3,7 @@
 // and TCP-based reachability checks for real-time status indicators.
 
 import { Router, type IRouter } from "express";
+import { logAudit } from "../lib/audit.js";
 import { db, routersTable, deviceReachabilityTable, encryptSecret } from "@workspace/db";
 import { eq, inArray, and, gte, sql } from "drizzle-orm";
 import { CreateRouterBody, UpdateRouterBody } from "@workspace/api-zod";
@@ -105,6 +106,7 @@ router.post("/routers", async (req, res) => {
       enablePassword: encryptSecret(enablePassword),
     })
     .returning();
+  void logAudit(req, "router.create", { resourceType: "router", resourceId: newRouter.id, resourceName: newRouter.name });
   res.status(201).json(sanitizeRouter(newRouter));
 });
 
@@ -161,6 +163,7 @@ router.put("/routers/:id", async (req, res) => {
     res.status(404).json({ error: "Router not found" });
     return;
   }
+  void logAudit(req, "router.update", { resourceType: "router", resourceId: id });
   res.json(sanitizeRouter(updated));
 });
 
@@ -170,6 +173,7 @@ router.delete("/routers/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid router id" }); return; }
   await db.delete(routersTable).where(eq(routersTable.id, id));
+  void logAudit(req, "router.delete", { resourceType: "router", resourceId: id });
   res.json({ message: "Router deleted" });
 });
 
@@ -236,6 +240,7 @@ router.post("/routers/import", async (req, res) => {
     }
   }
 
+  void logAudit(req, "router.import", { resourceType: "router", details: { created } });
   res.json({ created, failed, total: items.length, results });
 });
 

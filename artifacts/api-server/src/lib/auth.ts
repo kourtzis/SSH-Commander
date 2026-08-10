@@ -30,7 +30,10 @@ interface RequestWithCache extends Request {
 export async function getCurrentUser(req: Request): Promise<User | null> {
   const r = req as RequestWithCache;
   if (r[CACHED_USER]) return r[CACHED_USER]!;
-  const userId = (req.session as any)?.userId;
+  // Session cookie first; API token identity (attached by apiTokenAuth
+  // middleware) second. Both resolve to a plain users row, so everything
+  // downstream — role checks, audit attribution — works identically.
+  const userId = (req.session as any)?.userId ?? (req as any).apiTokenAuth?.userId;
   if (!userId) {
     // Cache the negative result too so repeated calls on an unauthenticated
     // request don't keep checking the session.
@@ -45,21 +48,39 @@ export async function getCurrentUser(req: Request): Promise<User | null> {
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1)
-    .then((rows) => rows[0] ?? null);
+    .then((rows) => {
+      const user = rows[0] ?? null;
+      if (!user && (req.session as any)?.userId) {
+        // Ghost session: the account was deleted while this session was
+        // still live. Destroy it so the client gets a clean 401 → login
+        // redirect on its next request instead of 500s forever.
+        req.session.destroy(() => {});
+      }
+      return user;
+    });
   return r[CACHED_USER]!;
 }
 
-// Guard: throws 401 if no session exists. Used at the top of every protected route.
+// Guard: throws 401 if no identity exists. Used at the top of every protected
+// route. Two identities count: a session cookie (browser) or an API token
+// identity attached by the apiTokenAuth middleware (Authorization: Bearer).
 export function requireAuth(req: Request): void {
-  if (!(req.session as any)?.userId) {
+  if (!(req.session as any)?.userId && !(req as any).apiTokenAuth) {
     const err: any = new Error("Unauthorized");
     err.status = 401;
     throw err;
   }
 }
 
-// Guard: throws 403 if the user is not an admin. Used for user-management endpoints.
-export function requireAdmin(user: User): void {
+// Guard: 401 if the identity no longer resolves to a user row (the account
+// was deleted while its session was still live — the ghost-session case),
+// 403 if the user is not an admin. Used for user-management endpoints.
+export function requireAdmin(user: User | null | undefined): asserts user is User {
+  if (!user) {
+    const err: any = new Error("Unauthorized");
+    err.status = 401;
+    throw err;
+  }
   if (user.role !== "admin") {
     const err: any = new Error("Forbidden");
     err.status = 403;

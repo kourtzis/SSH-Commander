@@ -4,3 +4,7 @@
 - [mikro-manager fetch BASE_URL slash](mikro-manager-fetch-baseurl.md) — stripped-vs-kept trailing slash on baseUrl silently breaks fetch URLs; prefer one apiUrl() helper.
 - [api-zod is orval-generated](api-zod-codegen.md) — schemas come from lib/api-spec OpenAPI; add route validation via inline zod (zod/v4) or extend the spec, never hand-edit generated files.
 - [Docker build pitfalls](docker-build.md) — pin pnpm (never @latest, breaks on node:20), and never `chown -R /app` after pnpm install (slow); use COPY --chown + shared COREPACK_HOME.
+- [otplib v13 API](otplib-v13.md) — v12 authenticator facade removed; generateSecret/generateURI/verifySync, and epochTolerance is SECONDS not steps.
+- [TanStack v5 + orval hooks](tanstack-orval-frontend.md) — keepPreviousData→placeholderData; passing options to orval hooks needs the generated queryKey explicitly.
+- [stale lib dist / TS6305](stale-lib-dist.md) — TS6305 cascade = rebuild the lib with `tsc -b --force`; some libs have no build script so `--if-present` no-ops.
+- [security-scan remediation](security-scan-remediation.md) — transitive CVEs need root pnpm.overrides (pkg@major selectors); peer-resolved dupes need an override too; scoped nosemgrep for FPs.

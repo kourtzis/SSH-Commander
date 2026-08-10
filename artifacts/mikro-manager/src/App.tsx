@@ -24,6 +24,12 @@ const NewSchedule = React.lazy(() => import("@/pages/scheduler/new"));
 const Credentials = React.lazy(() => import("@/pages/credentials"));
 const RouterTerminal = React.lazy(() => import("@/pages/router-terminal"));
 const AdminTerminals = React.lazy(() => import("@/pages/admin-terminals"));
+const Backups = React.lazy(() => import("@/pages/backups"));
+const Drift = React.lazy(() => import("@/pages/drift"));
+const Upgrades = React.lazy(() => import("@/pages/upgrades"));
+const AlertsCenter = React.lazy(() => import("@/pages/alerts"));
+const AuditLog = React.lazy(() => import("@/pages/audit"));
+const Security = React.lazy(() => import("@/pages/security"));
 const NotFound = React.lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
@@ -81,6 +87,12 @@ const ProtectedUsers = () => <ProtectedRoute component={Users} />;
 const ProtectedCredentials = () => <ProtectedRoute component={Credentials} />;
 const ProtectedRouterTerminal = () => <ProtectedRoute component={RouterTerminal} />;
 const ProtectedAdminTerminals = () => <ProtectedRoute component={AdminTerminals} />;
+const ProtectedBackups = () => <ProtectedRoute component={Backups} />;
+const ProtectedDrift = () => <ProtectedRoute component={Drift} />;
+const ProtectedUpgrades = () => <ProtectedRoute component={Upgrades} />;
+const ProtectedAlerts = () => <ProtectedRoute component={AlertsCenter} />;
+const ProtectedAudit = () => <ProtectedRoute component={AuditLog} />;
+const ProtectedSecurity = () => <ProtectedRoute component={Security} />;
 
 function Router() {
   return (
@@ -100,6 +112,12 @@ function Router() {
         <Route path="/routers/:id/terminal" component={ProtectedRouterTerminal} />
         <Route path="/admin/terminals" component={ProtectedAdminTerminals} />
         <Route path="/users" component={ProtectedUsers} />
+        <Route path="/backups" component={ProtectedBackups} />
+        <Route path="/drift" component={ProtectedDrift} />
+        <Route path="/upgrades" component={ProtectedUpgrades} />
+        <Route path="/alerts" component={ProtectedAlerts} />
+        <Route path="/audit" component={ProtectedAudit} />
+        <Route path="/security" component={ProtectedSecurity} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

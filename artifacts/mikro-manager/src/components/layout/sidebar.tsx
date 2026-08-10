@@ -17,7 +17,13 @@ import {
   Menu,
   Moon,
   Sun,
-  X
+  X,
+  Archive,
+  GitCompare,
+  Rocket,
+  Bell,
+  ShieldCheck,
+  ScrollText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
@@ -31,6 +37,11 @@ const navItems = [
   { name: "Snippets", href: "/snippets", icon: Code2 },
   { name: "Batch Jobs", href: "/jobs", icon: PlaySquare },
   { name: "Scheduler", href: "/scheduler", icon: Clock },
+  { name: "Backups", href: "/backups", icon: Archive },
+  { name: "Drift", href: "/drift", icon: GitCompare },
+  { name: "Upgrades", href: "/upgrades", icon: Rocket },
+  { name: "Alerts", href: "/alerts", icon: Bell },
+  { name: "Security", href: "/security", icon: ShieldCheck },
 ];
 
 export function AppSidebar() {
@@ -86,6 +97,7 @@ export function AppSidebar() {
     else items.push(credentialsItem);
     items.push({ name: "Terminals", href: "/admin/terminals", icon: Terminal });
     items.push({ name: "Users", href: "/users", icon: Users });
+    items.push({ name: "Audit Log", href: "/audit", icon: ScrollText });
   }
 
   const sidebarContent = (

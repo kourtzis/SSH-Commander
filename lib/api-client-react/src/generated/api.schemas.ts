@@ -36,12 +36,15 @@ export interface User {
   role: UserRole;
   /** Whether this user has access to the per-device terminal. Admins always have access. */
   canTerminal?: boolean;
+  totpEnabled?: boolean;
   createdAt: string;
 }
 
 export interface AuthResponse {
-  user: User;
+  user?: User;
   message: string;
+  /** When true, the password was accepted but a TOTP code must be verified via /auth/totp/verify to complete login */
+  totpRequired?: boolean;
 }
 
 export type CreateUserRequestRole =
@@ -518,6 +521,587 @@ export interface ScheduleCalendarEntry {
   datetime: string;
 }
 
+export type ConfigBackupMetaKind =
+  (typeof ConfigBackupMetaKind)[keyof typeof ConfigBackupMetaKind];
+
+export const ConfigBackupMetaKind = {
+  manual: "manual",
+  scheduled: "scheduled",
+  pre_upgrade: "pre_upgrade",
+} as const;
+
+export type ConfigBackupMetaStatus =
+  (typeof ConfigBackupMetaStatus)[keyof typeof ConfigBackupMetaStatus];
+
+export const ConfigBackupMetaStatus = {
+  success: "success",
+  failed: "failed",
+} as const;
+
+export interface ConfigBackupMeta {
+  id: number;
+  /** @nullable */
+  routerId?: number | null;
+  routerName: string;
+  routerIp: string;
+  kind: ConfigBackupMetaKind;
+  status: ConfigBackupMetaStatus;
+  sizeBytes: number;
+  contentHash: string;
+  /** @nullable */
+  errorMessage?: string | null;
+  /** @nullable */
+  createdBy?: number | null;
+  createdAt: string;
+  /** @nullable */
+  lastSeenAt?: string | null;
+}
+
+export type ConfigBackupKind =
+  (typeof ConfigBackupKind)[keyof typeof ConfigBackupKind];
+
+export const ConfigBackupKind = {
+  manual: "manual",
+  scheduled: "scheduled",
+  pre_upgrade: "pre_upgrade",
+} as const;
+
+export type ConfigBackupStatus =
+  (typeof ConfigBackupStatus)[keyof typeof ConfigBackupStatus];
+
+export const ConfigBackupStatus = {
+  success: "success",
+  failed: "failed",
+} as const;
+
+export interface ConfigBackup {
+  id: number;
+  /** @nullable */
+  routerId?: number | null;
+  routerName: string;
+  routerIp: string;
+  kind: ConfigBackupKind;
+  status: ConfigBackupStatus;
+  sizeBytes: number;
+  contentHash: string;
+  /** @nullable */
+  errorMessage?: string | null;
+  /** @nullable */
+  createdBy?: number | null;
+  createdAt: string;
+  /** @nullable */
+  lastSeenAt?: string | null;
+  content: string;
+}
+
+export interface BackupPage {
+  items: ConfigBackupMeta[];
+  total: number;
+}
+
+export interface BackupRunInput {
+  routerIds?: number[];
+  groupIds?: number[];
+}
+
+export interface BackupRunResult {
+  message: string;
+  targeted: number;
+}
+
+export interface BackupDiff {
+  fromId: number;
+  toId: number;
+  /** @nullable */
+  routerName?: string | null;
+  addedLines: number;
+  removedLines: number;
+  identical: boolean;
+  diff: string;
+}
+
+export interface BackupSettings {
+  enabled: boolean;
+  /** HH:MM 24h server-local time for the daily automatic backup */
+  timeOfDay: string;
+  /** Distinct backup versions kept per router (older pruned) */
+  retentionPerRouter: number;
+}
+
+export interface GoldenConfig {
+  id: number;
+  groupId: number;
+  groupName: string;
+  name: string;
+  content: string;
+  ignorePatterns: string[];
+  routerCount: number;
+  driftedCount: number;
+  /** @nullable */
+  lastCheckedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoldenConfigInput {
+  groupId: number;
+  /** @minLength 1 */
+  name: string;
+  /** @minLength 1 */
+  content: string;
+  ignorePatterns?: string[];
+}
+
+export interface GoldenConfigUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @minLength 1 */
+  content?: string;
+  ignorePatterns?: string[];
+}
+
+export interface DriftResult {
+  id: number;
+  goldenConfigId: number;
+  routerId: number;
+  routerName: string;
+  /** @nullable */
+  routerIp?: string | null;
+  /** @nullable */
+  backupId?: number | null;
+  inSync: boolean;
+  addedLines: number;
+  removedLines: number;
+  /** @nullable */
+  diff?: string | null;
+  checkedAt: string;
+}
+
+export interface DriftCheckResponse {
+  results: DriftResult[];
+  checked: number;
+  drifted: number;
+  /** Member routers without any successful backup to compare */
+  skipped: number;
+}
+
+export interface UpgradeOverviewRouter {
+  id: number;
+  name: string;
+  ipAddress: string;
+  /** @nullable */
+  model?: string | null;
+  /** @nullable */
+  lastFingerprintAt?: string | null;
+}
+
+export interface UpgradeOverviewGroup {
+  /** @nullable */
+  osVersion?: string | null;
+  /** @nullable */
+  vendor?: string | null;
+  count: number;
+  routers: UpgradeOverviewRouter[];
+}
+
+export type UpgradeRunStatus =
+  (typeof UpgradeRunStatus)[keyof typeof UpgradeRunStatus];
+
+export const UpgradeRunStatus = {
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  cancelled: "cancelled",
+} as const;
+
+export interface UpgradeRun {
+  id: number;
+  name: string;
+  status: UpgradeRunStatus;
+  preBackup: boolean;
+  totalTasks: number;
+  completedTasks: number;
+  failedTasks: number;
+  /** @nullable */
+  createdBy?: number | null;
+  createdAt: string;
+  /** @nullable */
+  completedAt?: string | null;
+}
+
+export type UpgradeTaskStatus =
+  (typeof UpgradeTaskStatus)[keyof typeof UpgradeTaskStatus];
+
+export const UpgradeTaskStatus = {
+  pending: "pending",
+  backing_up: "backing_up",
+  upgrading: "upgrading",
+  rebooting: "rebooting",
+  verifying: "verifying",
+  success: "success",
+  failed: "failed",
+  skipped: "skipped",
+} as const;
+
+export interface UpgradeTask {
+  id: number;
+  runId: number;
+  /** @nullable */
+  routerId?: number | null;
+  routerName: string;
+  routerIp: string;
+  status: UpgradeTaskStatus;
+  /** @nullable */
+  oldVersion?: string | null;
+  /** @nullable */
+  newVersion?: string | null;
+  /** @nullable */
+  log?: string | null;
+  /** @nullable */
+  errorMessage?: string | null;
+  /** @nullable */
+  startedAt?: string | null;
+  /** @nullable */
+  completedAt?: string | null;
+}
+
+export type UpgradeRunWithTasksStatus =
+  (typeof UpgradeRunWithTasksStatus)[keyof typeof UpgradeRunWithTasksStatus];
+
+export const UpgradeRunWithTasksStatus = {
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  cancelled: "cancelled",
+} as const;
+
+export interface UpgradeRunWithTasks {
+  id: number;
+  name: string;
+  status: UpgradeRunWithTasksStatus;
+  preBackup: boolean;
+  totalTasks: number;
+  completedTasks: number;
+  failedTasks: number;
+  /** @nullable */
+  createdBy?: number | null;
+  createdAt: string;
+  /** @nullable */
+  completedAt?: string | null;
+  tasks: UpgradeTask[];
+}
+
+export interface UpgradeRunInput {
+  name?: string;
+  routerIds?: number[];
+  groupIds?: number[];
+  /** Snapshot each device's config before upgrading (default true) */
+  preBackup?: boolean;
+}
+
+export type NotificationChannelType =
+  (typeof NotificationChannelType)[keyof typeof NotificationChannelType];
+
+export const NotificationChannelType = {
+  telegram: "telegram",
+  email: "email",
+  webhook: "webhook",
+} as const;
+
+/**
+ * Sanitized per-type config; secrets are replaced by *Set booleans
+ */
+export type NotificationChannelConfig = { [key: string]: unknown };
+
+export interface NotificationChannel {
+  id: number;
+  name: string;
+  type: NotificationChannelType;
+  enabled: boolean;
+  /** Sanitized per-type config; secrets are replaced by *Set booleans */
+  config: NotificationChannelConfig;
+  /** @nullable */
+  lastUsedAt?: string | null;
+  /** @nullable */
+  lastError?: string | null;
+  createdAt: string;
+}
+
+export type AlertChannelInputType =
+  (typeof AlertChannelInputType)[keyof typeof AlertChannelInputType];
+
+export const AlertChannelInputType = {
+  telegram: "telegram",
+  email: "email",
+  webhook: "webhook",
+} as const;
+
+/**
+ * telegram: {botToken, chatId}; email: {host, port, secure, username, password, from, to}; webhook: {url, secret}
+ */
+export type AlertChannelInputConfig = { [key: string]: unknown };
+
+export interface AlertChannelInput {
+  /** @minLength 1 */
+  name: string;
+  type: AlertChannelInputType;
+  enabled?: boolean;
+  /** telegram: {botToken, chatId}; email: {host, port, secure, username, password, from, to}; webhook: {url, secret} */
+  config: AlertChannelInputConfig;
+}
+
+/**
+ * Omitted or empty secret fields keep their stored values
+ */
+export type AlertChannelUpdateConfig = { [key: string]: unknown };
+
+export interface AlertChannelUpdate {
+  /** @minLength 1 */
+  name?: string;
+  enabled?: boolean;
+  /** Omitted or empty secret fields keep their stored values */
+  config?: AlertChannelUpdateConfig;
+}
+
+export type AlertRuleEventTypesItem =
+  (typeof AlertRuleEventTypesItem)[keyof typeof AlertRuleEventTypesItem];
+
+export const AlertRuleEventTypesItem = {
+  device_down: "device_down",
+  device_up: "device_up",
+  job_failed: "job_failed",
+  job_completed: "job_completed",
+  schedule_failed: "schedule_failed",
+  backup_failed: "backup_failed",
+  drift_detected: "drift_detected",
+  upgrade_completed: "upgrade_completed",
+  upgrade_failed: "upgrade_failed",
+} as const;
+
+export interface AlertRule {
+  id: number;
+  name: string;
+  eventTypes: AlertRuleEventTypesItem[];
+  routerIds: number[];
+  groupIds: number[];
+  channelIds: number[];
+  cooldownMinutes: number;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export type AlertRuleInputEventTypesItem =
+  (typeof AlertRuleInputEventTypesItem)[keyof typeof AlertRuleInputEventTypesItem];
+
+export const AlertRuleInputEventTypesItem = {
+  device_down: "device_down",
+  device_up: "device_up",
+  job_failed: "job_failed",
+  job_completed: "job_completed",
+  schedule_failed: "schedule_failed",
+  backup_failed: "backup_failed",
+  drift_detected: "drift_detected",
+  upgrade_completed: "upgrade_completed",
+  upgrade_failed: "upgrade_failed",
+} as const;
+
+export interface AlertRuleInput {
+  /** @minLength 1 */
+  name: string;
+  eventTypes: AlertRuleInputEventTypesItem[];
+  routerIds?: number[];
+  groupIds?: number[];
+  channelIds: number[];
+  cooldownMinutes?: number;
+  enabled?: boolean;
+}
+
+export type AlertRuleUpdateEventTypesItem =
+  (typeof AlertRuleUpdateEventTypesItem)[keyof typeof AlertRuleUpdateEventTypesItem];
+
+export const AlertRuleUpdateEventTypesItem = {
+  device_down: "device_down",
+  device_up: "device_up",
+  job_failed: "job_failed",
+  job_completed: "job_completed",
+  schedule_failed: "schedule_failed",
+  backup_failed: "backup_failed",
+  drift_detected: "drift_detected",
+  upgrade_completed: "upgrade_completed",
+  upgrade_failed: "upgrade_failed",
+} as const;
+
+export interface AlertRuleUpdate {
+  /** @minLength 1 */
+  name?: string;
+  eventTypes?: AlertRuleUpdateEventTypesItem[];
+  routerIds?: number[];
+  groupIds?: number[];
+  channelIds?: number[];
+  cooldownMinutes?: number;
+  enabled?: boolean;
+}
+
+export type AlertEventStatus =
+  (typeof AlertEventStatus)[keyof typeof AlertEventStatus];
+
+export const AlertEventStatus = {
+  sent: "sent",
+  failed: "failed",
+  suppressed: "suppressed",
+} as const;
+
+export interface AlertEvent {
+  id: number;
+  /** @nullable */
+  ruleId?: number | null;
+  ruleName: string;
+  eventType: string;
+  subject: string;
+  message: string;
+  status: AlertEventStatus;
+  /** @nullable */
+  error?: string | null;
+  createdAt: string;
+}
+
+export interface AlertEventPage {
+  items: AlertEvent[];
+  total: number;
+}
+
+export interface AlertTestResult {
+  success: boolean;
+  /** @nullable */
+  error?: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type AuditEntryDetails = { [key: string]: unknown } | null;
+
+export interface AuditEntry {
+  id: number;
+  /** @nullable */
+  userId?: number | null;
+  username: string;
+  action: string;
+  /** @nullable */
+  resourceType?: string | null;
+  /** @nullable */
+  resourceId?: string | null;
+  /** @nullable */
+  resourceName?: string | null;
+  /** @nullable */
+  details?: AuditEntryDetails;
+  /** @nullable */
+  ip?: string | null;
+  createdAt: string;
+}
+
+export interface AuditPage {
+  items: AuditEntry[];
+  total: number;
+}
+
+export interface TotpSetup {
+  secret: string;
+  otpauthUrl: string;
+  /** PNG data URL of the enrollment QR code */
+  qrDataUrl: string;
+}
+
+export interface TotpCodeInput {
+  /** @minLength 1 */
+  code: string;
+}
+
+export interface TotpConfirmResult {
+  message: string;
+  /** One-time recovery codes, shown exactly once */
+  recoveryCodes: string[];
+}
+
+export interface TotpDisableInput {
+  /** @minLength 1 */
+  password: string;
+  code?: string;
+}
+
+export type ApiTokenScope = (typeof ApiTokenScope)[keyof typeof ApiTokenScope];
+
+export const ApiTokenScope = {
+  read: "read",
+  write: "write",
+} as const;
+
+export interface ApiToken {
+  id: number;
+  userId: number;
+  /** @nullable */
+  username?: string | null;
+  name: string;
+  prefix: string;
+  scope: ApiTokenScope;
+  /** @nullable */
+  lastUsedAt?: string | null;
+  /** @nullable */
+  expiresAt?: string | null;
+  /** @nullable */
+  revokedAt?: string | null;
+  createdAt: string;
+}
+
+export type ApiTokenInputScope =
+  (typeof ApiTokenInputScope)[keyof typeof ApiTokenInputScope];
+
+export const ApiTokenInputScope = {
+  read: "read",
+  write: "write",
+} as const;
+
+export interface ApiTokenInput {
+  /** @minLength 1 */
+  name: string;
+  scope: ApiTokenInputScope;
+  /** Days until expiry; omit for a non-expiring token */
+  expiresDays?: number;
+}
+
+export interface ApiTokenCreated {
+  /** Full plaintext token — displayed exactly once at creation */
+  token: string;
+  apiToken: ApiToken;
+}
+
+export interface OutputGroup {
+  outputHash: string;
+  count: number;
+  routerNames: string[];
+  taskIds: number[];
+  statuses: string[];
+  sampleOutput: string;
+}
+
+export interface OutputSearchHit {
+  jobId: number;
+  jobName: string;
+  taskId: number;
+  routerName: string;
+  /** @nullable */
+  routerIp?: string | null;
+  status: string;
+  snippet: string;
+  /** @nullable */
+  createdAt?: string | null;
+}
+
+export interface OutputSearchPage {
+  items: OutputSearchHit[];
+  total: number;
+}
+
 export type GetGroupsCounts200 = {
   [key: string]: {
     subgroups: number;
@@ -582,3 +1166,50 @@ export const ExportJobFormat = {
   txt: "txt",
   zip: "zip",
 } as const;
+
+export type ListBackupsParams = {
+  routerId?: number;
+  kind?: ListBackupsKind;
+  limit?: number;
+  offset?: number;
+};
+
+export type ListBackupsKind =
+  (typeof ListBackupsKind)[keyof typeof ListBackupsKind];
+
+export const ListBackupsKind = {
+  manual: "manual",
+  scheduled: "scheduled",
+  pre_upgrade: "pre_upgrade",
+} as const;
+
+export type DiffBackupsParams = {
+  fromId: number;
+  toId: number;
+};
+
+export type ListAlertEventsParams = {
+  limit?: number;
+  offset?: number;
+};
+
+export type ListAuditLogParams = {
+  userId?: number;
+  action?: string;
+  resourceType?: string;
+  q?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type ListApiTokensParams = {
+  all?: boolean;
+};
+
+export type SearchJobOutputsParams = {
+  q: string;
+  limit?: number;
+  offset?: number;
+};

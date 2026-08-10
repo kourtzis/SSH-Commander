@@ -17,8 +17,8 @@
 // template. A "once" template that was transiently "running" at restart is a
 // genuine unrecoverable orphan and is correctly failed here.
 
-import { db, batchJobsTable, jobTasksTable } from "@workspace/db";
-import { inArray } from "drizzle-orm";
+import { db, batchJobsTable, jobTasksTable, upgradeRunsTable, upgradeTasksTable } from "@workspace/db";
+import { and, eq, inArray } from "drizzle-orm";
 import { childLogger } from "./logger.js";
 
 const log = childLogger("startup-reaper");
@@ -58,5 +58,49 @@ export async function reapOrphanedJobs(): Promise<void> {
     // rows linger until the next restart, which is strictly better than the
     // server refusing to come up.
     log.error({ err }, "Startup reaper failed");
+  }
+}
+
+// Upgrade orchestrations are driven by an in-process runner (upgrade-runner.ts)
+// with no durable resume: a restart mid-run would strand the run "running" and
+// its tasks mid-pipeline forever — exactly the misleading state an operator
+// cannot afford on a destructive operation. Fail them loudly instead; the
+// pre-upgrade backup and the device itself are untouched by this sweep.
+export async function reapOrphanedUpgrades(): Promise<void> {
+  try {
+    const runningRunIds = db
+      .select({ id: upgradeRunsTable.id })
+      .from(upgradeRunsTable)
+      .where(eq(upgradeRunsTable.status, "running"));
+
+    const failedTasks = await db
+      .update(upgradeTasksTable)
+      .set({ status: "failed", errorMessage: INTERRUPTED, completedAt: new Date() })
+      .where(and(
+        inArray(upgradeTasksTable.status, ["pending", "backing_up", "upgrading", "rebooting", "verifying"]),
+        inArray(upgradeTasksTable.runId, runningRunIds),
+      ))
+      .returning({ id: upgradeTasksTable.id });
+
+    const orphanRuns = await db.select().from(upgradeRunsTable)
+      .where(eq(upgradeRunsTable.status, "running"));
+    for (const run of orphanRuns) {
+      const tasks = await db
+        .select({ status: upgradeTasksTable.status })
+        .from(upgradeTasksTable)
+        .where(eq(upgradeTasksTable.runId, run.id));
+      const completed = tasks.filter((t) => t.status === "success" || t.status === "skipped").length;
+      const failed = tasks.filter((t) => t.status === "failed").length;
+      await db
+        .update(upgradeRunsTable)
+        .set({ status: "failed", completedTasks: completed, failedTasks: failed, completedAt: new Date() })
+        .where(eq(upgradeRunsTable.id, run.id));
+    }
+
+    if (failedTasks.length > 0 || orphanRuns.length > 0) {
+      log.warn({ tasks: failedTasks.length, runs: orphanRuns.length }, "Reaped upgrade runs orphaned by restart");
+    }
+  } catch (err) {
+    log.error({ err }, "Upgrade reaper failed — stale upgrade runs may remain");
   }
 }

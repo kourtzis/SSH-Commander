@@ -11,8 +11,36 @@ import { resolveRouterIds, buildExcelLookup, findExcelRow, runConcurrent } from 
 import { resolveEffectiveCreds } from "./effective-creds.js";
 import { computeNextRun } from "./schedule-math.js";
 import { childLogger } from "./logger.js";
+import { emitAlert } from "./alerts.js";
 
 const log = childLogger("scheduler");
+
+// ─── Alert emission for scheduler-driven jobs ───────────────────────
+// Partial failures still alert (failedCount > 0): operators running
+// fleet-wide scheduled changes care about ANY failed device.
+function notifyScheduledJobOutcome(name: string | null, jobId: number, total: number, completedCount: number, failedCount: number): void {
+  const jobName = name ?? `#${jobId}`;
+  if (failedCount > 0) {
+    void emitAlert("job_failed", {
+      subject: `Scheduled job finished with failures: ${jobName}`,
+      message: `Job #${jobId} ("${jobName}"): ${completedCount} succeeded, ${failedCount} failed of ${total} device(s).`,
+      entityKey: `job:${jobId}`,
+    });
+  } else {
+    void emitAlert("job_completed", {
+      subject: `Scheduled job completed: ${jobName}`,
+      message: `Job #${jobId} ("${jobName}") completed on all ${total} device(s).`,
+      entityKey: `job:${jobId}`,
+    });
+  }
+  if (total > 0 && failedCount === total) {
+    void emitAlert("schedule_failed", {
+      subject: `Scheduled run failed on every device: ${jobName}`,
+      message: `Job #${jobId} ("${jobName}") failed on all ${total} device(s) — check credentials and reachability.`,
+      entityKey: `job:${jobId}`,
+    });
+  }
+}
 
 // ─── Shared SSH execution helper ────────────────────────────────────
 // Runs the SSH commands for every router of a job in parallel (bounded
@@ -239,6 +267,8 @@ async function runJobFromTemplate(templateJob: typeof batchJobsTable.$inferSelec
     completedTasks: completedCount,
     failedTasks: failedCount,
   }).where(eq(batchJobsTable.id, newJob.id));
+
+  notifyScheduledJobOutcome(templateJob.name, newJob.id, routers.length, completedCount, failedCount);
 }
 
 // ─── Scheduler Tick ─────────────────────────────────────────────────
@@ -321,6 +351,8 @@ async function tick() {
             completedTasks: completedCount,
             failedTasks: failedCount,
           }).where(eq(batchJobsTable.id, templateJob.id));
+
+          notifyScheduledJobOutcome(templateJob.name, templateJob.id, routers.length, completedCount, failedCount);
         }
 
         // Disable one-time schedule after it fires

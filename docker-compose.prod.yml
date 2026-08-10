@@ -5,7 +5,13 @@ services:
     environment:
       POSTGRES_DB: mikromanager
       POSTGRES_USER: mikromanager
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      # Required — set it in the .env file next to this compose file
+      # (see .env.example). No insecure default is shipped on purpose.
+      # Upgrading from an older compose that defaulted this to "changeme":
+      # your postgres volume was initialized with that password, so set
+      # DB_PASSWORD=changeme to come back up, then rotate it inside the db
+      # container (ALTER USER mikromanager PASSWORD '...') and update .env.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env (see .env.example)}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,8 +29,19 @@ services:
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
-      DATABASE_URL: postgresql://mikromanager:${DB_PASSWORD:-changeme}@db:5432/mikromanager
-      SESSION_SECRET: ${SESSION_SECRET:-change-this-to-a-long-random-string}
+      DATABASE_URL: postgresql://mikromanager:${DB_PASSWORD:?set DB_PASSWORD in .env (see .env.example)}@db:5432/mikromanager
+      # Required. Signs the session cookie. Generate: openssl rand -hex 32
+      # Rotating it logs every user out; nothing else is affected.
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env (see .env.example)}
+      # Required. AES-256-GCM key for device credentials stored in the DB.
+      # Generate: openssl rand -hex 32 — then BACK IT UP somewhere safe.
+      # Losing this key permanently bricks every stored device password.
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?set CREDENTIAL_ENCRYPTION_KEY in .env (see .env.example)}
+      # Optional: admin password for the account created on very first
+      # start (min 8 chars). If empty, a random password is generated and
+      # written to a mode-0600 file inside the container — the boot log
+      # prints the exact path.
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       PORT: 3000
       NODE_ENV: production
       PUBLIC_DIR: /app/public

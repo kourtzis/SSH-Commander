@@ -38,7 +38,9 @@ process.on("unhandledRejection", (err) => {
 import app from "./app";
 import { startScheduler, stopScheduler } from "./lib/scheduler.js";
 import { startReachabilityLoop } from "./lib/reachability-loop.js";
-import { reapOrphanedJobs } from "./lib/startup-reaper.js";
+import { reapOrphanedJobs, reapOrphanedUpgrades } from "./lib/startup-reaper.js";
+import { startMaintenanceLoop, stopMaintenanceLoop } from "./lib/maintenance-loop.js";
+import { ensureOutputSearchIndex } from "./lib/search-index.js";
 import { pool as dbPool } from "@workspace/db";
 
 // PORT is required — set by Replit in dev, by Docker in production
@@ -58,12 +60,14 @@ if (Number.isNaN(port) || port <= 0) {
 
 const server = app.listen(port, () => {
   log.info({ port }, "Server listening");
-  // Clear out any tasks/jobs left mid-flight by a previous shutdown before
+  // Clear out any jobs and upgrade runs left mid-flight by a previous shutdown before
   // the scheduler can start a new tick. Fire-and-forget: the reaper swallows
   // its own errors and must never delay accepting requests.
-  void reapOrphanedJobs().finally(() => {
+  void Promise.allSettled([reapOrphanedJobs(), reapOrphanedUpgrades()]).finally(() => {
     startScheduler();          // 30-second loop for scheduled jobs
     startReachabilityLoop();   // 5-minute loop for device uptime aggregates
+    startMaintenanceLoop();    // scheduled backups + audit/alert retention sweeps
+    void ensureOutputSearchIndex(); // best-effort pg_trgm index for job output search
   });
 });
 
@@ -96,6 +100,7 @@ function shutdown(signal: string) {
   server.close((err) => {
     if (err) log.warn({ err }, "server.close error");
     stopScheduler();
+    stopMaintenanceLoop();
     dbPool.end()
       .catch((e) => log.warn({ err: e }, "pool.end error"))
       .finally(() => {

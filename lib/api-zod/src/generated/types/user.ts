@@ -14,5 +14,6 @@ export interface User {
   role: UserRole;
   /** Whether this user has access to the per-device terminal. Admins always have access. */
   canTerminal?: boolean;
+  totpEnabled?: boolean;
   createdAt: Date;
 }

@@ -94,6 +94,164 @@ const { Client } = require('pg');
       created_at timestamp NOT NULL DEFAULT now()\\
     )\",
     \"CREATE INDEX IF NOT EXISTS idx_saved_views_user_page ON saved_views (user_id, page_key)\",
+    // ── 2.0.0: enum types (DO blocks — CREATE TYPE has no IF NOT EXISTS) ──
+    \"DO \$\$ BEGIN CREATE TYPE backup_kind AS ENUM ('manual','scheduled','pre_upgrade'); EXCEPTION WHEN duplicate_object THEN NULL; END \$\$\",
+    \"DO \$\$ BEGIN CREATE TYPE backup_status AS ENUM ('success','failed'); EXCEPTION WHEN duplicate_object THEN NULL; END \$\$\",
+    \"DO \$\$ BEGIN CREATE TYPE upgrade_run_status AS ENUM ('running','completed','failed','cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END \$\$\",
+    \"DO \$\$ BEGIN CREATE TYPE upgrade_task_status AS ENUM ('pending','backing_up','upgrading','rebooting','verifying','success','failed','skipped'); EXCEPTION WHEN duplicate_object THEN NULL; END \$\$\",
+    \"DO \$\$ BEGIN CREATE TYPE channel_type AS ENUM ('telegram','email','webhook'); EXCEPTION WHEN duplicate_object THEN NULL; END \$\$\",
+    \"DO \$\$ BEGIN CREATE TYPE alert_event_status AS ENUM ('sent','failed','suppressed'); EXCEPTION WHEN duplicate_object THEN NULL; END \$\$\",
+    \"DO \$\$ BEGIN CREATE TYPE api_token_scope AS ENUM ('read','write'); EXCEPTION WHEN duplicate_object THEN NULL; END \$\$\",
+    // ── users: 2.0.0 (TOTP 2FA) ───────────────────────────────────
+    \"ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text\",
+    \"ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false\",
+    \"ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_codes text[]\",
+    // ── new tables added in 2.0.0 (same rationale as above: create
+    // them here so drizzle-kit push never hits its rename prompt) ───
+    \"CREATE TABLE IF NOT EXISTS config_backups (\
+      id serial PRIMARY KEY,\
+      router_id integer NOT NULL,\
+      router_name text NOT NULL,\
+      router_ip text NOT NULL,\
+      kind backup_kind NOT NULL DEFAULT 'manual',\
+      status backup_status NOT NULL DEFAULT 'success',\
+      content text NOT NULL DEFAULT '',\
+      content_hash text NOT NULL DEFAULT '',\
+      size_bytes integer NOT NULL DEFAULT 0,\
+      error_message text,\
+      created_by integer,\
+      created_at timestamptz NOT NULL DEFAULT now(),\
+      last_seen_at timestamptz\
+    )\",
+    \"CREATE INDEX IF NOT EXISTS idx_config_backups_router_id ON config_backups (router_id)\",
+    \"CREATE INDEX IF NOT EXISTS idx_config_backups_created_at ON config_backups (created_at)\",
+    \"CREATE INDEX IF NOT EXISTS idx_config_backups_router_created ON config_backups (router_id, created_at)\",
+    \"CREATE TABLE IF NOT EXISTS golden_configs (\
+      id serial PRIMARY KEY,\
+      group_id integer NOT NULL REFERENCES router_groups(id) ON DELETE CASCADE,\
+      name text NOT NULL,\
+      content text NOT NULL,\
+      ignore_patterns text[] NOT NULL DEFAULT '{}',\
+      updated_by integer,\
+      created_at timestamptz NOT NULL DEFAULT now(),\
+      updated_at timestamptz NOT NULL DEFAULT now()\
+    )\",
+    \"CREATE UNIQUE INDEX IF NOT EXISTS uq_golden_configs_group_id ON golden_configs (group_id)\",
+    \"CREATE TABLE IF NOT EXISTS drift_results (\
+      id serial PRIMARY KEY,\
+      golden_config_id integer NOT NULL REFERENCES golden_configs(id) ON DELETE CASCADE,\
+      router_id integer NOT NULL,\
+      router_name text NOT NULL,\
+      router_ip text NOT NULL,\
+      backup_id integer,\
+      in_sync boolean NOT NULL,\
+      added_lines integer NOT NULL DEFAULT 0,\
+      removed_lines integer NOT NULL DEFAULT 0,\
+      diff text,\
+      checked_at timestamptz NOT NULL DEFAULT now()\
+    )\",
+    \"CREATE UNIQUE INDEX IF NOT EXISTS uq_drift_results_golden_router ON drift_results (golden_config_id, router_id)\",
+    \"CREATE INDEX IF NOT EXISTS idx_drift_results_router_id ON drift_results (router_id)\",
+    \"CREATE TABLE IF NOT EXISTS upgrade_runs (\
+      id serial PRIMARY KEY,\
+      name text NOT NULL,\
+      status upgrade_run_status NOT NULL DEFAULT 'running',\
+      pre_backup boolean NOT NULL DEFAULT true,\
+      total_tasks integer NOT NULL DEFAULT 0,\
+      completed_tasks integer NOT NULL DEFAULT 0,\
+      failed_tasks integer NOT NULL DEFAULT 0,\
+      created_by integer,\
+      created_at timestamptz NOT NULL DEFAULT now(),\
+      completed_at timestamptz\
+    )\",
+    \"CREATE INDEX IF NOT EXISTS idx_upgrade_runs_status ON upgrade_runs (status)\",
+    \"CREATE INDEX IF NOT EXISTS idx_upgrade_runs_created_at ON upgrade_runs (created_at)\",
+    \"CREATE TABLE IF NOT EXISTS upgrade_tasks (\
+      id serial PRIMARY KEY,\
+      run_id integer NOT NULL REFERENCES upgrade_runs(id) ON DELETE CASCADE,\
+      router_id integer NOT NULL,\
+      router_name text NOT NULL,\
+      router_ip text NOT NULL,\
+      status upgrade_task_status NOT NULL DEFAULT 'pending',\
+      old_version text,\
+      new_version text,\
+      log text NOT NULL DEFAULT '',\
+      error_message text,\
+      started_at timestamptz,\
+      completed_at timestamptz\
+    )\",
+    \"CREATE INDEX IF NOT EXISTS idx_upgrade_tasks_run_id ON upgrade_tasks (run_id)\",
+    \"CREATE TABLE IF NOT EXISTS notification_channels (\
+      id serial PRIMARY KEY,\
+      name text NOT NULL UNIQUE,\
+      type channel_type NOT NULL,\
+      config text NOT NULL,\
+      enabled boolean NOT NULL DEFAULT true,\
+      last_used_at timestamptz,\
+      last_error text,\
+      created_at timestamptz NOT NULL DEFAULT now()\
+    )\",
+    \"CREATE TABLE IF NOT EXISTS alert_rules (\
+      id serial PRIMARY KEY,\
+      name text NOT NULL UNIQUE,\
+      event_types text[] NOT NULL,\
+      router_ids integer[] NOT NULL DEFAULT '{}',\
+      group_ids integer[] NOT NULL DEFAULT '{}',\
+      channel_ids integer[] NOT NULL,\
+      cooldown_minutes integer NOT NULL DEFAULT 5,\
+      enabled boolean NOT NULL DEFAULT true,\
+      created_at timestamptz NOT NULL DEFAULT now()\
+    )\",
+    \"CREATE TABLE IF NOT EXISTS alert_events (\
+      id serial PRIMARY KEY,\
+      rule_id integer,\
+      rule_name text NOT NULL,\
+      event_type text NOT NULL,\
+      subject text NOT NULL,\
+      message text NOT NULL,\
+      status alert_event_status NOT NULL,\
+      error text,\
+      created_at timestamptz NOT NULL DEFAULT now()\
+    )\",
+    \"CREATE INDEX IF NOT EXISTS idx_alert_events_created_at ON alert_events (created_at)\",
+    \"CREATE TABLE IF NOT EXISTS audit_log (\
+      id serial PRIMARY KEY,\
+      user_id integer,\
+      username text NOT NULL,\
+      action text NOT NULL,\
+      resource_type text,\
+      resource_id text,\
+      resource_name text,\
+      details jsonb,\
+      ip text,\
+      created_at timestamptz NOT NULL DEFAULT now()\
+    )\",
+    \"CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log (created_at)\",
+    \"CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log (user_id)\",
+    \"CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log (action)\",
+    \"CREATE TABLE IF NOT EXISTS api_tokens (\
+      id serial PRIMARY KEY,\
+      user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,\
+      name text NOT NULL,\
+      token_hash text NOT NULL UNIQUE,\
+      prefix text NOT NULL,\
+      scope api_token_scope NOT NULL DEFAULT 'read',\
+      last_used_at timestamptz,\
+      expires_at timestamptz,\
+      revoked_at timestamptz,\
+      created_at timestamptz NOT NULL DEFAULT now()\
+    )\",
+    \"CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens (user_id)\",
+    \"CREATE TABLE IF NOT EXISTS app_settings (\
+      key text PRIMARY KEY,\
+      value jsonb NOT NULL,\
+      updated_at timestamptz NOT NULL DEFAULT now()\
+    )\",
+    // ── 2.0.0: trigram index for fleet-wide output search. Both are
+    // best-effort: managed PG without superuser may refuse the
+    // extension, and the app falls back to sequential ILIKE. ────────
+    \"CREATE EXTENSION IF NOT EXISTS pg_trgm\",
+    \"CREATE INDEX IF NOT EXISTS idx_job_tasks_output_trgm ON job_tasks USING gin (output gin_trgm_ops)\",
     // ── 1.13.0: orphan cleanup BEFORE adding FKs below ────────────
     // Adding FK constraints to existing tables fails if any row already
     // violates the constraint (orphaned join rows pointing at deleted

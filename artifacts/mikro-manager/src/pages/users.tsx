@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useListUsers, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useListUsers, getListUsersQueryKey, useResetUserTotp } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useUsersMutations } from "@/hooks/use-mutations";
 import { useSelection } from "@/hooks/use-selection";
 import { SelectionBar } from "@/components/selection-bar";
@@ -9,11 +10,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter , DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Users as UsersIcon, ShieldAlert, Trash2, Edit2 } from "lucide-react";
+import { Plus, Users as UsersIcon, ShieldAlert, Trash2, Edit2, ShieldCheck, KeyRound } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils";
 
@@ -23,6 +24,12 @@ export default function Users() {
   const { createUser, updateUser, deleteUser } = useUsersMutations();
   const { toast } = useToast();
   const confirm = useConfirm();
+  const queryClient = useQueryClient();
+  const resetTotp = useResetUserTotp({
+    mutation: {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() }),
+    },
+  });
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
@@ -98,6 +105,22 @@ export default function Users() {
     try {
       await deleteUser.mutateAsync({ id });
       toast({ title: "User deleted" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleResetTotp = async (u: any) => {
+    const ok = await confirm({
+      title: "Reset two-factor authentication",
+      description: `Remove ${u.username}'s authenticator enrollment and recovery codes? They will sign in with password only until they re-enrol.`,
+      confirmLabel: "Reset 2FA",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    try {
+      await resetTotp.mutateAsync({ id: u.id });
+      toast({ title: "2FA reset", description: `${u.username} can now sign in with password only.` });
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
@@ -195,12 +218,22 @@ export default function Users() {
                         <Badge variant={u.role === 'admin' ? 'default' : 'secondary'} className="capitalize">
                           {u.role}
                         </Badge>
+                        {(u as any).totpEnabled && (
+                          <Badge variant="outline" className="ml-2 text-[10px] border-emerald-500/30 text-emerald-400 gap-1" data-testid={`badge-totp-${u.id}`}>
+                            <ShieldCheck className="w-3 h-3" /> 2FA
+                          </Badge>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">
                         {formatDate(u.createdAt).split(' ')[0]}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
+                          {(u as any).totpEnabled && (
+                            <Button variant="ghost" size="icon" title="Reset 2FA" className="text-amber-400 hover:text-amber-400 hover:bg-amber-500/10" onClick={() => handleResetTotp(u)} data-testid={`button-reset-totp-${u.id}`}>
+                              <KeyRound className="w-4 h-4" />
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(u)}>
                             <Edit2 className="w-4 h-4" />
                           </Button>
@@ -222,6 +255,7 @@ export default function Users() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingUser ? "Edit User" : "New User"}</DialogTitle>
+            <DialogDescription>Account credentials, role, and terminal permission.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">

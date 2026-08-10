@@ -23,20 +23,29 @@ export const LoginBody = zod.object({
 });
 
 export const LoginResponse = zod.object({
-  user: zod.object({
-    id: zod.number(),
-    username: zod.string(),
-    email: zod.string().optional(),
-    role: zod.enum(["admin", "operator"]),
-    canTerminal: zod
-      .boolean()
-      .optional()
-      .describe(
-        "Whether this user has access to the per-device terminal. Admins always have access.",
-      ),
-    createdAt: zod.date(),
-  }),
+  user: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      email: zod.string().optional(),
+      role: zod.enum(["admin", "operator"]),
+      canTerminal: zod
+        .boolean()
+        .optional()
+        .describe(
+          "Whether this user has access to the per-device terminal. Admins always have access.",
+        ),
+      totpEnabled: zod.boolean().optional(),
+      createdAt: zod.date(),
+    })
+    .optional(),
   message: zod.string(),
+  totpRequired: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, the password was accepted but a TOTP code must be verified via \/auth\/totp\/verify to complete login",
+    ),
 });
 
 /**
@@ -60,6 +69,7 @@ export const GetMeResponse = zod.object({
     .describe(
       "Whether this user has access to the per-device terminal. Admins always have access.",
     ),
+  totpEnabled: zod.boolean().optional(),
   createdAt: zod.date(),
 });
 
@@ -77,6 +87,7 @@ export const ListUsersResponseItem = zod.object({
     .describe(
       "Whether this user has access to the per-device terminal. Admins always have access.",
     ),
+  totpEnabled: zod.boolean().optional(),
   createdAt: zod.date(),
 });
 export const ListUsersResponse = zod.array(ListUsersResponseItem);
@@ -110,6 +121,7 @@ export const GetUserResponse = zod.object({
     .describe(
       "Whether this user has access to the per-device terminal. Admins always have access.",
     ),
+  totpEnabled: zod.boolean().optional(),
   createdAt: zod.date(),
 });
 
@@ -139,6 +151,7 @@ export const UpdateUserResponse = zod.object({
     .describe(
       "Whether this user has access to the per-device terminal. Admins always have access.",
     ),
+  totpEnabled: zod.boolean().optional(),
   createdAt: zod.date(),
 });
 
@@ -1113,3 +1126,823 @@ export const ExportJobParams = zod.object({
 export const ExportJobQueryParams = zod.object({
   format: zod.enum(["csv", "txt", "zip"]),
 });
+
+/**
+ * @summary List config backups (newest first)
+ */
+export const ListBackupsQueryParams = zod.object({
+  routerId: zod.coerce.number().optional(),
+  kind: zod.enum(["manual", "scheduled", "pre_upgrade"]).optional(),
+  limit: zod.coerce.number().optional(),
+  offset: zod.coerce.number().optional(),
+});
+
+export const ListBackupsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.number(),
+      routerId: zod.number().nullish(),
+      routerName: zod.string(),
+      routerIp: zod.string(),
+      kind: zod.enum(["manual", "scheduled", "pre_upgrade"]),
+      status: zod.enum(["success", "failed"]),
+      sizeBytes: zod.number(),
+      contentHash: zod.string(),
+      errorMessage: zod.string().nullish(),
+      createdBy: zod.number().nullish(),
+      createdAt: zod.date(),
+      lastSeenAt: zod.date().nullish(),
+    }),
+  ),
+  total: zod.number(),
+});
+
+/**
+ * @summary Run config backups now for selected routers/groups
+ */
+export const RunBackupsBody = zod.object({
+  routerIds: zod.array(zod.number()).optional(),
+  groupIds: zod.array(zod.number()).optional(),
+});
+
+/**
+ * @summary Normalized unified diff between two backups
+ */
+export const DiffBackupsQueryParams = zod.object({
+  fromId: zod.coerce.number(),
+  toId: zod.coerce.number(),
+});
+
+export const DiffBackupsResponse = zod.object({
+  fromId: zod.number(),
+  toId: zod.number(),
+  routerName: zod.string().nullish(),
+  addedLines: zod.number(),
+  removedLines: zod.number(),
+  identical: zod.boolean(),
+  diff: zod.string(),
+});
+
+/**
+ * @summary Get automatic backup settings
+ */
+export const GetBackupSettingsResponse = zod.object({
+  enabled: zod.boolean(),
+  timeOfDay: zod
+    .string()
+    .describe("HH:MM 24h server-local time for the daily automatic backup"),
+  retentionPerRouter: zod
+    .number()
+    .describe("Distinct backup versions kept per router (older pruned)"),
+});
+
+/**
+ * @summary Update automatic backup settings (admin)
+ */
+export const UpdateBackupSettingsBody = zod.object({
+  enabled: zod.boolean(),
+  timeOfDay: zod
+    .string()
+    .describe("HH:MM 24h server-local time for the daily automatic backup"),
+  retentionPerRouter: zod
+    .number()
+    .describe("Distinct backup versions kept per router (older pruned)"),
+});
+
+export const UpdateBackupSettingsResponse = zod.object({
+  enabled: zod.boolean(),
+  timeOfDay: zod
+    .string()
+    .describe("HH:MM 24h server-local time for the daily automatic backup"),
+  retentionPerRouter: zod
+    .number()
+    .describe("Distinct backup versions kept per router (older pruned)"),
+});
+
+/**
+ * @summary Get one backup including full content
+ */
+export const GetBackupParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetBackupResponse = zod.object({
+  id: zod.number(),
+  routerId: zod.number().nullish(),
+  routerName: zod.string(),
+  routerIp: zod.string(),
+  kind: zod.enum(["manual", "scheduled", "pre_upgrade"]),
+  status: zod.enum(["success", "failed"]),
+  sizeBytes: zod.number(),
+  contentHash: zod.string(),
+  errorMessage: zod.string().nullish(),
+  createdBy: zod.number().nullish(),
+  createdAt: zod.date(),
+  lastSeenAt: zod.date().nullish(),
+  content: zod.string(),
+});
+
+/**
+ * @summary Delete a backup (admin)
+ */
+export const DeleteBackupParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteBackupResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary List golden configs with drift summaries
+ */
+export const ListGoldenConfigsResponseItem = zod.object({
+  id: zod.number(),
+  groupId: zod.number(),
+  groupName: zod.string(),
+  name: zod.string(),
+  content: zod.string(),
+  ignorePatterns: zod.array(zod.string()),
+  routerCount: zod.number(),
+  driftedCount: zod.number(),
+  lastCheckedAt: zod.date().nullish(),
+  createdAt: zod.date(),
+  updatedAt: zod.date(),
+});
+export const ListGoldenConfigsResponse = zod.array(
+  ListGoldenConfigsResponseItem,
+);
+
+/**
+ * @summary Create a golden config for a group (admin)
+ */
+
+export const CreateGoldenConfigBody = zod.object({
+  groupId: zod.number(),
+  name: zod.string().min(1),
+  content: zod.string().min(1),
+  ignorePatterns: zod.array(zod.string()).optional(),
+});
+
+/**
+ * @summary Update a golden config (admin)
+ */
+export const UpdateGoldenConfigParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateGoldenConfigBody = zod.object({
+  name: zod.string().min(1).optional(),
+  content: zod.string().min(1).optional(),
+  ignorePatterns: zod.array(zod.string()).optional(),
+});
+
+export const UpdateGoldenConfigResponse = zod.object({
+  id: zod.number(),
+  groupId: zod.number(),
+  groupName: zod.string(),
+  name: zod.string(),
+  content: zod.string(),
+  ignorePatterns: zod.array(zod.string()),
+  routerCount: zod.number(),
+  driftedCount: zod.number(),
+  lastCheckedAt: zod.date().nullish(),
+  createdAt: zod.date(),
+  updatedAt: zod.date(),
+});
+
+/**
+ * @summary Delete a golden config (admin)
+ */
+export const DeleteGoldenConfigParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteGoldenConfigResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Compare member routers' latest backups against the golden config
+ */
+export const CheckGoldenConfigParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CheckGoldenConfigResponse = zod.object({
+  results: zod.array(
+    zod.object({
+      id: zod.number(),
+      goldenConfigId: zod.number(),
+      routerId: zod.number(),
+      routerName: zod.string(),
+      routerIp: zod.string().nullish(),
+      backupId: zod.number().nullish(),
+      inSync: zod.boolean(),
+      addedLines: zod.number(),
+      removedLines: zod.number(),
+      diff: zod.string().nullish(),
+      checkedAt: zod.date(),
+    }),
+  ),
+  checked: zod.number(),
+  drifted: zod.number(),
+  skipped: zod
+    .number()
+    .describe("Member routers without any successful backup to compare"),
+});
+
+/**
+ * @summary Latest drift results for a golden config
+ */
+export const GetGoldenConfigResultsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetGoldenConfigResultsResponseItem = zod.object({
+  id: zod.number(),
+  goldenConfigId: zod.number(),
+  routerId: zod.number(),
+  routerName: zod.string(),
+  routerIp: zod.string().nullish(),
+  backupId: zod.number().nullish(),
+  inSync: zod.boolean(),
+  addedLines: zod.number(),
+  removedLines: zod.number(),
+  diff: zod.string().nullish(),
+  checkedAt: zod.date(),
+});
+export const GetGoldenConfigResultsResponse = zod.array(
+  GetGoldenConfigResultsResponseItem,
+);
+
+/**
+ * @summary Fleet firmware overview grouped by detected OS version
+ */
+export const GetUpgradeOverviewResponseItem = zod.object({
+  osVersion: zod.string().nullish(),
+  vendor: zod.string().nullish(),
+  count: zod.number(),
+  routers: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      ipAddress: zod.string(),
+      model: zod.string().nullish(),
+      lastFingerprintAt: zod.date().nullish(),
+    }),
+  ),
+});
+export const GetUpgradeOverviewResponse = zod.array(
+  GetUpgradeOverviewResponseItem,
+);
+
+/**
+ * @summary List upgrade runs (newest first)
+ */
+export const ListUpgradeRunsResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  status: zod.enum(["running", "completed", "failed", "cancelled"]),
+  preBackup: zod.boolean(),
+  totalTasks: zod.number(),
+  completedTasks: zod.number(),
+  failedTasks: zod.number(),
+  createdBy: zod.number().nullish(),
+  createdAt: zod.date(),
+  completedAt: zod.date().nullish(),
+});
+export const ListUpgradeRunsResponse = zod.array(ListUpgradeRunsResponseItem);
+
+/**
+ * @summary Start an upgrade run (admin)
+ */
+export const CreateUpgradeRunBody = zod.object({
+  name: zod.string().optional(),
+  routerIds: zod.array(zod.number()).optional(),
+  groupIds: zod.array(zod.number()).optional(),
+  preBackup: zod
+    .boolean()
+    .optional()
+    .describe("Snapshot each device's config before upgrading (default true)"),
+});
+
+/**
+ * @summary Get an upgrade run with its per-device tasks
+ */
+export const GetUpgradeRunParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetUpgradeRunResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  status: zod.enum(["running", "completed", "failed", "cancelled"]),
+  preBackup: zod.boolean(),
+  totalTasks: zod.number(),
+  completedTasks: zod.number(),
+  failedTasks: zod.number(),
+  createdBy: zod.number().nullish(),
+  createdAt: zod.date(),
+  completedAt: zod.date().nullish(),
+  tasks: zod.array(
+    zod.object({
+      id: zod.number(),
+      runId: zod.number(),
+      routerId: zod.number().nullish(),
+      routerName: zod.string(),
+      routerIp: zod.string(),
+      status: zod.enum([
+        "pending",
+        "backing_up",
+        "upgrading",
+        "rebooting",
+        "verifying",
+        "success",
+        "failed",
+        "skipped",
+      ]),
+      oldVersion: zod.string().nullish(),
+      newVersion: zod.string().nullish(),
+      log: zod.string().nullish(),
+      errorMessage: zod.string().nullish(),
+      startedAt: zod.date().nullish(),
+      completedAt: zod.date().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Delete a finished upgrade run (admin)
+ */
+export const DeleteUpgradeRunParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteUpgradeRunResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Cancel pending tasks of a running upgrade (admin)
+ */
+export const CancelUpgradeRunParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CancelUpgradeRunResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  status: zod.enum(["running", "completed", "failed", "cancelled"]),
+  preBackup: zod.boolean(),
+  totalTasks: zod.number(),
+  completedTasks: zod.number(),
+  failedTasks: zod.number(),
+  createdBy: zod.number().nullish(),
+  createdAt: zod.date(),
+  completedAt: zod.date().nullish(),
+});
+
+/**
+ * @summary List notification channels (secrets masked)
+ */
+export const ListAlertChannelsResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  type: zod.enum(["telegram", "email", "webhook"]),
+  enabled: zod.boolean(),
+  config: zod
+    .record(zod.string(), zod.unknown())
+    .describe(
+      "Sanitized per-type config; secrets are replaced by \*Set booleans",
+    ),
+  lastUsedAt: zod.date().nullish(),
+  lastError: zod.string().nullish(),
+  createdAt: zod.date(),
+});
+export const ListAlertChannelsResponse = zod.array(
+  ListAlertChannelsResponseItem,
+);
+
+/**
+ * @summary Create a notification channel (admin)
+ */
+
+export const CreateAlertChannelBody = zod.object({
+  name: zod.string().min(1),
+  type: zod.enum(["telegram", "email", "webhook"]),
+  enabled: zod.boolean().optional(),
+  config: zod
+    .record(zod.string(), zod.unknown())
+    .describe(
+      "telegram: {botToken, chatId}; email: {host, port, secure, username, password, from, to}; webhook: {url, secret}",
+    ),
+});
+
+/**
+ * @summary Update a notification channel (admin; omitted secrets are kept)
+ */
+export const UpdateAlertChannelParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAlertChannelBody = zod.object({
+  name: zod.string().min(1).optional(),
+  enabled: zod.boolean().optional(),
+  config: zod
+    .record(zod.string(), zod.unknown())
+    .optional()
+    .describe("Omitted or empty secret fields keep their stored values"),
+});
+
+export const UpdateAlertChannelResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  type: zod.enum(["telegram", "email", "webhook"]),
+  enabled: zod.boolean(),
+  config: zod
+    .record(zod.string(), zod.unknown())
+    .describe(
+      "Sanitized per-type config; secrets are replaced by \*Set booleans",
+    ),
+  lastUsedAt: zod.date().nullish(),
+  lastError: zod.string().nullish(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Delete a notification channel (admin)
+ */
+export const DeleteAlertChannelParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteAlertChannelResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Send a test message through a channel (admin)
+ */
+export const TestAlertChannelParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const TestAlertChannelResponse = zod.object({
+  success: zod.boolean(),
+  error: zod.string().nullish(),
+});
+
+/**
+ * @summary List alert rules
+ */
+export const ListAlertRulesResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  eventTypes: zod.array(
+    zod.enum([
+      "device_down",
+      "device_up",
+      "job_failed",
+      "job_completed",
+      "schedule_failed",
+      "backup_failed",
+      "drift_detected",
+      "upgrade_completed",
+      "upgrade_failed",
+    ]),
+  ),
+  routerIds: zod.array(zod.number()),
+  groupIds: zod.array(zod.number()),
+  channelIds: zod.array(zod.number()),
+  cooldownMinutes: zod.number(),
+  enabled: zod.boolean(),
+  createdAt: zod.date(),
+});
+export const ListAlertRulesResponse = zod.array(ListAlertRulesResponseItem);
+
+/**
+ * @summary Create an alert rule (admin)
+ */
+
+export const CreateAlertRuleBody = zod.object({
+  name: zod.string().min(1),
+  eventTypes: zod.array(
+    zod.enum([
+      "device_down",
+      "device_up",
+      "job_failed",
+      "job_completed",
+      "schedule_failed",
+      "backup_failed",
+      "drift_detected",
+      "upgrade_completed",
+      "upgrade_failed",
+    ]),
+  ),
+  routerIds: zod.array(zod.number()).optional(),
+  groupIds: zod.array(zod.number()).optional(),
+  channelIds: zod.array(zod.number()),
+  cooldownMinutes: zod.number().optional(),
+  enabled: zod.boolean().optional(),
+});
+
+/**
+ * @summary Update an alert rule (admin)
+ */
+export const UpdateAlertRuleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAlertRuleBody = zod.object({
+  name: zod.string().min(1).optional(),
+  eventTypes: zod
+    .array(
+      zod.enum([
+        "device_down",
+        "device_up",
+        "job_failed",
+        "job_completed",
+        "schedule_failed",
+        "backup_failed",
+        "drift_detected",
+        "upgrade_completed",
+        "upgrade_failed",
+      ]),
+    )
+    .optional(),
+  routerIds: zod.array(zod.number()).optional(),
+  groupIds: zod.array(zod.number()).optional(),
+  channelIds: zod.array(zod.number()).optional(),
+  cooldownMinutes: zod.number().optional(),
+  enabled: zod.boolean().optional(),
+});
+
+export const UpdateAlertRuleResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  eventTypes: zod.array(
+    zod.enum([
+      "device_down",
+      "device_up",
+      "job_failed",
+      "job_completed",
+      "schedule_failed",
+      "backup_failed",
+      "drift_detected",
+      "upgrade_completed",
+      "upgrade_failed",
+    ]),
+  ),
+  routerIds: zod.array(zod.number()),
+  groupIds: zod.array(zod.number()),
+  channelIds: zod.array(zod.number()),
+  cooldownMinutes: zod.number(),
+  enabled: zod.boolean(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Delete an alert rule (admin)
+ */
+export const DeleteAlertRuleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteAlertRuleResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Alert delivery history (newest first)
+ */
+export const ListAlertEventsQueryParams = zod.object({
+  limit: zod.coerce.number().optional(),
+  offset: zod.coerce.number().optional(),
+});
+
+export const ListAlertEventsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.number(),
+      ruleId: zod.number().nullish(),
+      ruleName: zod.string(),
+      eventType: zod.string(),
+      subject: zod.string(),
+      message: zod.string(),
+      status: zod.enum(["sent", "failed", "suppressed"]),
+      error: zod.string().nullish(),
+      createdAt: zod.date(),
+    }),
+  ),
+  total: zod.number(),
+});
+
+/**
+ * @summary Query the audit log (admin)
+ */
+export const ListAuditLogQueryParams = zod.object({
+  userId: zod.coerce.number().optional(),
+  action: zod.coerce.string().optional(),
+  resourceType: zod.coerce.string().optional(),
+  q: zod.coerce.string().optional(),
+  from: zod.date().optional(),
+  to: zod.date().optional(),
+  limit: zod.coerce.number().optional(),
+  offset: zod.coerce.number().optional(),
+});
+
+export const ListAuditLogResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.number(),
+      userId: zod.number().nullish(),
+      username: zod.string(),
+      action: zod.string(),
+      resourceType: zod.string().nullish(),
+      resourceId: zod.string().nullish(),
+      resourceName: zod.string().nullish(),
+      details: zod.record(zod.string(), zod.unknown()).nullish(),
+      ip: zod.string().nullish(),
+      createdAt: zod.date(),
+    }),
+  ),
+  total: zod.number(),
+});
+
+/**
+ * @summary Distinct audit action names (admin, for filters)
+ */
+export const ListAuditActionsResponseItem = zod.string();
+export const ListAuditActionsResponse = zod.array(ListAuditActionsResponseItem);
+
+/**
+ * @summary Begin TOTP enrollment for the current user
+ */
+export const SetupTotpResponse = zod.object({
+  secret: zod.string(),
+  otpauthUrl: zod.string(),
+  qrDataUrl: zod.string().describe("PNG data URL of the enrollment QR code"),
+});
+
+/**
+ * @summary Confirm TOTP enrollment with a valid code
+ */
+
+export const ConfirmTotpBody = zod.object({
+  code: zod.string().min(1),
+});
+
+export const ConfirmTotpResponse = zod.object({
+  message: zod.string(),
+  recoveryCodes: zod
+    .array(zod.string())
+    .describe("One-time recovery codes, shown exactly once"),
+});
+
+/**
+ * @summary Complete a pending 2FA login with a TOTP or recovery code
+ */
+
+export const VerifyTotpBody = zod.object({
+  code: zod.string().min(1),
+});
+
+export const VerifyTotpResponse = zod.object({
+  user: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      email: zod.string().optional(),
+      role: zod.enum(["admin", "operator"]),
+      canTerminal: zod
+        .boolean()
+        .optional()
+        .describe(
+          "Whether this user has access to the per-device terminal. Admins always have access.",
+        ),
+      totpEnabled: zod.boolean().optional(),
+      createdAt: zod.date(),
+    })
+    .optional(),
+  message: zod.string(),
+  totpRequired: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, the password was accepted but a TOTP code must be verified via \/auth\/totp\/verify to complete login",
+    ),
+});
+
+/**
+ * @summary Disable TOTP for the current user (requires password + code)
+ */
+
+export const DisableTotpBody = zod.object({
+  password: zod.string().min(1),
+  code: zod.string().optional(),
+});
+
+export const DisableTotpResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Admin reset of a user's TOTP enrollment
+ */
+export const ResetUserTotpParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ResetUserTotpResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary List own API tokens (admins may pass all=true for everyone's)
+ */
+export const ListApiTokensQueryParams = zod.object({
+  all: zod.coerce.boolean().optional(),
+});
+
+export const ListApiTokensResponseItem = zod.object({
+  id: zod.number(),
+  userId: zod.number(),
+  username: zod.string().nullish(),
+  name: zod.string(),
+  prefix: zod.string(),
+  scope: zod.enum(["read", "write"]),
+  lastUsedAt: zod.date().nullish(),
+  expiresAt: zod.date().nullish(),
+  revokedAt: zod.date().nullish(),
+  createdAt: zod.date(),
+});
+export const ListApiTokensResponse = zod.array(ListApiTokensResponseItem);
+
+/**
+ * @summary Create an API token (plaintext shown exactly once)
+ */
+
+export const CreateApiTokenBody = zod.object({
+  name: zod.string().min(1),
+  scope: zod.enum(["read", "write"]),
+  expiresDays: zod
+    .number()
+    .optional()
+    .describe("Days until expiry; omit for a non-expiring token"),
+});
+
+/**
+ * @summary Revoke an API token (owner or admin)
+ */
+export const RevokeApiTokenParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const RevokeApiTokenResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Full-text search across historical job task outputs
+ */
+export const SearchJobOutputsQueryParams = zod.object({
+  q: zod.coerce.string(),
+  limit: zod.coerce.number().optional(),
+  offset: zod.coerce.number().optional(),
+});
+
+export const SearchJobOutputsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      jobId: zod.number(),
+      jobName: zod.string(),
+      taskId: zod.number(),
+      routerName: zod.string(),
+      routerIp: zod.string().nullish(),
+      status: zod.string(),
+      snippet: zod.string(),
+      createdAt: zod.date().nullish(),
+    }),
+  ),
+  total: zod.number(),
+});
+
+/**
+ * @summary Group a job's device outputs by identical content
+ */
+export const GetJobOutputGroupsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetJobOutputGroupsResponseItem = zod.object({
+  outputHash: zod.string(),
+  count: zod.number(),
+  routerNames: zod.array(zod.string()),
+  taskIds: zod.array(zod.number()),
+  statuses: zod.array(zod.string()),
+  sampleOutput: zod.string(),
+});
+export const GetJobOutputGroupsResponse = zod.array(
+  GetJobOutputGroupsResponseItem,
+);

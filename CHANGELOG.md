@@ -12,6 +12,92 @@ When a higher number increments, lower numbers reset to zero (e.g., `1.0.5` → 
 
 ---
 
+## [2.0.1] - 2026-08-10
+
+Security-hardening patch on top of 2.0.0, produced by a full security pass
+(dependency audit, static analysis, secrets dataflow). No feature, API, or
+schema changes.
+
+### Hardening (security scan)
+
+- **Dependency patches.** Bumped `vite`, `tmp`, `ip-address`, and
+  `brace-expansion` past known high-severity CVEs (no major-version changes).
+  Transitive versions are pinned via pnpm `overrides` so they can't silently
+  regress.
+- **No more insecure Docker defaults.** `docker-compose.prod.yml` now refuses
+  to start without `DB_PASSWORD`, `SESSION_SECRET`, and
+  `CREDENTIAL_ENCRYPTION_KEY` instead of silently falling back to `changeme`
+  values — and it now actually passes `CREDENTIAL_ENCRYPTION_KEY` through
+  (previously the app booted and then failed on the first credential
+  operation in production). A documented `.env.example` ships alongside, and
+  `.env` is gitignored.
+- **First-boot admin password no longer printed to logs.** When
+  `INITIAL_ADMIN_PASSWORD` is unset, the generated password is written to a
+  mode-0600 file (path printed at boot) instead of appearing in container
+  logs, which routinely end up in log aggregators and support pastes.
+
+---
+
+## [2.0.0] - 2026-08-10
+
+The fleet-management release. Five new top-level capabilities (backups, drift
+detection, upgrade orchestration, alerting, audit) plus 2FA, API tokens, and
+job-output analytics. No breaking API changes; the major bump reflects the
+scale of the additions. Schema changes are applied automatically on startup.
+
+### Configuration management
+
+- **Config backups & version history.** Capture `/export` from any selection of
+  routers on demand or on a schedule. Every snapshot is stored per device with
+  a content hash; identical exports are deduplicated. A diff viewer shows
+  line-level changes between any two versions.
+- **Golden configs & drift detection.** Pin a blessed configuration per router;
+  a background loop re-checks the fleet and flags drift. The Drift page shows
+  each deviating device with a diff against its golden copy.
+
+### Fleet operations
+
+- **RouterOS upgrade orchestration.** Plan an upgrade wave across selected
+  devices, track per-device phases (check → download → reboot → verify), and
+  cancel mid-flight. Version checks and reachability probes run before any
+  device is touched.
+
+### Alerting
+
+- **Alert rules & channels.** Telegram, email (SMTP), and webhook channels with
+  test-send support. Rules fire on device down/up, job failure, drift detected,
+  and upgrade completion. All notifications are recorded in an alert history
+  with delivery status.
+
+### Job insights
+
+- **Fleet-wide output search.** Full-text search over every stored device
+  output across all jobs (trigram-indexed when the `pg_trgm` extension is
+  available, with a transparent fallback otherwise).
+- **Identical-output grouping.** A job's task list can be collapsed by output
+  hash so byte-identical results render as a single row.
+
+### Security & access
+
+- **TOTP two-factor authentication.** Enrolment with QR code, 6-digit login
+  challenge, one-time recovery codes, and admin reset for locked-out users.
+  TOTP secrets are stored encrypted.
+- **API tokens.** Bearer tokens (shown once at creation, stored hashed) for
+  browser-less REST access, with optional expiry and instant revocation.
+- **Audit log.** Logins, TOTP events, job/router/group/credential/snippet/
+  schedule mutations, and admin actions are recorded with actor and origin IP.
+
+### Upgrade notes
+
+- Eight new tables and three new `users` columns are created automatically at
+  startup (or by `docker-entrypoint.sh` in container deployments).
+- The `pg_trgm` PostgreSQL extension is enabled automatically when permissions
+  allow; without it, output search still works but scans sequentially.
+- No configuration changes are required. Existing sessions, credentials, and
+  schedules are untouched; 2FA is opt-in per user.
+
+---
+
 ## [1.17.0] - 2026-06-04
 
 A hardening release: data-integrity constraints, safer scheduling, stricter

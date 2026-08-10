@@ -33,8 +33,8 @@ function VersionEntry({ entry, isCurrent }: { entry: ChangelogEntry; isCurrent: 
         )}
       </div>
       <div className="space-y-3">
-        {entry.sections.map((section) => (
-          <div key={section.title}>
+        {entry.sections.map((section, si) => (
+          <div key={si}>
             <Badge
               variant="outline"
               className={cn("text-[10px] px-1.5 py-0 mb-1.5", sectionColors[section.title] || "bg-white/10 text-white/60")}
